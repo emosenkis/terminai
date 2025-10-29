@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tui::layout::Rect;
 
 use crate::config::ProcConfig;
-use crate::encode_term::{encode_key, encode_mouse_event, KeyCodeEncodeModes};
+use crate::encode_term::{KeyCodeEncodeModes, encode_key, encode_mouse_event};
 use crate::error::ResultLogger;
 use crate::kernel::kernel_message::{KernelCommand, ProcContext};
 use crate::kernel::proc::{ProcId, ProcInit, ProcStatus};
@@ -16,10 +16,10 @@ use crate::key::Key;
 use crate::mouse::MouseEvent;
 use crate::vt100::{self};
 
+use super::StopSignal;
 use super::inst::Inst;
 use super::msg::{ProcCmd, ProcEvent};
 use super::view::ProcView;
-use super::StopSignal;
 use super::{ReplySender, Size};
 
 pub struct Proc {

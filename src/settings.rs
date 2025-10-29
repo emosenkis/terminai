@@ -9,7 +9,7 @@ use crate::{
   event::{AppEvent, CopyMove},
   key::Key,
   keymap::Keymap,
-  yaml_val::{value_to_string, Val},
+  yaml_val::{Val, value_to_string},
 };
 
 #[derive(Debug)]

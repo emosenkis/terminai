@@ -7,7 +7,7 @@ pub use self::windows::{bind_server_socket, connect_client_socket};
 mod unix {
   use std::{fmt::Debug, path::PathBuf, time::Duration};
 
-  use serde::{de::DeserializeOwned, Serialize};
+  use serde::{Serialize, de::DeserializeOwned};
   use tokio::net::{UnixListener, UnixStream};
 
   use crate::{
@@ -109,7 +109,7 @@ mod windows {
     time::Duration,
   };
 
-  use serde::{de::DeserializeOwned, Serialize};
+  use serde::{Serialize, de::DeserializeOwned};
   use tokio::net::{TcpListener, TcpStream};
   use winapi::um::winbase::FILE_FLAG_DELETE_ON_CLOSE;
 

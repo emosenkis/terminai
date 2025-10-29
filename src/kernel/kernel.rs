@@ -1,6 +1,6 @@
 use std::{
   collections::{HashMap, HashSet},
-  sync::{atomic::AtomicUsize, Arc},
+  sync::{Arc, atomic::AtomicUsize},
 };
 
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};

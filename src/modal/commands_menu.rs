@@ -1,10 +1,10 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use tui::{
+  Frame,
   prelude::{Margin, Rect},
   style::{Modifier, Style},
   text::{Line, Span},
   widgets::{Clear, HighlightSpacing, ListItem, ListState, Paragraph},
-  Frame,
 };
 use tui_input::Input;
 

@@ -110,11 +110,7 @@ impl AppEvent {
 }
 
 fn lines_str(n: usize) -> &'static str {
-  if n == 1 {
-    "line"
-  } else {
-    "lines"
-  }
+  if n == 1 { "line" } else { "lines" }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

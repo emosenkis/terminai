@@ -1,8 +1,8 @@
 use crossterm::event::{Event, KeyCode, KeyEvent};
 use tui::{
+  Frame,
   prelude::{Margin, Rect},
   widgets::{Clear, Paragraph},
-  Frame,
 };
 
 use crate::{

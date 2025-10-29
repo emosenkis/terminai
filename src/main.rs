@@ -32,9 +32,9 @@ mod yaml_val;
 
 use std::{io::Read, path::Path};
 
-use anyhow::{bail, Result};
-use app::{client_loop, create_app_proc, ClientId};
-use clap::{arg, command, ArgMatches};
+use anyhow::{Result, bail};
+use app::{ClientId, client_loop, create_app_proc};
+use clap::{ArgMatches, arg, command};
 use client::client_main;
 use config::{CmdConfig, Config, ConfigContext, ProcConfig, ServerConfig};
 use config_lua::load_lua_config;

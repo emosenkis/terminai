@@ -1,14 +1,14 @@
 use termwiz::escape::csi::CursorStyle;
 use tui::{
+  Frame,
   layout::{Margin, Rect},
   style::{Color, Style},
   text::{Line, Span, Text},
   widgets::{Clear, Paragraph, Widget, Wrap},
-  Frame,
 };
 
 use crate::{
-  proc::{view::ProcViewFrame, CopyMode, Pos, ReplySender},
+  proc::{CopyMode, Pos, ReplySender, view::ProcViewFrame},
   state::{Scope, State},
   theme::Theme,
 };

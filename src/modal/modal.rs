@@ -1,5 +1,5 @@
 use crossterm::event::Event;
-use tui::{prelude::Rect, Frame};
+use tui::{Frame, prelude::Rect};
 
 use crate::{app::LoopAction, state::State};
 

@@ -1,15 +1,15 @@
 use std::{
   fmt::Debug,
   ops::Deref,
-  sync::{atomic::AtomicUsize, Arc, RwLock},
+  sync::{Arc, RwLock, atomic::AtomicUsize},
 };
 
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
   proc::{
-    msg::{CustomProcCmd, ProcCmd},
     ReplySender,
+    msg::{CustomProcCmd, ProcCmd},
   },
   vt100::Parser,
 };

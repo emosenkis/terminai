@@ -1,6 +1,6 @@
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use indexmap::IndexMap;
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use serde_yaml::Value;
 use crate::{
   proc::StopSignal,
   settings::Settings,
-  yaml_val::{value_to_string, Val},
+  yaml_val::{Val, value_to_string},
 };
 
 pub struct ConfigContext {

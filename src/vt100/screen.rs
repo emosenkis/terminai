@@ -1,14 +1,14 @@
 use std::fmt::Debug;
 
-use crate::vt100::{attrs::Attrs, TermReplySender};
+use crate::vt100::{TermReplySender, attrs::Attrs};
 use compact_str::ToCompactString;
 use termwiz::escape::{
+  Action, CSI, ControlCode, DeviceControlMode, Esc, EscCode, OneBased,
+  OperatingSystemCommand,
   csi::{
     CsiParam, Cursor, CursorStyle, DecPrivateMode, DecPrivateModeCode, Edit,
     EraseInDisplay, EraseInLine, Sgr, TerminalMode, TerminalModeCode, Window,
   },
-  Action, ControlCode, DeviceControlMode, Esc, EscCode, OneBased,
-  OperatingSystemCommand, CSI,
 };
 use unicode_width::UnicodeWidthChar as _;
 

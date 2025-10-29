@@ -3,7 +3,7 @@ use std::io::Write;
 use std::thread::spawn;
 
 use portable_pty::MasterPty;
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, PtySize};
+use portable_pty::{ChildKiller, CommandBuilder, PtySize, native_pty_system};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::spawn_blocking;
 

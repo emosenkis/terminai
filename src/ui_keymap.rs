@@ -1,9 +1,9 @@
 use tui::{
+  Frame,
   layout::{Margin, Rect},
   style::{Color, Style},
   text::{Line, Span, Text},
   widgets::{Clear, Paragraph},
-  Frame,
 };
 
 use crate::{

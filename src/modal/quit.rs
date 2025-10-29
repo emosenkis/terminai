@@ -1,9 +1,9 @@
 use crossterm::event::{Event, KeyCode, KeyEvent};
 use tui::{
+  Frame,
   prelude::{Margin, Rect},
   text::Line,
   widgets::{Clear, Paragraph},
-  Frame,
 };
 
 use crate::{

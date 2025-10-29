@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use super::{attrs::Attrs, row::Row, Cell};
+use super::{Cell, attrs::Attrs, row::Row};
 
 #[derive(Clone, Debug)]
 pub struct Grid {

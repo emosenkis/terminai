@@ -193,10 +193,10 @@ impl TermDriver {
           return Ok(Some(Event::Key(key_event)));
         }
         InternalTermEvent::Mouse(mouse_event) => {
-          return Ok(Some(Event::Mouse(mouse_event)))
+          return Ok(Some(Event::Mouse(mouse_event)));
         }
         InternalTermEvent::Resize(cols, rows) => {
-          return Ok(Some(Event::Resize(cols, rows)))
+          return Ok(Some(Event::Resize(cols, rows)));
         }
         InternalTermEvent::FocusGained => return Ok(Some(Event::FocusGained)),
         InternalTermEvent::FocusLost => return Ok(Some(Event::FocusLost)),

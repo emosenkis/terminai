@@ -1,4 +1,4 @@
-use tui::{layout::Rect, text::Text, widgets::Paragraph, Frame};
+use tui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
 
 use crate::{
   event::AppEvent,
