@@ -12,6 +12,39 @@ use crate::{
   yaml_val::{Val, value_to_string},
 };
 
+// TERMIN.AI: Start - AI Configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AIConfig {
+  #[serde(default = "default_ai_enabled")]
+  pub enabled: bool,
+  #[serde(default = "default_provider")]
+  pub provider: String,
+  #[serde(default)]
+  pub model: Option<String>,
+  #[serde(default)]
+  pub api_key_env: Option<String>,
+}
+
+fn default_ai_enabled() -> bool {
+  false
+}
+
+fn default_provider() -> String {
+  "anthropic".to_string()
+}
+
+impl Default for AIConfig {
+  fn default() -> Self {
+    Self {
+      enabled: false,
+      provider: "anthropic".to_string(),
+      model: None,
+      api_key_env: None,
+    }
+  }
+}
+// TERMIN.AI: End
+
 pub struct ConfigContext {
   pub path: PathBuf,
 }
@@ -24,6 +57,8 @@ pub struct Config {
   pub scrollback_len: usize,
   pub proc_list_width: usize,
   pub proc_list_title: String,
+  // TERMIN.AI: AI configuration
+  pub ai: Option<AIConfig>,
 }
 
 impl Config {
@@ -70,6 +105,13 @@ impl Config {
         settings.proc_list_title.clone()
       };
 
+    // TERMIN.AI: Parse AI configuration
+    let ai = if let Some(ai_val) = config.get(&Value::from("ai")) {
+      Some(serde_yaml::from_value(ai_val.clone())?)
+    } else {
+      None
+    };
+
     let config = Config {
       procs,
       server,
@@ -78,6 +120,7 @@ impl Config {
       scrollback_len: settings.scrollback_len,
       proc_list_width: settings.proc_list_width,
       proc_list_title,
+      ai,
     };
 
     Ok(config)
@@ -92,6 +135,7 @@ impl Config {
       scrollback_len: settings.scrollback_len,
       proc_list_width: settings.proc_list_width,
       proc_list_title: settings.proc_list_title.clone(),
+      ai: None, // TERMIN.AI: Default to no AI config
     }
   }
 }

@@ -21,6 +21,9 @@ pub enum AppEvent {
   FocusTerm,
   Zoom,
 
+  // TERMIN.AI: Toggle AI assistant
+  ToggleAI,
+
   ShowCommandsMenu,
   NextProc,
   PrevProc,
@@ -71,6 +74,8 @@ impl AppEvent {
       AppEvent::FocusProcs => "Focus process list".to_string(),
       AppEvent::FocusTerm => "Focus terminal".to_string(),
       AppEvent::Zoom => "Zoom into terminal".to_string(),
+      // TERMIN.AI: AI assistant description
+      AppEvent::ToggleAI => "Toggle AI assistant".to_string(),
       AppEvent::ShowCommandsMenu => "Show commands menu".to_string(),
       AppEvent::NextProc => "Next".to_string(),
       AppEvent::PrevProc => "Prev".to_string(),

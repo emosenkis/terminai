@@ -1,0 +1,182 @@
+use tui::{
+    buffer::Buffer,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Paragraph, Widget, Wrap},
+};
+
+use super::chat_process::{AIChatProcess, MessageRole};
+
+/// Render the AI chat interface
+pub struct AIChatUI<'a> {
+    process: &'a AIChatProcess,
+}
+
+impl<'a> AIChatUI<'a> {
+    pub fn new(process: &'a AIChatProcess) -> Self {
+        Self { process }
+    }
+
+    /// Render the full chat UI
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
+            .split(area);
+
+        // Render conversation history
+        self.render_conversation(chunks[0], buf);
+
+        // Render input area
+        self.render_input(chunks[1], buf);
+
+        // Render pending command approval if any
+        if let Some(pending) = self.process.pending_command() {
+            self.render_approval_prompt(area, buf, pending);
+        }
+    }
+
+    fn render_conversation(&self, area: Rect, buf: &mut Buffer) {
+        let messages: Vec<Line> = self
+            .process
+            .conversation()
+            .iter()
+            .flat_map(|msg| {
+                let (prefix, style) = match msg.role {
+                    MessageRole::User => (
+                        "You: ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    MessageRole::Assistant => (
+                        "AI: ",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    MessageRole::System => (
+                        "System: ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                };
+
+                let mut lines = vec![Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::raw(&msg.content),
+                ])];
+
+                // Add empty line between messages
+                lines.push(Line::from(""));
+
+                lines
+            })
+            .collect();
+
+        let text = Text::from(messages);
+
+        let paragraph = Paragraph::new(text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" AI Assistant "),
+            )
+            .wrap(Wrap { trim: false });
+
+        paragraph.render(area, buf);
+    }
+
+    fn render_input(&self, area: Rect, buf: &mut Buffer) {
+        let input_text = format!("> {}", self.process.input_buffer());
+
+        let paragraph = Paragraph::new(input_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Your Message (Ctrl+Space to toggle, Enter to send) ")
+                .style(Style::default().fg(Color::Cyan)),
+        );
+
+        paragraph.render(area, buf);
+    }
+
+    fn render_approval_prompt(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        pending: &super::chat_process::PendingCommand,
+    ) {
+        // Create a centered popup for command approval
+        let popup_area = centered_rect(60, 40, area);
+
+        // Clear the popup area
+        let clear_block = Block::default()
+            .style(Style::default().bg(Color::Black))
+            .borders(Borders::ALL);
+        clear_block.render(popup_area, buf);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints(
+                [
+                    Constraint::Length(3),
+                    Constraint::Length(3),
+                    Constraint::Length(2),
+                ]
+                .as_ref(),
+            )
+            .split(popup_area);
+
+        // Risk level
+        let risk_color = match pending.risk_level {
+            crate::command::RiskLevel::Safe => Color::Green,
+            crate::command::RiskLevel::Caution => Color::Yellow,
+            crate::command::RiskLevel::Dangerous => Color::Red,
+        };
+
+        let risk_text = format!("Risk: {:?}", pending.risk_level);
+        let risk_para = Paragraph::new(risk_text).style(Style::default().fg(risk_color));
+        risk_para.render(chunks[0], buf);
+
+        // Command
+        let cmd_text = format!("Command: {}", pending.command);
+        let cmd_para = Paragraph::new(cmd_text).wrap(Wrap { trim: false });
+        cmd_para.render(chunks[1], buf);
+
+        // Approval prompt
+        let prompt_text = "Press 'y' to approve, 'n' to reject";
+        let prompt_para = Paragraph::new(prompt_text)
+            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        prompt_para.render(chunks[2], buf);
+    }
+}
+
+/// Helper function to create a centered rectangle
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[1])[1]
+}

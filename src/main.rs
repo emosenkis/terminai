@@ -30,6 +30,12 @@ mod vt100;
 mod widgets;
 mod yaml_val;
 
+// TERMIN.AI: AI assistant modules
+mod llm;
+mod command;
+mod privacy;
+mod ai_proc;
+
 use std::{io::Read, path::Path};
 
 use anyhow::{Result, bail};
