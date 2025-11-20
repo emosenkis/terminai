@@ -1,0 +1,25 @@
+# Test configuration for Termin.AI
+# This demonstrates basic mprocs functionality with AI configuration
+
+# Server for remote control
+server: "127.0.0.1:4050"
+
+procs:
+  echo-test:
+    shell: "echo 'Hello from Termin.AI!' && echo 'Process 1 running...' && sleep 2 && echo 'Process 1 complete'"
+    autostart: true
+
+  counter:
+    shell: "for i in 1 2 3 4 5; do echo \"Count: $i\"; sleep 1; done"
+    autostart: false
+
+  date-time:
+    shell: "while true; do date; sleep 2; done"
+    autostart: false
+
+# TERMIN.AI AI configuration (optional)
+ai:
+  enabled: false
+  provider: "anthropic"
+  model: "claude-3-5-sonnet-20241022"
+  api_key_env: "ANTHROPIC_API_KEY"

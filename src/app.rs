@@ -877,6 +877,12 @@ impl App {
           pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::SendKey(*key)));
         }
       }
+      // TERMIN.AI: Handle AI toggle event
+      AppEvent::ToggleAI => {
+        // TODO: Implement AI chat toggle functionality
+        // For now, this is a no-op placeholder
+        loop_action.render();
+      }
     }
   }
 
