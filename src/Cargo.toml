@@ -1,9 +1,9 @@
 [package]
-name = "mprocs"
-version = "0.7.3"
-description = "TUI for running multiple processes"
-repository = "https://github.com/pvolok/mprocs"
-authors = ["Pavel Volokitin <pavelvolokitin@gmail.com>"]
+name = "termin"
+version = "0.1.0"
+description = "Interactive terminal wrapper with AI assistant"
+repository = "https://github.com/emosenkis/termin.ai"
+authors = ["Eitan <eitan@mosenkis.net>"]
 license = "MIT"
 edition = "2024"
 categories = [
@@ -11,14 +11,14 @@ categories = [
   "command-line-utilities",
   "development-tools",
 ]
-keywords = ["cli", "terminal", "tui", "utility"]
+keywords = ["cli", "terminal", "ai", "assistant"]
 
 include = ["*"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-name = "mprocs"
+name = "termin"
 path = "main.rs"
 
 [dependencies]
