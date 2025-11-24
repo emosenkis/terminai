@@ -1,8 +1,33 @@
 # Termin.AI + mprocs Integration Summary
 
-**Date:** 2025-10-29
-**Status:** ✅ Complete
-**Strategy Change:** Ground-up → Extension of mprocs
+**Date:** 2025-10-29 (Updated: 2025-11-14)
+**Status:** ✅ Complete - Strategy Clarified
+**Strategy:** Use mprocs as code library, NOT as product to extend
+
+---
+
+## Strategic Clarification (2025-11-14)
+
+### What Termin.AI Actually Is
+
+**Termin.AI is NOT an extension of mprocs.** It's a **new product** that borrows mprocs' terminal virtualization code.
+
+**Key Distinction:**
+- **mprocs:** Multi-process manager with config-driven tabs
+- **Termin.AI:** Single shell with AI overlay
+
+**What we're building:**
+- Launch user's default shell (bash/zsh/fish)
+- Single terminal window (not multiple processes)
+- AI can pop up as overlay
+- AI can inject commands into shell
+- NO process management, NO config files for processes
+
+**Why this matters:**
+- We have freedom to design our own UX
+- Not constrained by mprocs' architecture
+- Can cherry-pick improvements without full compatibility
+- Clear, distinct product identity
 
 ---
 
@@ -10,22 +35,27 @@
 
 ### 1. Fetched mprocs v0.7.3
 
-We cloned the excellent **mprocs** project (https://github.com/pvolok/mprocs) - a mature TUI for running multiple processes.
+We integrated the **mprocs** project (https://github.com/pvolok/mprocs) - a mature TUI for running multiple processes - to borrow its excellent terminal virtualization code.
 
 ### 2. Analyzed mprocs Architecture
 
-Discovered mprocs already provides **90% of what Termin.AI needs:**
+Discovered mprocs provides **critical terminal infrastructure** we need:
 
-| Feature | mprocs Has It | Status |
-|---------|---------------|--------|
-| PTY handling | ✅ portable-pty | Perfect match |
-| TUI framework | ✅ ratatui 0.29 | Perfect match |
-| Terminal I/O capture | ✅ VT100 emulation | Excellent |
-| Process management | ✅ Async kernel | Production-ready |
-| Input routing | ✅ Configurable keymaps | Extensible |
-| Configuration | ✅ YAML/JSON/Lua | Flexible |
-| Copy mode | ✅ Full implementation | Ready to use |
-| Remote control | ✅ TCP protocol | Extensible |
+| Technology | mprocs Has It | Our Usage |
+|------------|---------------|-----------|
+| PTY handling | ✅ portable-pty | Reuse for single shell |
+| TUI framework | ✅ ratatui 0.29 | Reuse, redesign layout |
+| VT100 emulation | ✅ Full implementation | Reuse as-is |
+| Terminal I/O capture | ✅ Complete | Reuse for context |
+| Input routing | ✅ Configurable keymaps | Adapt for our needs |
+| Copy mode | ✅ Full implementation | Can reuse |
+
+| Feature | mprocs Has It | Our Usage |
+|---------|---------------|-----------|
+| Multi-process manager | ✅ | ❌ Not using |
+| Config-driven processes | ✅ YAML | ❌ Not using |
+| Process tabs UI | ✅ | ❌ Different UX |
+| Remote control | ✅ TCP | ❌ Not needed initially |
 
 ### 3. Integrated mprocs Codebase
 
@@ -60,23 +90,34 @@ New `MPROCS_PATCHES.md` documents:
 
 ---
 
-## New Architecture
+## Architecture Clarification
+
+**REVISED ARCHITECTURE:**
 
 ```
-Termin.AI
+Termin.AI (New Product)
     │
-    ├─ mprocs Core (90% of features)
-    │  ├─ PTY management
-    │  ├─ TUI rendering
-    │  ├─ Process kernel
-    │  ├─ Configuration
-    │  └─ Input handling
+    ├─ Borrowed from mprocs (~30% of code)
+    │  ├─ src/vt100/ - VT100 terminal emulation
+    │  ├─ src/proc/ - PTY handling (simplified)
+    │  ├─ src/term/ - Terminal abstractions
+    │  └─ Some widgets from src/widgets/
     │
-    └─ AI Extensions (10% to add)
-       ├─ LLM client (src/llm/)
-       ├─ AI chat process (src/ai_proc/)
-       ├─ Command parser (src/command/)
-       └─ Privacy filter (src/privacy/)
+    └─ New Termin.AI Code (~70% of code)
+       ├─ src/main.rs - Single-shell launcher
+       ├─ src/app.rs - Single shell + AI overlay app
+       ├─ src/config.rs - AI/safety config (NOT process config)
+       ├─ src/ui_*.rs - Single terminal + overlay UI
+       ├─ src/llm/ - LLM client
+       ├─ src/ai/ - AI assistant module
+       ├─ src/command/ - Command parser/safety
+       └─ src/privacy/ - Privacy filter
+```
+
+**User Experience:**
+```
+mprocs:     [Process List] | [Process 1 Tab] [Process 2 Tab] [Process 3 Tab]
+Termin.AI:  [Single Shell - Full Screen] + [AI Overlay on Ctrl-Space]
 ```
 
 ---
@@ -120,37 +161,58 @@ termin.ai/
 ## Benefits of This Approach
 
 ### 1. **Faster Development**
-- **Before:** 8 weeks to build from scratch
-- **After:** 4 weeks to add AI features
-- **Savings:** 50% development time
+- **Before:** 8 weeks to build from scratch (PTY, VT100, TUI, AI)
+- **After:** 4-5 weeks (borrow PTY/VT100, build AI + single-shell UX)
+- **Savings:** 40-50% development time
 
-### 2. **Higher Quality**
-- Built on mature, tested codebase
-- 500+ GitHub stars
-- Active development
-- Cross-platform support proven
+### 2. **Higher Quality Terminal Code**
+- mprocs' VT100 emulation is mature and tested
+- PTY handling is production-ready
+- Handles terminal edge cases we'd miss
+- 500+ GitHub stars validates quality
 
 ### 3. **Reduced Risk**
-- PTY handling is complex - mprocs solved it
-- TUI framework is challenging - mprocs has it
-- Process management is tricky - mprocs figured it out
+- Terminal emulation is complex - mprocs solved it
+- PTY handling is tricky - mprocs figured it out
+- Skip months of debugging terminal issues
+- Focus on AI features and UX
 
-### 4. **Upstream Benefits**
-- Pull bug fixes from mprocs
-- Get new features automatically
-- Community contributions flow through
-- Can contribute improvements back
+### 4. **Selective Upstream Benefits**
+- Monitor mprocs for terminal handling bug fixes
+- Cherry-pick relevant improvements
+- Not obligated to follow all mprocs changes
+- Can contribute bug fixes back
 
-### 5. **Cleaner Architecture**
-- AI code completely isolated
-- Can disable AI features (pure mprocs mode)
-- Easy to understand separation
+### 5. **Product Freedom**
+- Build exactly the UX we want (single shell + overlay)
+- Not constrained by multi-process architecture
+- Own our product vision and roadmap
+- Clear differentiation from mprocs
 
 ---
 
-## What's Next
+## What's Next (REVISED)
 
-### Phase 1: LLM Client (Week 1)
+### Phase 0: Restructure for Single-Shell Architecture (Week 1)
+
+**Goal:** Replace mprocs' multi-process app with single-shell app
+
+**Tasks:**
+- Keep: `src/vt100/`, `src/proc/` (simplified), `src/term/`, `src/widgets/`
+- Replace: `src/main.rs`, `src/app.rs`, `src/config.rs`, `src/ui_*.rs`
+- Remove: `src/kernel/`, `src/server/`, multi-process logic
+- Create: New single-shell application structure
+
+**New Files:**
+```rust
+// src/main.rs - Launch user's shell
+// src/app.rs - Single shell + AI overlay
+// src/config.rs - AI/safety config only
+// src/ui_shell.rs - Full-screen terminal UI
+// src/ui_ai_overlay.rs - AI overlay UI
+```
+
+### Phase 1: LLM Client (Week 2)
 
 **Create:** `src/llm/`
 
@@ -164,21 +226,21 @@ pub struct LLMClient {
 // Supports: Anthropic, OpenAI, Gemini, Ollama
 ```
 
-### Phase 2: AI Chat Process (Week 2)
+### Phase 2: AI Assistant Module (Week 3)
 
-**Create:** `src/ai_proc/`
+**Create:** `src/ai/`
 
 ```rust
-// src/ai_proc/chat_process.rs
-pub struct AIChatProcess {
+// src/ai/assistant.rs
+pub struct AIAssistant {
     llm_client: LLMClient,
     conversation: Vec<Message>,
 }
 
-// Renders as special process in mprocs
+// Manages AI interaction, renders overlay
 ```
 
-### Phase 3: Command Parser (Week 3)
+### Phase 3: Command Injection (Week 4)
 
 **Create:** `src/command/`
 
@@ -186,74 +248,76 @@ pub struct AIChatProcess {
 // src/command/parser.rs
 pub fn extract_commands(markdown: &str) -> Vec<Command>;
 
-// Extracts bash code blocks from LLM responses
-// Validates safety
-// Requires approval
+// src/command/injector.rs
+pub fn inject_into_shell(pty: &mut PTY, cmd: &str);
+
+// Safety validation and command injection
 ```
 
-### Phase 4: Integration (Week 4)
+### Phase 4: Integration & Polish (Week 5)
 
-**Modify:** ~75 lines across 5 files
-
-```rust
-// src/config.rs (~30 lines)
-pub struct AIConfig { ... }
-
-// src/app.rs (~20 lines)
-if config.ai.enabled {
-    spawn_ai_process();
-}
-
-// src/protocol.rs (~5 lines)
-enum Command { ToggleAI, ... }
-
-// etc.
-```
+**Goal:** Everything working together, tested and polished
 
 ---
 
-## Minimal Changes Strategy
+## Code Reuse Strategy (REVISED)
 
-### Files to Modify
+### Modules to Keep/Reuse
 
-| File | Lines | Change Type | Risk |
-|------|-------|-------------|------|
-| `src/config.rs` | ~30 | Add AI config struct | Low |
-| `src/app.rs` | ~20 | Init AI process | Low |
-| `src/protocol.rs` | ~5 | Add commands | Low |
-| `src/keymap.rs` | ~10 | Add key binding | Low |
-| `src/main.rs` | ~10 | Import modules | Low |
-| **TOTAL** | **~75** | **Additive** | **Low** |
+| Module | Action | Reason |
+|--------|--------|--------|
+| `src/vt100/` | Keep as-is | Excellent VT100 emulation |
+| `src/proc/` | Keep, simplify | PTY handling (remove multi-proc) |
+| `src/term/` | Keep as-is | Terminal abstractions |
+| `src/widgets/` | Keep some | Reusable UI components |
+| `src/key.rs` | Keep as-is | Keyboard input handling |
+| `src/event.rs` | Keep as-is | Event system |
 
-All changes:
-- Marked with `// TERMIN.AI:` comments
-- Documented in MPROCS_PATCHES.md
-- Additive (new structs/variants)
-- Optional (behind config flags)
+### Modules to Replace
+
+| Module | Action | Reason |
+|--------|--------|--------|
+| `src/main.rs` | Replace | Different entry point (single shell) |
+| `src/app.rs` | Replace | Different architecture |
+| `src/config.rs` | Replace | Different config (no process mgmt) |
+| `src/kernel/` | Remove | No multi-process kernel needed |
+| `src/ui_*.rs` | Replace | Different UI (no process list) |
+| `src/server/` | Remove | No remote control initially |
+
+### Documentation
+
+Create `MPROCS_BORROWED.md` (not PATCHES) to track:
+- Which modules borrowed from mprocs
+- What modifications were made
+- How to cherry-pick upstream improvements
 
 ---
 
-## Key Decisions
+## Key Decisions (REVISED)
 
-### 1. **Use mprocs as Foundation**
-- ✅ Saves 4+ weeks
-- ✅ Better quality
-- ✅ Proven architecture
+### 1. **Use mprocs as Code Library, Not Base Product**
+- ✅ Borrow terminal virtualization code
+- ✅ Build our own product architecture
+- ✅ Freedom to innovate on UX
+- ✅ Clear product differentiation
 
-### 2. **Minimize Core Changes**
-- ✅ <75 lines modified
-- ✅ Easy to merge upstream
-- ✅ Clear boundaries
+### 2. **Restructure for Single-Shell Architecture**
+- ✅ Replace app/config/UI with single-shell versions
+- ✅ Keep VT100/PTY handling from mprocs
+- ✅ No obligation to maintain compatibility
+- ✅ Product-driven architecture
 
-### 3. **Isolate AI Code**
-- ✅ All in separate modules
-- ✅ Can be disabled
-- ✅ Clear responsibility
+### 3. **Isolate AI Code in New Modules**
+- ✅ src/llm/, src/ai/, src/command/
+- ✅ Clear separation from terminal code
+- ✅ AI features are core, not addon
+- ✅ Clean module boundaries
 
-### 4. **Maintain Compatibility**
-- ✅ Track all patches
-- ✅ Document merge strategy
-- ✅ Test after updates
+### 4. **Cherry-Pick Upstream Improvements**
+- ✅ Monitor mprocs for terminal bug fixes
+- ✅ Selectively integrate relevant changes
+- ✅ Document borrowed code sources
+- ✅ Contribute fixes back when possible
 
 ---
 
@@ -426,22 +490,37 @@ All mprocs dependencies preserved:
 
 ---
 
-## Conclusion
+## Conclusion (REVISED)
 
-We've successfully pivoted from a ground-up implementation to a strategic extension of the excellent mprocs project. This approach:
+We've successfully pivoted from a ground-up implementation to borrowing mprocs' excellent terminal virtualization code while building our own distinct product. This approach:
 
-- ✅ **Saves 50% development time** (4 weeks vs 8)
-- ✅ **Builds on proven foundation** (500+ stars, mature code)
-- ✅ **Minimizes risk** (complex problems already solved)
-- ✅ **Maintains compatibility** (easy upstream merges)
-- ✅ **Focuses effort** (only AI-specific features)
+- ✅ **Saves 40-50% development time** (4-5 weeks vs 8)
+- ✅ **Builds on proven terminal code** (500+ stars, mature VT100/PTY)
+- ✅ **Minimizes terminal risk** (complex emulation problems solved)
+- ✅ **Provides product freedom** (single-shell UX, not multi-process)
+- ✅ **Focuses effort** (AI features + UX, not terminal emulation)
 
-**Result:** Better product, faster delivery, lower risk, cleaner architecture.
+**Result:** Better product, faster delivery, lower risk, clear product identity.
+
+### Key Clarification
+
+**Termin.AI is NOT:**
+- A fork of mprocs
+- An extension of mprocs
+- "mprocs with AI"
+
+**Termin.AI IS:**
+- A new product: single shell with AI overlay
+- Borrowing mprocs' terminal virtualization technology
+- Building its own architecture and UX
+- A distinct product with unique value
+
+**Analogy:** Like using `tokio` for async or `ratatui` for TUI - we're using mprocs' terminal code as a library component.
 
 ---
 
-**Status:** ✅ Integration complete, ready for Phase 1 (LLM client)
+**Status:** ✅ Integration complete, strategy clarified
 
-**Next Step:** Implement `src/llm/client.rs` using genai crate
+**Next Step:** Begin restructuring for single-shell architecture (Phase 0)
 
-**Timeline:** On track for 4-week delivery of v0.1.0
+**Timeline:** On track for 5-week delivery of v0.1.0
