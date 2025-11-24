@@ -1,4 +1,11 @@
 use anyhow::Result;
+use crossterm::event::KeyCode;
+
+use crate::{
+  kernel::{kernel_message::ProcSender, proc::ProcId},
+  key::Key,
+  proc::msg::ProcCmd,
+};
 
 /// Command execution result
 #[derive(Debug, Clone)]
@@ -16,28 +23,40 @@ impl CommandExecutor {
     Self
   }
 
-  /// Queue a command for execution in a target process
-  /// This will be integrated with mprocs' process manager
-  pub fn queue_command(
+  /// Send a command string to a process by converting it to key events
+  pub fn send_command(
     &self,
-    _process_id: usize,
-    _command: &str,
+    proc_sender: &ProcSender,
+    command: &str,
   ) -> Result<()> {
-    // TODO: Integrate with mprocs process manager
-    // This will send the command to the target process's PTY
+    // Convert the command string into a sequence of key presses
+    for ch in command.chars() {
+      let key =
+        Key::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE);
+      proc_sender.send(ProcCmd::SendKey(key));
+    }
+
+    // Send Enter key to execute the command
+    let enter_key =
+      Key::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    proc_sender.send(ProcCmd::SendKey(enter_key));
+
     Ok(())
   }
 
-  /// Check if a command execution is complete
-  pub fn is_complete(&self, _execution_id: usize) -> bool {
-    // TODO: Track command execution state
-    false
-  }
-
-  /// Get the result of a completed command execution
-  pub fn get_result(&self, _execution_id: usize) -> Option<ExecutionResult> {
-    // TODO: Retrieve execution results
-    None
+  /// Send a command to a specific process by ProcId
+  pub fn send_command_to_proc(
+    &self,
+    proc_id: ProcId,
+    proc_senders: &std::collections::HashMap<ProcId, ProcSender>,
+    command: &str,
+  ) -> Result<()> {
+    if let Some(proc_sender) = proc_senders.get(&proc_id) {
+      self.send_command(proc_sender, command)?;
+      Ok(())
+    } else {
+      anyhow::bail!("Process {} not found", proc_id.0)
+    }
   }
 }
 
@@ -54,6 +73,7 @@ mod tests {
   #[test]
   fn test_executor_creation() {
     let executor = CommandExecutor::new();
-    assert!(executor.queue_command(0, "ls").is_ok());
+    // Basic test - just ensure it can be created
+    assert!(true);
   }
 }

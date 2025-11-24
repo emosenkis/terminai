@@ -100,6 +100,7 @@ impl AIChatProcess {
   /// Send the current input as a message
   pub async fn send_input(
     &mut self,
+    proc_views: &[crate::proc::view::ProcView],
     target_process: Option<usize>,
   ) -> Result<()> {
     if self.input_buffer.is_empty() {
@@ -117,7 +118,10 @@ impl AIChatProcess {
 
     // Extract context
     let cwd = ContextExtractor::get_cwd();
-    let context = self.context_extractor.extract_context(target_process, cwd);
+    let context =
+      self
+        .context_extractor
+        .extract_context(proc_views, target_process, cwd);
 
     // Filter sensitive information from context
     let filtered_context = crate::llm::TerminalContext {

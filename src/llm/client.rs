@@ -122,23 +122,74 @@ impl LLMClient {
   }
 
   /// Send a message and stream the response
-  ///
-  /// TODO: Implement proper streaming once genai API is better understood
-  /// For now, this is a placeholder that uses the non-streaming version
   pub async fn send_message_stream(
     &self,
     user_message: &str,
     context: &TerminalContext,
     conversation_history: &[ChatMessage],
   ) -> Result<impl futures::Stream<Item = Result<String>>> {
-    // For now, use the non-streaming version and convert to a stream
-    let response = self
-      .send_message(user_message, context, conversation_history)
-      .await?;
+    use futures::stream::StreamExt;
 
-    // Convert single response to a stream
-    use futures::stream;
-    Ok(stream::iter(vec![Ok(response)]))
+    // Build the full prompt with context
+    let context_str = prompts::format_context(
+      &context.history_lines,
+      &context.cwd,
+      context.last_exit_code,
+    );
+
+    let full_message = format!("{}\n\n{}", context_str, user_message);
+
+    // Build chat request
+    let mut messages = Vec::new();
+
+    // Add system prompt
+    messages.push(ChatMessage::system(prompts::system_prompt()));
+
+    // Add conversation history
+    messages.extend_from_slice(conversation_history);
+
+    // Add current message
+    messages.push(ChatMessage::user(full_message));
+
+    let chat_req = ChatRequest::new(messages);
+
+    // Send streaming request based on provider
+    let stream_response = match self.provider {
+      Provider::Anthropic => self
+        .client
+        .exec_chat_stream(&self.model, chat_req, None)
+        .await
+        .context("Failed to stream message from Anthropic")?,
+      Provider::OpenAI => self
+        .client
+        .exec_chat_stream(&self.model, chat_req, None)
+        .await
+        .context("Failed to stream message from OpenAI")?,
+      Provider::Gemini => self
+        .client
+        .exec_chat_stream(&self.model, chat_req, None)
+        .await
+        .context("Failed to stream message from Gemini")?,
+      Provider::Ollama => self
+        .client
+        .exec_chat_stream(&self.model, chat_req, None)
+        .await
+        .context("Failed to stream message from Ollama")?,
+    };
+
+    // Convert the ChatStream to a stream of strings
+    use genai::chat::ChatStreamEvent;
+
+    Ok(stream_response.stream.map(|result| {
+      result
+        .map(|event| match event {
+          ChatStreamEvent::Chunk(chunk) => chunk.content,
+          ChatStreamEvent::ReasoningChunk(chunk) => chunk.content,
+          ChatStreamEvent::Start => String::new(),
+          ChatStreamEvent::End(_) => String::new(),
+        })
+        .map_err(|e| anyhow::Error::from(e))
+    }))
   }
 
   pub fn provider(&self) -> Provider {
