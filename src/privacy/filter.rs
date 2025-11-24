@@ -161,7 +161,7 @@ mod tests {
   fn test_filter_multiple_secrets() {
     let filter = PrivacyFilter::new();
 
-    let text = "api_key=sk-123456 password=secret123 token=xyz789abc";
+    let text = "api_key=sk-1234567890abcdef password=secret123456 token=xyz789abcdefghijk";
     let filtered = filter.filter(text);
     assert!(filtered.contains("[REDACTED_API_KEY]"));
     assert!(filtered.contains("[REDACTED_PASSWORD]"));
@@ -174,7 +174,7 @@ mod tests {
 
     let lines = vec![
       "Normal line".to_string(),
-      "API_KEY=secret123".to_string(),
+      "API_KEY=secret1234567890abcdef".to_string(),
       "Another normal line".to_string(),
     ];
 
@@ -188,8 +188,8 @@ mod tests {
   fn test_contains_sensitive() {
     let filter = PrivacyFilter::new();
 
-    assert!(filter.contains_sensitive("password=secret123"));
-    assert!(filter.contains_sensitive("api_key=sk-123456"));
+    assert!(filter.contains_sensitive("password=secret123456"));
+    assert!(filter.contains_sensitive("api_key=sk-1234567890abcdef"));
     assert!(!filter.contains_sensitive("just normal text"));
   }
 

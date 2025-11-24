@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use genai::Client;
-use genai::chat::{ChatMessage, ChatRequest, ChatResponse};
+use genai::chat::{ChatMessage, ChatRequest};
 use std::path::PathBuf;
 
 use super::prompts;
@@ -122,46 +122,23 @@ impl LLMClient {
   }
 
   /// Send a message and stream the response
+  ///
+  /// TODO: Implement proper streaming once genai API is better understood
+  /// For now, this is a placeholder that uses the non-streaming version
   pub async fn send_message_stream(
     &self,
     user_message: &str,
     context: &TerminalContext,
     conversation_history: &[ChatMessage],
   ) -> Result<impl futures::Stream<Item = Result<String>>> {
-    // Build the full prompt with context
-    let context_str = prompts::format_context(
-      &context.history_lines,
-      &context.cwd,
-      context.last_exit_code,
-    );
+    // For now, use the non-streaming version and convert to a stream
+    let response = self
+      .send_message(user_message, context, conversation_history)
+      .await?;
 
-    let full_message = format!("{}\n\n{}", context_str, user_message);
-
-    // Build chat request
-    let mut messages = Vec::new();
-    messages.push(ChatMessage::system(prompts::system_prompt()));
-    messages.extend_from_slice(conversation_history);
-    messages.push(ChatMessage::user(full_message));
-
-    let chat_req = ChatRequest::new(messages);
-
-    // Get streaming response
-    let stream = self
-      .client
-      .exec_chat_stream(&self.model, chat_req, None)
-      .await
-      .context("Failed to create streaming chat")?;
-
-    // Map stream to extract text chunks
-    use futures::StreamExt;
-    Ok(stream.map(|result| {
-      result.context("Stream error").and_then(|response| {
-        response
-          .content_text_as_str()
-          .map(|s| s.to_string())
-          .context("No text in stream chunk")
-      })
-    }))
+    // Convert single response to a stream
+    use futures::stream;
+    Ok(stream::iter(vec![Ok(response)]))
   }
 
   pub fn provider(&self) -> Provider {

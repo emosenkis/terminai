@@ -1,7 +1,6 @@
 use anyhow::Result;
 use genai::chat::ChatMessage;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
 use crate::llm::{LLMClient, Provider};
@@ -215,7 +214,11 @@ mod tests {
   fn test_input_buffer() {
     let provider = Provider::Anthropic;
     let mut process = AIChatProcess {
-      llm_client: Arc::new(unsafe { std::mem::zeroed() }), // Placeholder for testing
+      // Create a mock LLM client for testing
+      llm_client: Arc::new(
+        futures::executor::block_on(LLMClient::new(Provider::Anthropic, None))
+          .expect("Failed to create test LLM client"),
+      ),
       conversation: Vec::new(),
       input_buffer: String::new(),
       context_extractor: ContextExtractor::default(),
@@ -244,7 +247,11 @@ mod tests {
   fn test_activation() {
     let provider = Provider::Anthropic;
     let mut process = AIChatProcess {
-      llm_client: Arc::new(unsafe { std::mem::zeroed() }),
+      // Create a mock LLM client for testing
+      llm_client: Arc::new(
+        futures::executor::block_on(LLMClient::new(Provider::Anthropic, None))
+          .expect("Failed to create test LLM client"),
+      ),
       conversation: Vec::new(),
       input_buffer: String::new(),
       context_extractor: ContextExtractor::default(),

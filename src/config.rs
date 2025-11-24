@@ -107,7 +107,7 @@ impl Config {
 
     // TERMIN.AI: Parse AI configuration
     let ai = if let Some(ai_val) = config.get(&Value::from("ai")) {
-      Some(serde_yaml::from_value(ai_val.clone())?)
+      Some(serde_yaml::from_value(ai_val.raw().clone())?)
     } else {
       None
     };

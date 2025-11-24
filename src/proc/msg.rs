@@ -2,6 +2,7 @@ use std::{any::Any, fmt::Debug};
 
 use compact_str::CompactString;
 
+#[allow(unused_imports)]
 use crate::{
   kernel::{
     kernel_message::SharedVt,

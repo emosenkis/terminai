@@ -1,6 +1,8 @@
 #[cfg(unix)]
+#[allow(unused_imports)]
 pub use self::unix::{bind_server_socket, connect_client_socket};
 #[cfg(windows)]
+#[allow(unused_imports)]
 pub use self::windows::{bind_server_socket, connect_client_socket};
 
 #[cfg(unix)]

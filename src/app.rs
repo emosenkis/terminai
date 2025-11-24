@@ -877,6 +877,14 @@ impl App {
           pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::SendKey(*key)));
         }
       }
+
+      AppEvent::ToggleAI => {
+        // TERMIN.AI: Toggle AI overlay visibility
+        // TODO: Implement AI overlay toggle logic
+        // For now, just log and render
+        log::info!("ToggleAI event received");
+        loop_action.render();
+      }
     }
   }
 

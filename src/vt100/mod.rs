@@ -56,9 +56,11 @@ mod size;
 mod term;
 mod term_reply;
 
+#[allow(unused_imports)]
 pub use attrs::Color;
 pub use cell::Cell;
 pub use parser::Parser;
+#[allow(unused_imports)]
 pub use screen::{MouseProtocolEncoding, MouseProtocolMode, Screen};
 pub use size::Size;
 pub use term_reply::TermReplySender;
