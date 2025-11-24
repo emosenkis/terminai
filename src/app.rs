@@ -325,6 +325,17 @@ impl App {
       }
     }
 
+    // TERMIN.AI: Handle AI input when overlay is visible
+    if self.state.ai_visible {
+      if let Some(ai_process) = &self.ai_process {
+        let handled =
+          self.handle_ai_input(loop_action, &event, ai_process.clone());
+        if handled {
+          return;
+        }
+      }
+    }
+
     match event {
       Event::Key(KeyEvent {
         code,
@@ -548,6 +559,149 @@ impl App {
       Event::Paste(_) => {
         log::warn!("Ignore input event: {:?}", event);
       }
+    }
+  }
+
+  // TERMIN.AI: Handle AI overlay input
+  fn handle_ai_input(
+    &mut self,
+    loop_action: &mut LoopAction,
+    event: &Event,
+    ai_process: std::sync::Arc<
+      tokio::sync::Mutex<crate::ai_proc::AIChatProcess>,
+    >,
+  ) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    if let Event::Key(KeyEvent {
+      code,
+      modifiers,
+      kind: KeyEventKind::Press | KeyEventKind::Repeat,
+      ..
+    }) = event
+    {
+      // Check if there's a pending command approval
+      let has_pending_command = {
+        let ai = ai_process.blocking_lock();
+        ai.pending_command().is_some()
+      };
+
+      if has_pending_command {
+        // Handle approval keys
+        match (code, modifiers) {
+          (KeyCode::Char('y'), &KeyModifiers::NONE)
+          | (KeyCode::Char('Y'), _) => {
+            // Approve and execute command
+            let pending = {
+              let mut ai = ai_process.blocking_lock();
+              ai.approve_command()
+            };
+            if let Some(cmd) = pending {
+              self.execute_ai_command(&cmd);
+            }
+            loop_action.render();
+            return true;
+          }
+          (KeyCode::Char('n'), &KeyModifiers::NONE)
+          | (KeyCode::Char('N'), _)
+          | (KeyCode::Esc, _) => {
+            // Reject command
+            let mut ai = ai_process.blocking_lock();
+            ai.reject_command();
+            loop_action.render();
+            return true;
+          }
+          _ => return true, // Consume all other input when waiting for approval
+        }
+      }
+
+      // Handle normal AI input
+      match (code, modifiers) {
+        // ESC closes the AI overlay
+        (KeyCode::Esc, _) => {
+          self.state.ai_visible = false;
+          loop_action.render();
+          return true;
+        }
+        // Enter sends the message
+        (KeyCode::Enter, &KeyModifiers::NONE) => {
+          // Extract context synchronously before spawning async task
+          let context = {
+            use crate::ai_proc::ContextExtractor;
+            let extractor = ContextExtractor::default();
+            let cwd = ContextExtractor::get_cwd();
+            let target_process = Some(self.state.selected);
+            extractor.extract_context(&self.state.procs, target_process, cwd)
+          };
+
+          let ai = ai_process.clone();
+          tokio::spawn(async move {
+            let mut ai_locked = ai.lock().await;
+            if let Err(e) = ai_locked.send_input_with_context(context).await {
+              log::error!("Failed to send AI message: {:?}", e);
+            }
+          });
+
+          loop_action.render();
+          return true;
+        }
+        // Backspace deletes character
+        (KeyCode::Backspace, _) => {
+          let mut ai = ai_process.blocking_lock();
+          ai.delete_char();
+          loop_action.render();
+          return true;
+        }
+        // Regular characters append to input
+        (KeyCode::Char(c), modifiers)
+          if *modifiers == KeyModifiers::NONE
+            || *modifiers == KeyModifiers::SHIFT =>
+        {
+          let mut ai = ai_process.blocking_lock();
+          ai.append_input(&c.to_string());
+          loop_action.render();
+          return true;
+        }
+        // Space character
+        (KeyCode::Char(' '), &KeyModifiers::NONE) => {
+          let mut ai = ai_process.blocking_lock();
+          ai.append_input(" ");
+          loop_action.render();
+          return true;
+        }
+        // Ctrl-Space toggles AI (let it fall through to handle_event)
+        (KeyCode::Char(' '), &KeyModifiers::CONTROL) => {
+          return false;
+        }
+        _ => {
+          // Consume but ignore other keys
+          return true;
+        }
+      }
+    }
+
+    false
+  }
+
+  // TERMIN.AI: Execute approved command
+  fn execute_ai_command(
+    &mut self,
+    pending_cmd: &crate::ai_proc::PendingCommand,
+  ) {
+    use crate::command::CommandExecutor;
+
+    if let Some(proc) = self.state.get_current_proc_mut() {
+      log::info!("Executing AI command: {}", pending_cmd.command);
+      let executor = CommandExecutor::new();
+
+      // Send each character as a key event to the process
+      for key in executor.command_to_keys(&pending_cmd.command) {
+        self
+          .pc
+          .send(KernelCommand::ProcCmd(proc.id, ProcCmd::SendKey(key)));
+      }
+    } else {
+      log::warn!("No active process to execute command in");
     }
   }
 

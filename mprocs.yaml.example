@@ -1,0 +1,24 @@
+# Example Termin.AI / mprocs configuration
+# Copy to mprocs.yaml and customize
+
+# AI Assistant Configuration
+ai:
+  enabled: true
+  provider: "anthropic"  # Options: anthropic, openai, gemini, ollama
+  model: "claude-3-5-sonnet-20241022"  # Optional, uses provider default if not specified
+  # api_key_env: "ANTHROPIC_API_KEY"  # Optional, defaults to provider-specific env var
+
+# Process definitions (optional - can also use CLI args)
+procs:
+  shell:
+    shell: "$SHELL"
+
+# Optional: custom keybindings
+# keymap_procs:
+#   "<C-space>": { c: toggle-ai }
+
+# Optional: UI settings
+# hide_keymap_window: false
+# proc_list_width: 30
+# scrollback: 1000
+# mouse_scroll_speed: 5

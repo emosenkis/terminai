@@ -161,6 +161,62 @@ impl AIChatProcess {
     Ok(())
   }
 
+  /// Send the current input with pre-extracted context
+  pub async fn send_input_with_context(
+    &mut self,
+    context: crate::llm::TerminalContext,
+  ) -> Result<()> {
+    if self.input_buffer.is_empty() {
+      return Ok(());
+    }
+
+    let user_message = self.input_buffer.clone();
+    self.input_buffer.clear();
+
+    // Add user message to conversation
+    self.conversation.push(Message {
+      role: MessageRole::User,
+      content: user_message.clone(),
+    });
+
+    // Filter sensitive information from context
+    let filtered_context = crate::llm::TerminalContext {
+      history_lines: self.privacy_filter.filter_lines(&context.history_lines),
+      cwd: context.cwd,
+      last_exit_code: context.last_exit_code,
+    };
+
+    // Convert conversation to genai format
+    let history: Vec<ChatMessage> = self
+      .conversation
+      .iter()
+      .filter_map(|msg| match msg.role {
+        MessageRole::User => Some(ChatMessage::user(msg.content.clone())),
+        MessageRole::Assistant => {
+          Some(ChatMessage::assistant(msg.content.clone()))
+        }
+        MessageRole::System => None, // System messages handled separately
+      })
+      .collect();
+
+    // Send to LLM
+    let response = self
+      .llm_client
+      .send_message(&user_message, &filtered_context, &history)
+      .await?;
+
+    // Add assistant response to conversation
+    self.conversation.push(Message {
+      role: MessageRole::Assistant,
+      content: response.clone(),
+    });
+
+    // Check for commands in response
+    self.check_for_commands(&response, None);
+
+    Ok(())
+  }
+
   /// Check the response for commands and set up approval if needed
   fn check_for_commands(
     &mut self,

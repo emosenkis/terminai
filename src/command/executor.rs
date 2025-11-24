@@ -23,23 +23,35 @@ impl CommandExecutor {
     Self
   }
 
+  /// Convert a command string into a sequence of Key events
+  pub fn command_to_keys(&self, command: &str) -> Vec<Key> {
+    let mut keys = Vec::new();
+
+    // Convert the command string into a sequence of key presses
+    for ch in command.chars() {
+      let key =
+        Key::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE);
+      keys.push(key);
+    }
+
+    // Add Enter key to execute the command
+    let enter_key =
+      Key::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    keys.push(enter_key);
+
+    keys
+  }
+
   /// Send a command string to a process by converting it to key events
   pub fn send_command(
     &self,
     proc_sender: &ProcSender,
     command: &str,
   ) -> Result<()> {
-    // Convert the command string into a sequence of key presses
-    for ch in command.chars() {
-      let key =
-        Key::new(KeyCode::Char(ch), crossterm::event::KeyModifiers::NONE);
+    // Use the command_to_keys method
+    for key in self.command_to_keys(command) {
       proc_sender.send(ProcCmd::SendKey(key));
     }
-
-    // Send Enter key to execute the command
-    let enter_key =
-      Key::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
-    proc_sender.send(ProcCmd::SendKey(enter_key));
 
     Ok(())
   }
