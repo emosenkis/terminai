@@ -254,6 +254,16 @@ impl Settings {
       AppEvent::Zoom,
     );
 
+    // TERMIN.AI: Ctrl-Space to toggle AI assistant
+    s.keymap_add_p(
+      Key::new(KeyCode::Char(' '), KeyModifiers::CONTROL),
+      AppEvent::ToggleAI,
+    );
+    s.keymap_add_t(
+      Key::new(KeyCode::Char(' '), KeyModifiers::CONTROL),
+      AppEvent::ToggleAI,
+    );
+
     s.keymap_add_p(
       Key::new(KeyCode::Char('?'), KeyModifiers::NONE),
       AppEvent::ToggleKeymapWindow,

@@ -216,7 +216,6 @@ mod tests {
 
   #[test]
   fn test_input_buffer() {
-    let provider = Provider::Anthropic;
     let mut process = AIChatProcess {
       // Create a mock LLM client for testing
       llm_client: Arc::new(
@@ -249,7 +248,6 @@ mod tests {
 
   #[test]
   fn test_activation() {
-    let provider = Provider::Anthropic;
     let mut process = AIChatProcess {
       // Create a mock LLM client for testing
       llm_client: Arc::new(

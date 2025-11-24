@@ -79,6 +79,10 @@ pub struct App {
   pr: tokio::sync::mpsc::UnboundedReceiver<ProcCmd>,
   pc: ProcContext,
 
+  // TERMIN.AI: AI assistant
+  ai_process:
+    Option<std::sync::Arc<tokio::sync::Mutex<crate::ai_proc::AIChatProcess>>>,
+
   screen_size: Size,
   clients: Vec<ClientHandle>,
 }
@@ -187,6 +191,7 @@ impl App {
             &self.keymap,
             &mut self.modal,
             rest,
+            &self.ai_process,
           )?;
         }
       }
@@ -880,9 +885,12 @@ impl App {
 
       AppEvent::ToggleAI => {
         // TERMIN.AI: Toggle AI overlay visibility
-        // TODO: Implement AI overlay toggle logic
-        // For now, just log and render
-        log::info!("ToggleAI event received");
+        if self.ai_process.is_some() {
+          self.state.ai_visible = !self.state.ai_visible;
+          log::info!("AI overlay toggled: {}", self.state.ai_visible);
+        } else {
+          log::warn!("AI assistant not initialized");
+        }
         loop_action.render();
       }
     }
@@ -1171,6 +1179,9 @@ impl ClientHandle {
     keymap: &Keymap,
     modal: &mut Option<Box<dyn Modal>>,
     rest: &mut [ClientHandle],
+    ai_process: &Option<
+      std::sync::Arc<tokio::sync::Mutex<crate::ai_proc::AIChatProcess>>,
+    >,
   ) -> anyhow::Result<()> {
     self.terminal.draw(|f| {
       let mut cursor_style = self.cursor_style;
@@ -1179,6 +1190,18 @@ impl ClientHandle {
       render_term(layout.term, f, state, &mut cursor_style);
       render_keymap(layout.keymap, f, state, keymap);
       render_zoom_tip(layout.zoom_banner, f, keymap);
+
+      // TERMIN.AI: Render AI overlay if visible
+      if state.ai_visible {
+        if let Some(ai) = ai_process {
+          // Try to lock without blocking - if we can't get the lock, skip rendering this frame
+          if let Ok(ai_locked) = ai.try_lock() {
+            let ai_ui = crate::ai_proc::AIChatUI::new(&ai_locked);
+            let overlay_area = Self::calculate_ai_overlay_area(f.area());
+            ai_ui.render(overlay_area, f.buffer_mut());
+          }
+        }
+      }
 
       if let Some(modal) = modal {
         cursor_style = CursorStyle::Default;
@@ -1207,6 +1230,16 @@ impl ClientHandle {
       f.render_widget(CopyBuffer(buf), area);
     })?;
     Ok(())
+  }
+
+  // TERMIN.AI: Calculate AI overlay area (centered, 80% width, 70% height)
+  fn calculate_ai_overlay_area(screen: Rect) -> Rect {
+    let overlay_width = (screen.width as f32 * 0.8) as u16;
+    let overlay_height = (screen.height as f32 * 0.7) as u16;
+    let x = (screen.width.saturating_sub(overlay_width)) / 2;
+    let y = (screen.height.saturating_sub(overlay_height)) / 2;
+
+    Rect::new(x, y, overlay_width, overlay_height)
   }
 }
 
@@ -1271,7 +1304,54 @@ pub async fn server_main(
     selected: 0,
     hide_keymap_window: config.hide_keymap_window,
 
+    // TERMIN.AI: AI initially hidden
+    ai_visible: false,
+
     quitting: false,
+  };
+
+  // TERMIN.AI: Initialize AI process if AI config is present and enabled
+  let ai_process = if let Some(ref ai_config) = config.ai {
+    if ai_config.enabled {
+      // Convert provider string to Provider enum
+      let provider = match ai_config.provider.as_str() {
+        "anthropic" => crate::llm::Provider::Anthropic,
+        "openai" => crate::llm::Provider::OpenAI,
+        "gemini" => crate::llm::Provider::Gemini,
+        "ollama" => crate::llm::Provider::Ollama,
+        _ => {
+          log::warn!(
+            "Unknown AI provider: {}, defaulting to Anthropic",
+            ai_config.provider
+          );
+          crate::llm::Provider::Anthropic
+        }
+      };
+
+      match crate::ai_proc::AIChatProcess::new(
+        provider,
+        ai_config.model.clone(),
+      )
+      .await
+      {
+        Ok(process) => {
+          log::info!(
+            "AI assistant initialized with provider: {}",
+            ai_config.provider
+          );
+          Some(std::sync::Arc::new(tokio::sync::Mutex::new(process)))
+        }
+        Err(err) => {
+          log::warn!("Failed to initialize AI assistant: {:?}", err);
+          None
+        }
+      }
+    } else {
+      log::info!("AI assistant disabled in config");
+      None
+    }
+  } else {
+    None
   };
 
   let app = App {
@@ -1281,6 +1361,8 @@ pub async fn server_main(
     modal: None,
     pr,
     pc,
+
+    ai_process,
 
     screen_size: Size {
       width: 160,

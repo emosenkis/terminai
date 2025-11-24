@@ -38,6 +38,9 @@ pub struct State {
   pub selected: usize,
   pub hide_keymap_window: bool,
 
+  // TERMIN.AI: AI assistant state
+  pub ai_visible: bool,
+
   pub quitting: bool,
 }
 

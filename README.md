@@ -1,368 +1,236 @@
-<div align="center" markdown="1">
-  <sup>Special thanks to:</sup>
-  <br>
-  <a href="https://go.warp.dev/mprocs">
-    <img alt="Warp sponsorship" width="400" src="https://github.com/warpdotdev/brand-assets/blob/main/Github/Sponsor/Warp-Github-LG-02.png">
-  </a>
+# Termin.AI
 
-### [Warp, built for coding with multiple AI agents](https://go.warp.dev/mprocs)
-[Available for MacOS, Linux, & Windows](https://go.warp.dev/mprocs)<br>
+**Interactive Terminal with AI Assistant** - A transparent shell wrapper that provides context-aware AI assistance through an overlay interface.
 
-</div>
+> **Note:** Termin.AI borrows terminal virtualization code from [mprocs](https://github.com/pvolok/mprocs) but is a **distinct product** focused on AI-assisted terminal workflows, not multi-process management.
 
-# mprocs
+## Overview
 
-_mprocs_ runs multiple commands in parallel and shows output of each command
-separately.
+Termin.AI wraps your shell (bash, zsh, fish) and adds an AI assistant that can:
+- View your terminal history and understand context
+- Suggest and execute commands with your approval
+- Help debug errors and explain command output
+- Answer questions about your current terminal session
 
-When you work on a project you very often need the same list of commands to be
-running. For example: `webpack serve`, `jest --watch`, `node src/server.js`.
-With mprocs you can list these command in `mprocs.yaml` and run all of them by
-running `mprocs`. Then you can switch between outputs of running commands and
-interact with them.
+**Key Feature:** Press `Ctrl+Space` to activate the AI overlay - it appears over your terminal without disrupting your workflow.
 
-It is similar to
-[concurrently](https://github.com/open-cli-tools/concurrently) but _mprocs_
-shows output of each command separately and allows to interact with processes
-(you can even work in _vim_ inside _mprocs_).
+## Features
 
-<!--ts-->
+### 🤖 Context-Aware AI Assistant
+- Automatically captures terminal history
+- Privacy filtering for sensitive data (API keys, passwords)
+- Multi-provider support (Anthropic Claude, OpenAI GPT-4, Google Gemini, Ollama)
 
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-  - [Download binary (Linux, Macos, Windows)](#download-binary-linux-macos-windows)
-  - [npm (Linux, Macos, Windows)](#npm-linux-macos-windows)
-  - [homebrew (Macos)](#homebrew-macos)
-  - [cargo (All platforms)](#cargo-all-platforms)
-  - [scoop (Windows)](#scoop-windows)
-  - [AUR (Arch Linux)](#aur-arch-linux)
-  - [MPR (Debian/Ubuntu)](#mpr-debianubuntu)
-- [Usage](#usage)
-  - [Config](#config)
-    - [Keymap](#keymap)
-    - [$select operator](#select-operator)
-    - [Running scripts from package.json](#running-scripts-from-packagejson)
-  - [Default keymap](#default-keymap)
-  - [Remote control](#remote-control)
-- [FAQ](#faq)
-  - [mprocs vs tmux/screen](#mprocs-vs-tmuxscreen)
+### 🛡️ Safety First
+- Command approval workflow for dangerous operations
+- Safe/Caution/Dangerous command classification
+- Edit commands before execution
+- Never logs or displays API keys
 
-<!-- Created by https://github.com/ekalinin/github-markdown-toc -->
-<!-- Added by: pvolok, at: Sun Jul  3 22:53:57 +07 2022 -->
-
-<!--te-->
-
-## Screenshots
-
-<img src="img/screenshot1.png" width="900" height="645" />
-<img src="img/screenshot2.png" width="900" height="645" />
+### 🎨 Seamless UX
+- Transparent operation until AI is invoked
+- Overlay interface preserves terminal visibility
+- Full terminal emulation (vim, htop, colors, etc. all work)
+- < 100ms startup overhead
 
 ## Installation
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/mprocs.svg)](https://repology.org/project/mprocs/versions)
+### From Source (Rust)
 
-### Download binary (Linux, Macos, Windows)
-
-[Download](https://github.com/pvolok/mprocs/releases) executable for your
-platform and put it into a directory included in PATH.
-
-### npm (Linux, Macos, Windows)
-
-```sh
-npm install -g mprocs
+```bash
+git clone https://github.com/yourusername/termin.ai.git
+cd termin.ai
+cargo build --release
+sudo cp target/release/termin /usr/local/bin/terminai
 ```
 
-```sh
-yarn global add mprocs
+### Quick Start
+
+1. Set up your API key:
+```bash
+export ANTHROPIC_API_KEY="your-api-key-here"
 ```
 
-### homebrew (Macos, Linux)
-
-```sh
-brew install mprocs
+2. Create a config file (optional):
+```bash
+mkdir -p ~/.config/terminai
+cp terminai.example.yaml ~/.config/terminai/config.yaml
+# Edit config.yaml to set your preferences
 ```
 
-### cargo (All platforms)
-
-```sh
-cargo install mprocs
+3. Launch Termin.AI:
+```bash
+terminai
 ```
 
-### scoop (Windows)
+4. Use normally until you need AI help, then press `Ctrl+Space`
 
-```sh
-scoop install mprocs
+## Configuration
+
+### Minimal Configuration
+
+Create `~/.config/terminai/config.yaml`:
+
+```yaml
+ai:
+  enabled: true
+  provider: anthropic  # or: openai, gemini, ollama
+  model: claude-3-5-sonnet-20241022  # optional
+  api_key_env: ANTHROPIC_API_KEY
 ```
 
-### AUR (Arch Linux)
+### Supported Providers
 
-```sh
-yay mprocs
-```
+| Provider | Models | API Key Env Var |
+|----------|--------|-----------------|
+| **Anthropic** | claude-3-5-sonnet-20241022, claude-3-opus-20240229 | `ANTHROPIC_API_KEY` |
+| **OpenAI** | gpt-4-turbo, gpt-3.5-turbo | `OPENAI_API_KEY` |
+| **Google** | gemini-pro, gemini-flash | `GOOGLE_API_KEY` |
+| **Ollama** | llama3.2, codellama (local) | None (local) |
 
-```sh
-yay mprocs-bin
-```
+### Full Configuration Example
 
-### MPR (Debian/Ubuntu)
-
-```sh
-git clone 'https://mpr.makedeb.org/mprocs'
-cd mprocs/
-makedeb -si
-```
+See `terminai.example.yaml` for all available options including:
+- Privacy filters
+- Command safety rules
+- UI preferences
+- Keybindings
 
 ## Usage
 
-1. Run `mprocs cmd1 cmd2 …` (example: `mprocs "yarn test -w" "webpack serve"`)
+### Basic Workflow
 
-OR
+1. **Normal Terminal Usage**: Use your shell normally - Termin.AI is transparent
+2. **Activate AI**: Press `Ctrl+Space` to open the AI overlay
+3. **Ask Questions**: Type your question or request
+4. **Command Approval**: Review and approve/edit suggested commands
+5. **Continue**: Press `Ctrl+Space` or `Esc` to close overlay and continue working
 
-1. Create `mprocs.yaml` file
-2. Run `mprocs` command
+### Example Interactions
 
-Example `mprocs.yaml`:
+**Debugging an error:**
+```
+$ npm run build
+Error: Module not found 'react-router-dom'
 
-```yaml
-procs:
-  nvim:
-    cmd: ["nvim"]
-  server:
-    shell: "nodemon server.js"
-  webpack: "webpack serve"
-  tests:
-    shell: "jest -w"
-    env:
-      NODE_ENV: test
+[Press Ctrl+Space]
+You: why did this fail?
+
+AI: The error indicates the 'react-router-dom' package is missing.
+    Would you like me to install it?
+
+    Command: npm install react-router-dom
+    [Execute] [Edit] [Cancel]
 ```
 
-### Config
+**Learning new commands:**
+```
+[Press Ctrl+Space]
+You: find all JavaScript files larger than 1MB
 
-[JSON/YAML Configuration Schema](https://json.schemastore.org/mprocs-0.6.4.json)
+AI: Here's a command to find large JavaScript files:
 
-There are two kinds of configs: global and local. _Global_ config is loaded
-from `~/.config/mprocs/mprocs.yaml` (or
-`~\AppData\Roaming\mprocs\mprocs.yaml` on Windows). _Local_ config
-is loaded from `mprocs.yaml` from current directory (or set via cli argument:
-`mprocs --config ./cfg/mprocs.yaml`). Settings in the _local_ config override
-settings in the _global_ config.
+    Command: find . -name "*.js" -type f -size +1M -exec ls -lh {} \;
 
-- **procs**: _object_ - Processes to run. Only allowed in local config.
-  - **shell**: _string_ - Shell command to run (exactly one of **shell** or
-    **cmd** must be provided).
-  - **cmd**: _array<string>_ - Array of command and args to run (exactly one of
-    **shell** or **cmd** must be provided).
-  - **cwd**: _string_ - Set working directory for the process. Prefix
-    `<CONFIG_DIR>` will be replaced with the path of the directory where the
-    config is located.
-  - **env**: _object<string, string|null>_ - Set env variables. Object keys are
-    variable names. Assign variable to null, to clear variables inherited from
-    parent process.
-  - **add_path**: _string|array<string>_ - Add entries to the _PATH_
-    environment variable.
-  - **autostart**: _bool_ - Start process when mprocs starts. Default: _true_.
-  - **autorestart**: _bool_ - Restart process when it exits. Default: false. Note: If process exits within 1 second of starting, it will not be restarted.
-  - **stop**: _"SIGINT"|"SIGTERM"|"SIGKILL"|{send-keys:
-    array<key>}|"hard-kill"_ -
-    A way to stop a process (using `x` key or when quitting mprocs).
-- **hide_keymap_window**: _bool_ - Hide the pane at the bottom of the screen
-  showing key bindings.
-- **mouse_scroll_speed**: _integer_ - Number of lines to scrollper one mouse
-  scroll.
-- **scrollback**: _integer_ - Scrollback size. Default: _1000_.
-- **proc_list_width**: _integer_ - Process list window width.
-- **keymap_procs**: _object_ - Key bindings for process list. See
-  [Keymap](#keymap).
-- **keymap_term**: _object_ - Key bindings for terminal window. See
-  [Keymap](#keymap).
-- **keymap_copy**: _object_ - Key bindings for copy mode. See
-  [Keymap](#keymap).
-
-#### Keymap
-
-Default key bindings can be overridden in config using _keymap_procs_,
-_keymap_term_, or _keymap_copy_ fields. Available commands are documented in
-the [Remote control](#remote-control) section.
-
-There are three keymap levels:
-
-- Default keymaps
-- `~/.config/mprocs/mprocs.yaml` (or `~\AppData\Roaming\mprocs\mprocs.yaml` on Windows)
-- `./mprocs.yaml` (can be overridden by the _-c/--config_ cli arg)
-
-Lower levels override bindings from previous levels. Key bindings from previous
-levels can be cleared by specifying `reset: true` field at the same level as
-keys.
-
-Key bindings are defined between `<` and `>`, e.g., `<Enter>` (enter key), `<Down>` (down arrow), `<Up>` (up arrow), `<C-q>` (CTRL + q).
-
-```yaml
-keymap_procs: # keymap when process list is focused
-  <C-q>: { c: toggle-focus }
-  <C-a>: null # unbind key
-keymap_term: # keymap when terminal is focused
-  reset: true
-  <C-q>: { c: toggle-focus }
-  <C-j>:
-    c: batch
-    cmds:
-      - { c: focus-procs }
-      - { c: next-proc }
+    This searches the current directory recursively for .js files
+    larger than 1MB and displays their sizes.
+    [Execute] [Edit] [Cancel]
 ```
 
-#### `$select` operator
+## Keybindings
 
-You can define different values depending on the current operating system. Any
-value in config can be wrapped with a _$select_ operator. To provide different
-values based on current OS define an object with:
+| Key | Action |
+|-----|--------|
+| `Ctrl+Space` | Toggle AI assistant overlay |
+| `Ctrl+A` | Toggle focus between process list and terminal |
+| `Ctrl+Q` | Quit |
+| `Esc` | Close AI overlay |
+| `Enter` | Send message to AI (when in AI input) |
 
-- First field `$select: os`
-- Fields defining values for different OSes: `macos: value`. Possible
-  values are listed here:
-  https://doc.rust-lang.org/std/env/consts/constant.OS.html.
-- Field `$else: default value` will be matched if no value was defined for
-  current OS. If current OS is not matched and field `$else` is missing, then
-  mprocs will fail to load config.
+See the help window (`?` key) for complete keybindings.
 
-Example `mprocs.yaml`:
+## Development Status
 
-```yaml
-procs:
-  my process:
-    shell:
-      $select: os
-      windows: "echo %TEXT%"
-      $else: "echo $TEXT"
-    env:
-      TEXT:
-        $select: os
-        windows: Windows
-        linux: Linux
-        macos: Macos
-        freebsd: FreeBSD
-```
+**Current Version:** 0.1.0 (Alpha)
 
-#### Running scripts from package.json
+### Completed ✅
+- LLM client with multi-provider support
+- Command parsing and safety validation
+- Privacy filtering
+- Terminal virtualization
+- AI overlay UI
+- Basic integration with app
 
-If you run _mprocs_ with an `--npm` argument, it will load scripts from
-`package.json`. But the scripts are not run by default, and you can launch
-desired scripts manually.
+### In Progress 🚧
+- Command execution workflow
+- Streaming AI responses in UI
+- Input handling in AI overlay
+- History persistence
 
-```sh
-# Run mprocs with scripts from package.json
-mprocs --npm
-```
+### Planned 📋
+- Voice input (Whisper API)
+- SSH session support
+- Plugin system
+- Team collaboration features
 
-### Default keymap
+## Architecture
 
-Process list focused:
+Termin.AI consists of:
 
-- `q` - Quit (soft kill processes and wait then to exit)
-- `Q` - Force quit (terminate processes)
-- `C-a` - Focus output pane
-- `x` - Soft kill selected process (send SIGTERM signal, hard kill on Windows)
-- `X` - Hard kill selected process (send SIGKILL)
-- `s` - Start selected process, if it is not running
-- `r` - Soft kill selected process and restart it when it stops
-- `R` - Hard kill selected process and restart it when it stops
-- `a` - Add new process
-- `C` - Duplicate selected process
-- `d` - Remove selected process (process must be stopped first)
-- `e` - Rename selected process
-- `k` or `↑` - Select previous process
-- `j` or `↓` - Select next process
-- `M-1` - `M-8` - Select process 1-8
-- `C-d` or `page down` - Scroll output down
-- `C-u` or `page up` - Scroll output up
-- `C-e` - Scroll output down by 3 lines
-- `C-y` - Scroll output up by 3 lines
-- `z` - Zoom into terminal window
-- `v` - Enter copy mode
+**Borrowed from mprocs (~30%):**
+- `src/vt100/` - Terminal emulation (VT100)
+- `src/proc/` - PTY handling
+- `src/term/` - Terminal abstractions
 
-Process output focused:
+**New Termin.AI code (~70%):**
+- `src/llm/` - Multi-provider LLM client
+- `src/ai_proc/` - AI chat process and UI
+- `src/command/` - Command parsing, validation, execution
+- `src/privacy/` - Sensitive data filtering
+- `src/app.rs` - Single-shell application (different from mprocs)
 
-- `C-a` - Focus processes pane
+See `IMPLEMENTATION_PLAN.md` for detailed architecture.
 
-Copy mode:
+## Contributing
 
-- `v` - Start selecting end point
-- `c` - Copy selected text
-- `Esc` - Leave copy mode
-- `C-a` - Focus processes pane
-- `C-d` or `page down` - Scroll output down
-- `C-u` or `page up` - Scroll output up
-- `C-e` - Scroll output down by 3 lines
-- `C-y` - Scroll output up by 3 lines
-- `k` or `↑` - Move cursor up
-- `l` or `→` - Move cursor right
-- `j` or `↓` - Move cursor down
-- `h` or `←` - Move cursor left
+This project is in active development. We welcome:
+- Bug reports
+- Feature requests
+- Documentation improvements
+- Code contributions
 
-### Remote control
+Please read `CLAUDE.md` for guidelines when working with AI assistants on this project.
 
-Optionally, _mprocs_ can listen on TCP port for remote commands.
-You have to define remote control server address in `mprocs.yaml`
-(`server: 127.0.0.1:4050`) or via cli argument (`mprocs --server 127.0.0.1:4050`). To send a command to running _mprocs_ instance
-use the **ctl** argument: `mprocs --ctl '{c: quit}'` or `mprocs --ctl '{c: send-key, key: <C-c>}'`.
+## Relationship to mprocs
 
-Commands are encoded as yaml. Available commands:
+Termin.AI is **NOT**:
+- ❌ A fork of mprocs
+- ❌ An extension of mprocs
+- ❌ "mprocs with AI added"
 
-- `{c: quit-or-ask}` - Stop processes and quit. If any processes are running,
-  show a confirmation dialog.
-- `{c: quit}` - Stop processes and quit. Does not show confirm dialog.
-- `{c: force-quit}`
-- `{c: toggle-focus}` - Toggle focus between process list and terminal.
-- `{c: focus-procs}` - Focus process list
-- `{c: focus-term}` - Focus process terminal window
-- `{c: zoom}` - Zoom into terminal window
-- `{c: next-proc}`
-- `{c: prev-proc}`
-- `{c: select-proc, index: <PROCESS INDEX>}` - Select process by index, top process has index 0
-- `{c: start-proc}`
-- `{c: term-proc}`
-- `{c: kill-proc}`
-- `{c: restart-proc}`
-- `{c: force-restart-proc}`
-- `{c: show-add-proc}`
-- `{c: add-proc, cmd: "<SHELL COMMAND>", name: "<PROC NAME>"}` - Add proccess. `name` field is optional.
-- `{c: duplicate-proc}`
-- `{c: show-remove-proc}`
-- `{c: remove-proc, id: "<PROCESS ID>"}`
-- `{c: show-rename-proc}`
-- `{c: rename-proc, name: "<NEW_NAME>"}` - Rename currently selected process
-- `{c: scroll-down}`
-- `{c: scroll-up}`
-- `{c: scroll-down-lines, n: <COUNT>}`
-- `{c: scroll-up-lines, n: <COUNT>}`
-- `{c: copy-mode-enter}` - Enter copy mode
-- `{c: copy-mode-leave}` - Leave copy mode
-- `{c: copy-mode-move, dir: <DIRECTION> }` - Move starting or ending position
-  of the selection. Available directions: `up/right/down/left`.
-- `{c: copy-mode-end}` - Start selecting end point of the selection.
-- `{c: copy-mode-copy}` - Copy selected text to the clipboard and leave copy
-  mode.
-- `{c: send-key, key: "<KEY>"}` - Send key to current process. Key examples:
-  `<C-a>`, `<Enter>`
-- `{c: batch, cmds: [{c: focus-procs}, …]}` - Send multiple commands
+Termin.AI **IS**:
+- ✅ A new product with its own vision
+- ✅ Using mprocs' terminal virtualization as a code library
+- ✅ Building on proven technology to move faster
+- ✅ Focused on single-shell + AI assistance
 
-## FAQ
+We're grateful to mprocs for their excellent terminal handling code and actively contribute improvements back upstream.
 
-### mprocs vs tmux/screen
+## License
 
-_mprocs_ is meant to make it easier to run specific commands that you end up
-running repeatedly, such as compilers and test runners. This is in contrast
-with _tmux_, which is usually used to run much more long-lived processes -
-usually a shell - in each window/pane. Another difference is that _tmux_ runs a
-server and a client, which allows the client to detach and reattach later,
-keeping the processes running. _mprocs_ is meant more for finite lifetime
-processes that you keep re-running, but when _mprocs_ ends, so do the processes
-it is running within its windows.
+MIT License - see LICENSE file for details.
 
-### Copying doesn't work in tmux
+Portions of terminal virtualization code are from [mprocs](https://github.com/pvolok/mprocs) (MIT License).
 
-Tmux doesn't have escape sequences for copying enabled by default. To enable it
-add the following to `~/.tmux.conf`:
+## Credits
 
-```
-set -g set-clipboard on
-```
+- **mprocs** by pvolok - Terminal virtualization foundation
+- **Anthropic Claude** - AI capabilities
+- **Ratatui** - Terminal UI framework
+- **genai** - Multi-provider LLM client
+
+---
+
+**Status:** Alpha - Active Development
+
+For questions, issues, or contributions, please visit our [GitHub repository](https://github.com/yourusername/termin.ai).

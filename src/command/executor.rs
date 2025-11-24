@@ -72,7 +72,7 @@ mod tests {
 
   #[test]
   fn test_executor_creation() {
-    let executor = CommandExecutor::new();
+    let _executor = CommandExecutor::new();
     // Basic test - just ensure it can be created
     assert!(true);
   }

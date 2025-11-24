@@ -1,0 +1,36 @@
+# Termin.AI Configuration Example
+# Copy this file to terminai.yaml or ~/.config/terminai/config.yaml and customize
+
+# AI Assistant Configuration
+ai:
+  # Enable or disable the AI assistant
+  enabled: true
+
+  # AI provider: anthropic, openai, gemini, or ollama
+  provider: anthropic
+
+  # Model to use (optional, uses provider default if not specified)
+  # Anthropic: claude-3-5-sonnet-20241022, claude-3-opus-20240229
+  # OpenAI: gpt-4-turbo, gpt-3.5-turbo
+  # Gemini: gemini-pro, gemini-flash
+  # Ollama: llama3.2, codellama
+  model: claude-3-5-sonnet-20241022
+
+  # Environment variable containing the API key
+  # Set this in your shell: export ANTHROPIC_API_KEY="your-key-here"
+  api_key_env: ANTHROPIC_API_KEY
+
+# Process Configuration (optional)
+# Define processes to run in the terminal multiplexer
+# Leave empty or comment out if using as single-shell terminal
+procs:
+  server:
+    shell: "npm run dev"
+  tests:
+    shell: "npm test -- --watch"
+
+# UI Settings
+hide_keymap_window: false
+mouse_scroll_speed: 3
+scrollback_len: 10000
+proc_list_width: 30
