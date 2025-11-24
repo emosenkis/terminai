@@ -17,9 +17,17 @@ include = ["*"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "termin"
+path = "lib.rs"
+
 [[bin]]
 name = "termin"
 path = "main.rs"
+
+[[bin]]
+name = "terminai"
+path = "bin/terminai.rs"
 
 [dependencies]
 anyhow = "1.0.72"
