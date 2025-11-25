@@ -401,21 +401,61 @@ impl App {
                       }
                     }
                   } else if let Some(ref mut ai_process) = self.ai_process {
-                    // Handle other keys
-                    match code {
-                      KeyCode::Char(c) if modifiers.is_empty() => {
-                        // Regular character input
-                        ai_process.append_input(&c.to_string());
-                        self.render()?;
+                    // Check if there's a pending command approval
+                    if ai_process.pending_command().is_some() {
+                      // Handle approval/rejection keys
+                      match code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                          // Approve command
+                          if let Some(pending) = ai_process.approve_command() {
+                            log::info!("Command approved: {}", pending.command);
+
+                            // Execute command by injecting into shell
+                            for ch in pending.command.chars() {
+                              let key = Key::new(KeyCode::Char(ch), KeyModifiers::NONE);
+                              if let Err(e) = self.shell.send_key(key) {
+                                log::error!("Failed to send command character: {:?}", e);
+                              }
+                            }
+
+                            // Send Enter to execute
+                            let enter_key = Key::new(KeyCode::Enter, KeyModifiers::NONE);
+                            if let Err(e) = self.shell.send_key(enter_key) {
+                              log::error!("Failed to send Enter: {:?}", e);
+                            }
+
+                            log::info!("Command executed in shell");
+                            self.render()?;
+                          }
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                          // Reject command
+                          ai_process.reject_command();
+                          log::info!("Command rejected");
+                          self.render()?;
+                        }
+                        _ => {
+                          // Ignore other keys when waiting for approval
+                          log::debug!("Waiting for Y/N approval, ignoring key: {:?}", key);
+                        }
                       }
-                      KeyCode::Backspace => {
-                        // Delete last character
-                        ai_process.delete_char();
-                        self.render()?;
-                      }
-                      _ => {
-                        // Ignore other keys when overlay is visible
-                        log::debug!("Unhandled AI overlay input: {:?}", key);
+                    } else {
+                      // No pending command, handle normal input
+                      match code {
+                        KeyCode::Char(c) if modifiers.is_empty() => {
+                          // Regular character input
+                          ai_process.append_input(&c.to_string());
+                          self.render()?;
+                        }
+                        KeyCode::Backspace => {
+                          // Delete last character
+                          ai_process.delete_char();
+                          self.render()?;
+                        }
+                        _ => {
+                          // Ignore other keys when overlay is visible
+                          log::debug!("Unhandled AI overlay input: {:?}", key);
+                        }
                       }
                     }
                   }
