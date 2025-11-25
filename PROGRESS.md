@@ -78,7 +78,7 @@ struct App {
 
 ## Revised Implementation Plan
 
-### Phase 0: Clean Binary Foundation ⏳ IN PROGRESS
+### Phase 0: Clean Binary Foundation ✅ COMPLETE (100%)
 
 **Goal:** Minimal working binary that launches a shell with no UI chrome
 
@@ -87,11 +87,29 @@ struct App {
 - [x] Setup library exports (`lib.rs`)
 - [x] Basic terminal mode handling
 - [x] Keyboard input skeleton
-- [ ] **Next:** Spawn shell via PTY
-- [ ] **Next:** Render shell output (full screen, no borders)
-- [ ] **Next:** Passthrough keyboard input to shell
+- [x] **DONE:** Spawn shell via PTY (caac964)
+- [x] **DONE:** VT100 terminal emulation integration
+- [x] **DONE:** Keyboard passthrough to shell
+- [x] **DONE:** Render shell output to screen (ratatui)
+- [x] **DONE:** Handle terminal resize events
 
-**Deliverable:** Clean shell wrapper with zero UI elements
+**Deliverable:** ✅ Clean shell wrapper with zero UI elements
+
+**Part 1 - PTY & Event Loop (2025-11-24):**
+- ✅ Implemented Shell struct for PTY management (pattern from mprocs/inst.rs)
+- ✅ VT100 parser integration for terminal emulation
+- ✅ Keyboard encoding using mprocs' encode_key
+- ✅ Event loop with tokio::select! for shell events + keyboard
+- ✅ Ctrl-Space hotkey detection
+
+**Part 2 - Terminal Rendering (2025-11-25):**
+- ✅ Created TerminalWidget implementing ratatui Widget trait (pattern from mprocs/ui_term.rs)
+- ✅ Added Terminal<CrosstermBackend> for screen rendering
+- ✅ Implemented App::render() with cell-by-cell VT100 to TUI conversion
+- ✅ Implemented Shell::resize() for PTY and VT100 resize handling
+- ✅ Wired resize events to Shell::resize() in event loop
+- ✅ Enabled crossterm feature for ratatui in Cargo.toml
+- ✅ All 34 tests passing, builds successfully
 
 ---
 
@@ -235,31 +253,38 @@ running 34 tests
 
 ## Next Immediate Steps
 
-### Priority 1: Shell PTY Integration (Next 2-4 hours)
+### ✅ Phase 0 Complete - Moving to Phase 1
 
-**Goal:** Launch shell and render its output
+**Phase 0 Status:** All tasks complete, shell rendering working
 
-**Implementation:**
-1. Use `portable-pty` (already in mprocs) to spawn shell
-2. Read PTY output in async loop
-3. Pass through mprocs' VT100 parser
-4. Render to screen (full screen, no borders)
-5. Route keyboard input to PTY
+### Priority 1: AI Overlay Rendering (Phase 1 - Next 2-3 hours)
 
-**Reference Code:** Look at `src/proc/proc.rs` and `src/proc/inst.rs`
-
-### Priority 2: AI Overlay Rendering (Next 1-2 hours)
-
-**Goal:** Show overlay on Ctrl-Space
+**Goal:** Show AI overlay on Ctrl-Space press
 
 **Implementation:**
-1. When `ai_visible = true`, render `AIChatUI`
-2. Calculate overlay area (80% x 70%)
-3. Render on top of shell output
-4. Handle keyboard when overlay active
-5. Show placeholder if no API key
+1. When `ai_visible = true`, render `AIChatUI` from `src/ai_proc/ui.rs`
+2. Calculate overlay area (80% x 70%, centered)
+3. Render on top of shell output using ratatui layers
+4. Route keyboard input to AIChatUI when overlay active
+5. Show "API key not configured" message if no ANTHROPIC_API_KEY
+6. Handle ESC to close overlay
 
-**Reference Code:** Already implemented in `src/ai_proc/ui.rs`
+**Reference Code:**
+- `src/ai_proc/ui.rs` - AIChatUI widget already implemented
+- terminai.rs lines 359-361 - Placeholder for overlay rendering
+
+### Priority 2: AI Input Handling (Phase 1 - Next 1-2 hours)
+
+**Goal:** Allow typing in AI overlay
+
+**Implementation:**
+1. Route keyboard events to AIChatProcess when ai_visible
+2. Handle text input, backspace, enter
+3. Update overlay display on input
+4. Implement message sending (Enter key)
+
+**Reference Code:**
+- `src/ai_proc/chat_process.rs` - handle_input() method
 
 ---
 

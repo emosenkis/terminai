@@ -13,12 +13,11 @@ use crossterm::{
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Write, stdout};
 use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tui::{Terminal, backend::Backend, layout::Rect};
+use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tui::{Terminal, backend::CrosstermBackend, layout::Rect, widgets::Widget};
 
 // Import only what we need from the crate
-use termin::ai_proc::{AIChatProcess, AIChatUI, ContextExtractor};
-use termin::command::CommandExecutor;
+use termin::ai_proc::AIChatProcess;
 use termin::encode_term::{KeyCodeEncodeModes, encode_key};
 use termin::key::Key;
 use termin::llm::Provider;
@@ -35,6 +34,7 @@ enum ShellEvent {
 struct Shell {
   vt: Arc<RwLock<vt100::Parser<DummyReplySender>>>,
   writer: Box<dyn Write + Send>,
+  master: Option<Box<dyn portable_pty::MasterPty + Send>>,
   _pid: u32,
   event_rx: UnboundedReceiver<ShellEvent>,
 }
@@ -108,6 +108,7 @@ impl Shell {
     Ok(Shell {
       vt,
       writer,
+      master: Some(pair.master),
       _pid: pid,
       event_rx,
     })
@@ -120,6 +121,26 @@ impl Shell {
     self.writer.flush()?;
     Ok(())
   }
+
+  fn resize(&mut self, rows: u16, cols: u16) -> Result<()> {
+    // Resize PTY (pattern from mprocs' inst.rs)
+    if let Some(master) = &self.master {
+      master.resize(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+      })?;
+    }
+
+    // Resize VT100 parser
+    if let Ok(mut vt) = self.vt.write() {
+      vt.set_size(rows, cols);
+    }
+
+    log::info!("Shell resized to {}x{}", cols, rows);
+    Ok(())
+  }
 }
 
 // Dummy reply sender (needed for VT100 parser)
@@ -130,6 +151,45 @@ impl termin::vt100::TermReplySender for DummyReplySender {
   fn reply(&self, _reply: compact_str::CompactString) {
     // Terminal reply sequences (like cursor position reports) would go here
     // For now, we ignore them
+  }
+}
+
+// Terminal renderer widget (simplified from mprocs' UiTerm)
+struct TerminalWidget<'a> {
+  screen: &'a vt100::Screen<DummyReplySender>,
+}
+
+impl<'a> TerminalWidget<'a> {
+  fn new(screen: &'a vt100::Screen<DummyReplySender>) -> Self {
+    Self { screen }
+  }
+}
+
+impl Widget for TerminalWidget<'_> {
+  fn render(self, area: Rect, buf: &mut tui::buffer::Buffer) {
+    // Render each cell from the VT100 screen to the tui buffer
+    // Pattern borrowed from mprocs' ui_term.rs
+    for row in 0..area.height {
+      for col in 0..area.width {
+        let pos = tui::layout::Position {
+          x: area.x + col,
+          y: area.y + row,
+        };
+
+        if let Some(to_cell) = buf.cell_mut(pos) {
+          if let Some(cell) = self.screen.cell(row, col) {
+            // Convert VT100 cell to tui cell (using mprocs' conversion)
+            *to_cell = cell.to_tui();
+            if !cell.has_contents() {
+              to_cell.set_char(' ');
+            }
+          } else {
+            // Out of bounds
+            to_cell.set_char(' ');
+          }
+        }
+      }
+    }
   }
 }
 
@@ -154,6 +214,7 @@ async fn main() -> Result<()> {
 }
 
 struct App {
+  terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
   shell: Shell,
   ai_process: Option<AIChatProcess>,
   ai_visible: bool,
@@ -165,6 +226,10 @@ impl App {
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
+
+    // Create ratatui terminal
+    let backend = CrosstermBackend::new(stdout);
+    let terminal = Terminal::new(backend)?;
 
     // Get terminal size
     let (cols, rows) = crossterm::terminal::size()?;
@@ -198,6 +263,7 @@ impl App {
     };
 
     Ok(Self {
+      terminal,
       shell,
       ai_process,
       ai_visible: false,
@@ -207,14 +273,17 @@ impl App {
   async fn run(&mut self) -> Result<()> {
     log::info!("Termin.AI main loop starting");
 
+    // Initial render
+    self.render()?;
+
     loop {
       tokio::select! {
         // Handle shell events
         Some(event) = self.shell.event_rx.recv() => {
           match event {
             ShellEvent::Output => {
-              // Shell produced output, screen needs re-rendering
-              // (VT100 parser has already processed it)
+              // Shell produced output, re-render
+              self.render()?;
             }
             ShellEvent::Exited(code) => {
               log::info!("Shell exited with code: {}", code);
@@ -253,8 +322,8 @@ impl App {
                 }
               }
               Event::Resize(cols, rows) => {
-                log::info!("Terminal resized: {}x{}", cols, rows);
-                // TODO: Resize PTY
+                self.shell.resize(rows, cols)?;
+                self.render()?;
               }
               _ => {}
             }
@@ -265,12 +334,37 @@ impl App {
 
     Ok(())
   }
+
+  fn render(&mut self) -> Result<()> {
+    self.terminal.draw(|frame| {
+      let area = frame.area();
+
+      // Render shell output (full screen)
+      if let Ok(vt) = self.shell.vt.read() {
+        let screen = vt.screen();
+        let widget = TerminalWidget::new(screen);
+        frame.render_widget(widget, area);
+
+        // Set cursor position if cursor is visible
+        if !screen.hide_cursor() {
+          let cursor = screen.cursor_position();
+          frame.set_cursor_position((area.x + cursor.1, area.y + cursor.0));
+        }
+      }
+
+      // TODO: Render AI overlay if visible
+      if self.ai_visible {
+        // Will add in next phase
+      }
+    })?;
+    Ok(())
+  }
 }
 
 impl Drop for App {
   fn drop(&mut self) {
     // Cleanup terminal
     let _ = disable_raw_mode();
-    let _ = execute!(stdout(), LeaveAlternateScreen);
+    let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
   }
 }
