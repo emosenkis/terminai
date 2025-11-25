@@ -336,8 +336,9 @@ impl App {
         Some(event) = self.shell.event_rx.recv() => {
           match event {
             ShellEvent::Output => {
-              // Shell produced output, re-render
-              self.render()?;
+              // Shell produced output - don't render here to avoid performance issues
+              // The VT100 parser has already been updated by the PTY reader thread
+              // Rendering will happen in the periodic frame below
             }
             ShellEvent::Exited(code) => {
               log::info!("Shell exited with code: {}", code);
@@ -346,8 +347,10 @@ impl App {
           }
         }
 
-        // Handle keyboard input
+        // Periodic rendering and keyboard input (60fps)
         _ = tokio::time::sleep(std::time::Duration::from_millis(16)) => {
+          // Render the current state (includes any shell output)
+          self.render()?;
           if event::poll(std::time::Duration::from_millis(1))? {
             match event::read()? {
               Event::Key(KeyEvent {
@@ -364,15 +367,12 @@ impl App {
                   // Ctrl-Space: toggle AI overlay
                   self.ai_visible = !self.ai_visible;
                   log::info!("AI overlay toggled: {}", self.ai_visible);
-                  self.render()?;
                 } else if matches!(code, KeyCode::Esc) && self.ai_visible {
                   // ESC: close AI overlay
                   self.ai_visible = false;
-                  self.render()?;
                 } else if !self.ai_visible {
                   // Route to shell when AI overlay not visible
                   self.shell.send_key(key)?;
-                  self.render()?;
                 } else if self.ai_process.is_some() {
                   // Route to AI overlay when visible
 
@@ -432,7 +432,6 @@ impl App {
                           // Reject command
                           ai_process.reject_command();
                           log::info!("Command rejected");
-                          self.render()?;
                         }
                         _ => {
                           // Ignore other keys when waiting for approval
@@ -445,12 +444,10 @@ impl App {
                         KeyCode::Char(c) if modifiers.is_empty() => {
                           // Regular character input
                           ai_process.append_input(&c.to_string());
-                          self.render()?;
                         }
                         KeyCode::Backspace => {
                           // Delete last character
                           ai_process.delete_char();
-                          self.render()?;
                         }
                         _ => {
                           // Ignore other keys when overlay is visible
