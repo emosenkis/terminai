@@ -14,10 +14,16 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Write, stdout};
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
-use tui::{Terminal, backend::CrosstermBackend, layout::Rect, widgets::Widget};
+use tui::{
+  Terminal,
+  backend::CrosstermBackend,
+  layout::{Constraint, Direction, Layout, Rect},
+  style::{Color, Style},
+  widgets::{Block, Borders, Paragraph, Widget},
+};
 
 // Import only what we need from the crate
-use termin::ai_proc::AIChatProcess;
+use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::encode_term::{KeyCodeEncodeModes, encode_key};
 use termin::key::Key;
 use termin::llm::Provider;
@@ -316,9 +322,31 @@ impl App {
                 } else if !self.ai_visible {
                   // Route to shell when AI overlay not visible
                   self.shell.send_key(key)?;
+                } else if let Some(ref mut ai_process) = self.ai_process {
+                  // Route to AI overlay when visible
+                  match code {
+                    KeyCode::Char(c) if modifiers.is_empty() => {
+                      // Regular character input
+                      ai_process.append_input(&c.to_string());
+                      self.render()?;
+                    }
+                    KeyCode::Backspace => {
+                      // Delete last character
+                      ai_process.delete_char();
+                      self.render()?;
+                    }
+                    KeyCode::Enter => {
+                      // TODO: Send message to LLM (Phase 2)
+                      log::debug!("Enter pressed in AI overlay - will implement in Phase 2");
+                    }
+                    _ => {
+                      // Ignore other keys when overlay is visible
+                      log::debug!("Unhandled AI overlay input: {:?}", key);
+                    }
+                  }
                 } else {
-                  // TODO: Route to AI overlay when visible
-                  log::debug!("AI overlay input: {:?}", key);
+                  // AI overlay visible but no AI process (shouldn't happen, but log it)
+                  log::debug!("AI overlay visible but no AI process");
                 }
               }
               Event::Resize(cols, rows) => {
@@ -352,13 +380,64 @@ impl App {
         }
       }
 
-      // TODO: Render AI overlay if visible
+      // Render AI overlay if visible
       if self.ai_visible {
-        // Will add in next phase
+        // Calculate overlay area (80% x 70%, centered)
+        let overlay_area = centered_rect(80, 70, area);
+
+        if let Some(ref ai_process) = self.ai_process {
+          // Render AI chat interface
+          let ai_ui = AIChatUI::new(ai_process);
+          let buf = frame.buffer_mut();
+          ai_ui.render(overlay_area, buf);
+        } else {
+          // Show "not configured" message
+          let message = Paragraph::new(
+            "AI Assistant not configured.\n\n\
+             Set ANTHROPIC_API_KEY environment variable to enable AI features.\n\n\
+             Press ESC or Ctrl-Space to close this overlay."
+          )
+          .block(
+            Block::default()
+              .borders(Borders::ALL)
+              .title(" AI Assistant ")
+              .style(Style::default().fg(Color::Yellow))
+          )
+          .style(Style::default().fg(Color::White));
+
+          frame.render_widget(message, overlay_area);
+        }
       }
     })?;
     Ok(())
   }
+}
+
+/// Helper function to create a centered rectangle
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+  let popup_layout = Layout::default()
+    .direction(Direction::Vertical)
+    .constraints(
+      [
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+      ]
+      .as_ref(),
+    )
+    .split(r);
+
+  Layout::default()
+    .direction(Direction::Horizontal)
+    .constraints(
+      [
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+      ]
+      .as_ref(),
+    )
+    .split(popup_layout[1])[1]
 }
 
 impl Drop for App {

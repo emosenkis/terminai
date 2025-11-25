@@ -113,18 +113,31 @@ struct App {
 
 ---
 
-### Phase 1: AI Overlay Integration (Week 2)
+### Phase 1: AI Overlay Integration ✅ COMPLETE (100%)
 
 **Goal:** Show AI overlay on Ctrl-Space, even without API key
 
 **Tasks:**
-- [ ] Render AI overlay when `ai_visible = true`
-- [ ] Show "API key not configured" message if no key
-- [ ] Handle overlay keyboard input (typing, ESC to close)
-- [ ] Proper overlay positioning (80% x 70%, centered)
-- [ ] Preserve shell output beneath overlay
+- [x] Render AI overlay when `ai_visible = true`
+- [x] Show "API key not configured" message if no key
+- [x] Handle overlay keyboard input (typing, ESC to close)
+- [x] Proper overlay positioning (80% x 70%, centered)
+- [x] Preserve shell output beneath overlay
 
-**Deliverable:** Visible AI overlay that users can interact with
+**Deliverable:** ✅ Visible AI overlay that users can interact with
+
+**Implementation (2025-11-25):**
+- ✅ Added imports for AIChatUI and ratatui layout components
+- ✅ Implemented centered_rect() helper function for overlay positioning
+- ✅ Modified render() to show AI overlay when ai_visible = true
+- ✅ Integrated AIChatUI widget from ai_proc/ui.rs
+- ✅ Added "not configured" message when ANTHROPIC_API_KEY not set
+- ✅ Implemented keyboard routing for AI overlay:
+  - Regular characters append to input buffer
+  - Backspace deletes last character
+  - ESC closes overlay
+  - Ctrl-Space toggles overlay
+- ✅ All 34 tests passing, builds successfully
 
 ---
 
@@ -253,38 +266,42 @@ running 34 tests
 
 ## Next Immediate Steps
 
-### ✅ Phase 0 Complete - Moving to Phase 1
+### ✅ Phase 0 & 1 Complete - Moving to Phase 2
 
-**Phase 0 Status:** All tasks complete, shell rendering working
+**Phase 0 Status:** All tasks complete, clean shell wrapper working
+**Phase 1 Status:** All tasks complete, AI overlay rendering and input working
 
-### Priority 1: AI Overlay Rendering (Phase 1 - Next 2-3 hours)
+### Priority 1: Context Extraction (Phase 2 - Next 2-3 hours)
 
-**Goal:** Show AI overlay on Ctrl-Space press
-
-**Implementation:**
-1. When `ai_visible = true`, render `AIChatUI` from `src/ai_proc/ui.rs`
-2. Calculate overlay area (80% x 70%, centered)
-3. Render on top of shell output using ratatui layers
-4. Route keyboard input to AIChatUI when overlay active
-5. Show "API key not configured" message if no ANTHROPIC_API_KEY
-6. Handle ESC to close overlay
-
-**Reference Code:**
-- `src/ai_proc/ui.rs` - AIChatUI widget already implemented
-- terminai.rs lines 359-361 - Placeholder for overlay rendering
-
-### Priority 2: AI Input Handling (Phase 1 - Next 1-2 hours)
-
-**Goal:** Allow typing in AI overlay
+**Goal:** Extract terminal context for AI messages
 
 **Implementation:**
-1. Route keyboard events to AIChatProcess when ai_visible
-2. Handle text input, backspace, enter
-3. Update overlay display on input
-4. Implement message sending (Enter key)
+1. Capture VT100 screen content as terminal history
+2. Extract current working directory from shell
+3. Track last command exit code (future enhancement)
+4. Create TerminalContext structure for LLM
+5. Apply privacy filtering to context
 
 **Reference Code:**
-- `src/ai_proc/chat_process.rs` - handle_input() method
+- `src/ai_proc/context.rs` - ContextExtractor already implemented
+- `src/privacy/filter.rs` - PrivacyFilter for redacting sensitive data
+- Need to adapt for single shell (current code expects ProcView from multi-process)
+
+### Priority 2: LLM Integration (Phase 2 - Next 3-4 hours)
+
+**Goal:** Send messages to LLM and display responses
+
+**Implementation:**
+1. Wire up Enter key to trigger message sending
+2. Extract context using ContextExtractor
+3. Send user message + context to LLM via LLMClient
+4. Handle streaming responses
+5. Display AI responses in overlay
+6. Handle errors gracefully (API errors, network issues)
+
+**Reference Code:**
+- `src/llm/client.rs` - LLMClient with streaming support
+- `src/ai_proc/chat_process.rs` - send_input() method (needs adaptation)
 
 ---
 
