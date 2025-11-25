@@ -26,7 +26,7 @@ use tui::{
 use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::encode_term::{KeyCodeEncodeModes, encode_key};
 use termin::key::Key;
-use termin::llm::Provider;
+use termin::llm::{Provider, TerminalContext};
 use termin::vt100;
 
 // Shell events
@@ -227,6 +227,54 @@ struct App {
 }
 
 impl App {
+  /// Extract terminal context from shell for AI
+  fn extract_context(&self) -> TerminalContext {
+    use std::path::PathBuf;
+
+    let mut history_lines = Vec::new();
+    let max_lines = 500; // As per PRD
+
+    // Extract terminal buffer from VT100 screen
+    if let Ok(parser) = self.shell.vt.read() {
+      let screen = parser.screen();
+      let size = screen.size();
+
+      // Extract up to max_lines rows
+      let rows_to_extract = max_lines.min(size.rows as usize);
+
+      for row_idx in 0..rows_to_extract {
+        let mut line_content = String::new();
+        let mut has_content = false;
+
+        // Extract each cell in the row
+        for col_idx in 0..size.cols {
+          if let Some(cell) = screen.cell(row_idx as u16, col_idx) {
+            if cell.has_contents() {
+              line_content.push_str(&cell.contents());
+              has_content = true;
+            } else if has_content {
+              // Add spaces for empty cells after content
+              line_content.push(' ');
+            }
+          }
+        }
+
+        // Only add non-empty lines
+        let trimmed = line_content.trim_end();
+        if !trimmed.is_empty() {
+          history_lines.push(trimmed.to_string());
+        }
+      }
+    }
+
+    // Get current working directory
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+
+    // No exit code tracking yet (future enhancement)
+    // Note: Privacy filtering will be applied by AIChatProcess.send_input_with_context
+    TerminalContext::new(history_lines, cwd, None)
+  }
+
   async fn new(shell_cmd: String) -> Result<Self> {
     // Setup terminal
     enable_raw_mode()?;
@@ -325,26 +373,50 @@ impl App {
                   // Route to shell when AI overlay not visible
                   self.shell.send_key(key)?;
                   self.render()?;
-                } else if let Some(ref mut ai_process) = self.ai_process {
+                } else if self.ai_process.is_some() {
                   // Route to AI overlay when visible
-                  match code {
-                    KeyCode::Char(c) if modifiers.is_empty() => {
-                      // Regular character input
-                      ai_process.append_input(&c.to_string());
-                      self.render()?;
+
+                  // Handle Enter key specially - needs to extract context first
+                  if matches!(code, KeyCode::Enter) {
+                    if let Some(ref ai_process) = self.ai_process {
+                      if !ai_process.input_buffer().is_empty() {
+                        log::info!("Sending message to LLM");
+
+                        // Extract context before taking mutable borrow
+                        let context = self.extract_context();
+
+                        // Now get mutable reference and send
+                        if let Some(ref mut ai_process) = self.ai_process {
+                          match ai_process.send_input_with_context(context).await {
+                            Ok(()) => {
+                              log::info!("Message sent successfully");
+                              self.render()?;
+                            }
+                            Err(e) => {
+                              log::error!("Failed to send message: {:?}", e);
+                              // Error is logged, user will see no response
+                            }
+                          }
+                        }
+                      }
                     }
-                    KeyCode::Backspace => {
-                      // Delete last character
-                      ai_process.delete_char();
-                      self.render()?;
-                    }
-                    KeyCode::Enter => {
-                      // TODO: Send message to LLM (Phase 2)
-                      log::debug!("Enter pressed in AI overlay - will implement in Phase 2");
-                    }
-                    _ => {
-                      // Ignore other keys when overlay is visible
-                      log::debug!("Unhandled AI overlay input: {:?}", key);
+                  } else if let Some(ref mut ai_process) = self.ai_process {
+                    // Handle other keys
+                    match code {
+                      KeyCode::Char(c) if modifiers.is_empty() => {
+                        // Regular character input
+                        ai_process.append_input(&c.to_string());
+                        self.render()?;
+                      }
+                      KeyCode::Backspace => {
+                        // Delete last character
+                        ai_process.delete_char();
+                        self.render()?;
+                      }
+                      _ => {
+                        // Ignore other keys when overlay is visible
+                        log::debug!("Unhandled AI overlay input: {:?}", key);
+                      }
                     }
                   }
                 } else {
