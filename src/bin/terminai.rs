@@ -364,9 +364,8 @@ impl App {
 
         // Periodic rendering and keyboard input (60fps)
         _ = tokio::time::sleep(std::time::Duration::from_millis(16)) => {
-          // Render the current state (includes any shell output)
-          self.render()?;
-          if event::poll(std::time::Duration::from_millis(1))? {
+          // Process all available keyboard events before rendering (important for paste performance)
+          while event::poll(std::time::Duration::from_millis(0))? {
             match event::read()? {
               Event::Key(KeyEvent {
                 code,
@@ -483,6 +482,9 @@ impl App {
               _ => {}
             }
           }
+
+          // Render once after processing all keyboard events
+          self.render()?;
         }
       }
     }
