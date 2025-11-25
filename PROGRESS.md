@@ -213,6 +213,7 @@ struct App {
 **Tasks:**
 - [x] Fix frame-rate limited rendering
 - [x] Fix terminal query response handling
+- [x] Fix paste performance
 
 **Deliverable:** ✅ Stable terminal with proper performance
 
@@ -238,7 +239,36 @@ struct App {
 - ✅ Result: Programs receive terminal query responses without timeout
 - ✅ Commit: "Fix terminal query response handling for glow compatibility"
 
+**Issue 3: Paste Performance Problem**
+- ✅ Root cause: Only processing one keyboard event per frame (16ms)
+- ✅ Impact: Pasted text appearing slowly at ~70 characters/second
+- ✅ Symptom: Character-by-character display when pasting, ~1 second per line
+- ✅ Problem: `if event::poll()` only read one event, then waited 16ms for next frame
+- ✅ Fix: Changed to `while event::poll()` to process all available events
+- ✅ Solution: Batch process all queued keyboard events before rendering
+- ✅ Result: Pasted text appears instantly, matching native shell performance
+- ✅ Commit: "Fix paste performance by batch processing keyboard events"
+
 **Technical Details:**
+
+**Frame-rate Limiting:**
+```rust
+// Before: Rendered on every ShellEvent::Output
+ShellEvent::Output => {
+  self.render()?;  // Could be 1000s of renders/sec
+}
+
+// After: Render periodically (60fps)
+ShellEvent::Output => {
+  // VT100 parser updated, rendering happens separately
+}
+// Separate timer branch:
+_ = tokio::time::sleep(Duration::from_millis(16)) => {
+  self.render()?;  // Fixed 60 renders/second
+}
+```
+
+**Terminal Query Responses:**
 ```rust
 // Before: Discarded terminal queries
 struct DummyReplySender;
@@ -262,6 +292,29 @@ impl TermReplySender for ReplySender {
 ShellEvent::TermReply(reply) => {
   self.shell.writer.write_all(reply.as_bytes())?;
   self.shell.writer.flush()?;
+}
+```
+
+**Paste Performance:**
+```rust
+// Before: Processed one event per frame (60 events/sec limit)
+_ = tokio::time::sleep(Duration::from_millis(16)) => {
+  self.render()?;
+  if event::poll(Duration::from_millis(1))? {  // Only one event
+    match event::read()? {
+      // Process single event
+    }
+  }
+}
+
+// After: Batch process all events before rendering
+_ = tokio::time::sleep(Duration::from_millis(16)) => {
+  while event::poll(Duration::from_millis(0))? {  // All available events
+    match event::read()? {
+      // Process each event
+    }
+  }
+  self.render()?;  // Single render after all events
 }
 ```
 
