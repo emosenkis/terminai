@@ -316,12 +316,15 @@ impl App {
                   // Ctrl-Space: toggle AI overlay
                   self.ai_visible = !self.ai_visible;
                   log::info!("AI overlay toggled: {}", self.ai_visible);
+                  self.render()?;
                 } else if matches!(code, KeyCode::Esc) && self.ai_visible {
                   // ESC: close AI overlay
                   self.ai_visible = false;
+                  self.render()?;
                 } else if !self.ai_visible {
                   // Route to shell when AI overlay not visible
                   self.shell.send_key(key)?;
+                  self.render()?;
                 } else if let Some(ref mut ai_process) = self.ai_process {
                   // Route to AI overlay when visible
                   match code {
