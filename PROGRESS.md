@@ -206,6 +206,67 @@ struct App {
 
 ---
 
+### Phase 3.5: Critical Bug Fixes ✅ COMPLETE (100%)
+
+**Goal:** Fix initialization and performance issues
+
+**Tasks:**
+- [x] Fix frame-rate limited rendering
+- [x] Fix terminal query response handling
+
+**Deliverable:** ✅ Stable terminal with proper performance
+
+**Implementation (2025-11-25):**
+
+**Issue 1: Excessive Rendering Performance Problem**
+- ✅ Root cause: Rendering on every `ShellEvent::Output` event
+- ✅ Impact: Thousands of renders per second for large shell output
+- ✅ Symptom: Slow character-by-character display when pasting text
+- ✅ Symptom: Hang during shell initialization with ublue-motd
+- ✅ Fix: Implemented frame-rate limited rendering (60fps max)
+- ✅ Solution: Decoupled VT100 parser updates from rendering
+- ✅ Result: Fixed 60 renders/second regardless of shell output volume
+- ✅ Commit: "Fix critical performance issue with frame-rate limited rendering"
+
+**Issue 2: Terminal Query Response Handling**
+- ✅ Root cause: `DummyReplySender` discarding terminal query responses
+- ✅ Impact: Programs like `glow` waiting 5 seconds for terminal query responses
+- ✅ Symptom: Hang when shell initialization runs `/usr/bin/glow` (via ublue-motd)
+- ✅ Problem: Terminal query sequences like `\33[6n` (cursor position) and `\33]11;?\33\\` (background color) had no response path
+- ✅ Fix: Replaced `DummyReplySender` with proper `ReplySender` using event channel
+- ✅ Solution: Added `ShellEvent::TermReply` variant to route responses back to PTY
+- ✅ Result: Programs receive terminal query responses without timeout
+- ✅ Commit: "Fix terminal query response handling for glow compatibility"
+
+**Technical Details:**
+```rust
+// Before: Discarded terminal queries
+struct DummyReplySender;
+impl TermReplySender for DummyReplySender {
+  fn reply(&self, _reply: CompactString) {
+    // Ignored - programs timeout waiting
+  }
+}
+
+// After: Send via channel and write to PTY
+struct ReplySender {
+  tx: UnboundedSender<ShellEvent>,
+}
+impl TermReplySender for ReplySender {
+  fn reply(&self, reply: CompactString) {
+    let _ = self.tx.send(ShellEvent::TermReply(reply));
+  }
+}
+
+// Event loop writes replies back to PTY
+ShellEvent::TermReply(reply) => {
+  self.shell.writer.write_all(reply.as_bytes())?;
+  self.shell.writer.flush()?;
+}
+```
+
+---
+
 ### Phase 4: Polish & Testing (Week 5)
 
 **Goal:** Production-ready release
@@ -299,14 +360,15 @@ running 34 tests
 
 ## Next Immediate Steps
 
-### ✅ Phase 0, 1, 2, 3 Complete - MVP Feature Complete!
+### ✅ Phase 0, 1, 2, 3, 3.5 Complete - MVP Feature Complete!
 
 **Phase 0 Status:** ✅ Clean shell wrapper with zero UI chrome
 **Phase 1 Status:** ✅ AI overlay rendering and keyboard input
 **Phase 2 Status:** ✅ LLM integration with context extraction
 **Phase 3 Status:** ✅ Command execution with approval workflow
+**Phase 3.5 Status:** ✅ Critical bug fixes and performance optimization
 
-### 🎉 MVP Core Features Complete
+### 🎉 MVP Core Features Complete + Critical Fixes
 
 All core PRD requirements implemented:
 - ✅ Transparent shell wrapper (launches user's $SHELL)
@@ -316,6 +378,8 @@ All core PRD requirements implemented:
 - ✅ Safety validation (Safe/Caution/Dangerous)
 - ✅ Command approval workflow (Y/N)
 - ✅ Command execution via PTY injection
+- ✅ Frame-rate limited rendering (60fps) for smooth performance
+- ✅ Terminal query response handling (cursor position, background color)
 
 ### Next: Polish & Testing (Phase 4 - Optional Enhancements)
 
@@ -323,7 +387,7 @@ All core PRD requirements implemented:
 1. Cross-platform testing (Linux, macOS)
 2. Multiple shell testing (bash, zsh, fish)
 3. Error handling improvements
-4. Performance optimization
+4. ✅ ~~Performance optimization~~ (Frame-rate limiting implemented)
 5. Documentation (README, examples)
 6. Optional: Streaming LLM responses
 7. Optional: Safe command auto-execution
