@@ -346,9 +346,12 @@ impl App {
           }
         }
 
-        // Handle keyboard input
+        // Handle keyboard input and periodic rendering
         _ = tokio::time::sleep(std::time::Duration::from_millis(16)) => {
-          if event::poll(std::time::Duration::from_millis(1))? {
+          // Render periodically to catch shell output changes
+          let had_keyboard_event = event::poll(std::time::Duration::from_millis(1))?;
+
+          if had_keyboard_event {
             match event::read()? {
               Event::Key(KeyEvent {
                 code,
@@ -364,15 +367,12 @@ impl App {
                   // Ctrl-Space: toggle AI overlay
                   self.ai_visible = !self.ai_visible;
                   log::info!("AI overlay toggled: {}", self.ai_visible);
-                  self.render()?;
                 } else if matches!(code, KeyCode::Esc) && self.ai_visible {
                   // ESC: close AI overlay
                   self.ai_visible = false;
-                  self.render()?;
                 } else if !self.ai_visible {
                   // Route to shell when AI overlay not visible
                   self.shell.send_key(key)?;
-                  self.render()?;
                 } else if self.ai_process.is_some() {
                   // Route to AI overlay when visible
 
@@ -432,7 +432,6 @@ impl App {
                           // Reject command
                           ai_process.reject_command();
                           log::info!("Command rejected");
-                          self.render()?;
                         }
                         _ => {
                           // Ignore other keys when waiting for approval
@@ -445,12 +444,10 @@ impl App {
                         KeyCode::Char(c) if modifiers.is_empty() => {
                           // Regular character input
                           ai_process.append_input(&c.to_string());
-                          self.render()?;
                         }
                         KeyCode::Backspace => {
                           // Delete last character
                           ai_process.delete_char();
-                          self.render()?;
                         }
                         _ => {
                           // Ignore other keys when overlay is visible
@@ -471,6 +468,10 @@ impl App {
               _ => {}
             }
           }
+
+          // Render after keyboard handling (or if no keyboard event)
+          // This ensures we always show the latest shell output
+          self.render()?;
         }
       }
     }
