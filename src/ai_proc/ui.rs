@@ -82,7 +82,8 @@ impl<'a> AIChatUI<'a> {
       .block(
         Block::default()
           .borders(Borders::ALL)
-          .title(" AI Assistant "),
+          .title(" AI Assistant ")
+          .style(Style::default().bg(Color::Black)),
       )
       .wrap(Wrap { trim: false });
 
@@ -96,7 +97,7 @@ impl<'a> AIChatUI<'a> {
       Block::default()
         .borders(Borders::ALL)
         .title(" Your Message (Ctrl+Space to toggle, Enter to send) ")
-        .style(Style::default().fg(Color::Cyan)),
+        .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
     );
 
     paragraph.render(area, buf);

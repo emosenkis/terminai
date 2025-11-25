@@ -41,20 +41,64 @@ pub struct LLMClient {
   client: Client,
   provider: Provider,
   model: String,
+  custom_endpoint: Option<String>,
 }
 
 impl LLMClient {
   /// Create a new LLM client
   pub async fn new(provider: Provider, model: Option<String>) -> Result<Self> {
+    Self::new_with_endpoint(provider, model, None).await
+  }
+
+  /// Create a new LLM client with custom endpoint
+  pub async fn new_with_endpoint(
+    provider: Provider,
+    model: Option<String>,
+    custom_endpoint: Option<String>,
+  ) -> Result<Self> {
     let model = model.unwrap_or_else(|| provider.default_model().to_string());
 
-    // Initialize genai client
-    let client = Client::default();
+    // Initialize genai client with custom endpoint if needed
+    let client = if let Some(ref endpoint) = custom_endpoint {
+      // For OpenRouter or custom endpoints, use a ServiceTargetResolver
+      use genai::adapter::AdapterKind;
+      use genai::resolver::{Endpoint, ServiceTargetResolver};
+      use genai::{ModelIden, ServiceTarget};
+
+      let endpoint_url = endpoint.clone();
+      let provider_copy = provider;
+
+      let target_resolver = ServiceTargetResolver::from_resolver_fn(
+        move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
+          let ServiceTarget { model, auth, .. } = service_target;
+          let endpoint = Endpoint::from_owned(endpoint_url.clone());
+
+          // For OpenRouter, use OpenAI adapter kind
+          let adapter_kind = match provider_copy {
+            Provider::OpenRouter => AdapterKind::OpenAI,
+            Provider::Anthropic => AdapterKind::Anthropic,
+            Provider::OpenAI => AdapterKind::OpenAI,
+            Provider::Gemini => AdapterKind::Gemini,
+            Provider::Ollama => AdapterKind::Ollama,
+          };
+
+          let model = ModelIden::new(adapter_kind, model.model_name);
+          Ok(ServiceTarget { endpoint, auth, model })
+        },
+      );
+
+      Client::builder()
+        .with_service_target_resolver(target_resolver)
+        .build()
+    } else {
+      Client::default()
+    };
 
     Ok(Self {
       client,
       provider,
       model,
+      custom_endpoint,
     })
   }
 
@@ -110,6 +154,11 @@ impl LLMClient {
         .exec_chat(&self.model, chat_req, None)
         .await
         .context("Failed to send message to Ollama")?,
+      Provider::OpenRouter => self
+        .client
+        .exec_chat(&self.model, chat_req, None)
+        .await
+        .context("Failed to send message to OpenRouter")?,
     };
 
     // Extract text from response
@@ -175,6 +224,11 @@ impl LLMClient {
         .exec_chat_stream(&self.model, chat_req, None)
         .await
         .context("Failed to stream message from Ollama")?,
+      Provider::OpenRouter => self
+        .client
+        .exec_chat_stream(&self.model, chat_req, None)
+        .await
+        .context("Failed to stream message from OpenRouter")?,
     };
 
     // Convert the ChatStream to a stream of strings

@@ -8,6 +8,8 @@ pub enum Provider {
   OpenAI,
   Gemini,
   Ollama,
+  #[serde(rename = "openrouter")]
+  OpenRouter,
 }
 
 impl Provider {
@@ -18,6 +20,7 @@ impl Provider {
       Provider::OpenAI => "gpt-4-turbo",
       Provider::Gemini => "gemini-pro",
       Provider::Ollama => "llama2",
+      Provider::OpenRouter => "anthropic/claude-3-5-sonnet",
     }
   }
 
@@ -28,6 +31,7 @@ impl Provider {
       Provider::OpenAI => Some("OPENAI_API_KEY"),
       Provider::Gemini => Some("GOOGLE_API_KEY"),
       Provider::Ollama => None, // Ollama runs locally
+      Provider::OpenRouter => Some("OPENROUTER_API_KEY"),
     }
   }
 }
@@ -39,6 +43,7 @@ impl std::fmt::Display for Provider {
       Provider::OpenAI => write!(f, "openai"),
       Provider::Gemini => write!(f, "gemini"),
       Provider::Ollama => write!(f, "ollama"),
+      Provider::OpenRouter => write!(f, "openrouter"),
     }
   }
 }
@@ -52,6 +57,7 @@ impl std::str::FromStr for Provider {
       "openai" | "gpt" => Ok(Provider::OpenAI),
       "gemini" | "google" => Ok(Provider::Gemini),
       "ollama" => Ok(Provider::Ollama),
+      "openrouter" => Ok(Provider::OpenRouter),
       _ => Err(format!("Unknown provider: {}", s)),
     }
   }

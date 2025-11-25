@@ -46,7 +46,17 @@ pub struct PendingCommand {
 impl AIChatProcess {
   /// Create a new AI chat process
   pub async fn new(provider: Provider, model: Option<String>) -> Result<Self> {
-    let llm_client = Arc::new(LLMClient::new(provider, model).await?);
+    Self::new_with_endpoint(provider, model, None).await
+  }
+
+  /// Create a new AI chat process with custom endpoint
+  pub async fn new_with_endpoint(
+    provider: Provider,
+    model: Option<String>,
+    endpoint: Option<String>,
+  ) -> Result<Self> {
+    let llm_client =
+      Arc::new(LLMClient::new_with_endpoint(provider, model, endpoint).await?);
 
     Ok(Self {
       llm_client,

@@ -298,28 +298,42 @@ impl App {
     let shell = Shell::spawn(&shell_cmd, rows, cols)?;
 
     // Initialize AI if API key configured
+    // Try multiple providers in order of preference
     // Note: We still show the AI overlay even without a key,
     // but it will display a "not configured" message
-    let ai_process = match std::env::var("ANTHROPIC_API_KEY") {
-      Ok(_) => {
-        log::info!("Initializing AI assistant");
-        match AIChatProcess::new(Provider::Anthropic, None).await {
-          Ok(ai) => {
-            log::info!("AI assistant initialized successfully");
-            Some(ai)
-          }
-          Err(e) => {
-            log::warn!("Failed to initialize AI: {:?}", e);
-            None
+    let ai_process = {
+      let providers = [
+        (Provider::Anthropic, "ANTHROPIC_API_KEY"),
+        (Provider::OpenAI, "OPENAI_API_KEY"),
+        (Provider::Gemini, "GOOGLE_API_KEY"),
+        (Provider::Gemini, "GEMINI_API_KEY"),
+        (Provider::OpenRouter, "OPENROUTER_API_KEY"),
+      ];
+
+      let mut ai = None;
+      for (provider, env_key) in &providers {
+        if std::env::var(env_key).is_ok() {
+          log::info!("Initializing AI assistant with provider: {}", provider);
+          match AIChatProcess::new(*provider, None).await {
+            Ok(process) => {
+              log::info!("AI assistant initialized successfully");
+              ai = Some(process);
+              break;
+            }
+            Err(e) => {
+              log::warn!("Failed to initialize AI with {}: {:?}", provider, e);
+            }
           }
         }
       }
-      Err(_) => {
+
+      if ai.is_none() {
         log::info!(
-          "No ANTHROPIC_API_KEY found - AI overlay will show config instructions"
+          "No API keys found - AI overlay will show config instructions"
         );
-        None
       }
+
+      ai
     };
 
     Ok(Self {

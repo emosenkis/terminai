@@ -654,8 +654,8 @@ impl App {
         }
         // Regular characters append to input
         (KeyCode::Char(c), modifiers)
-          if *modifiers == KeyModifiers::NONE
-            || *modifiers == KeyModifiers::SHIFT =>
+          if !modifiers.contains(KeyModifiers::CONTROL)
+            && !modifiers.contains(KeyModifiers::ALT) =>
         {
           let mut ai = ai_process.blocking_lock();
           ai.append_input(&c.to_string());
@@ -1473,6 +1473,7 @@ pub async fn server_main(
         "openai" => crate::llm::Provider::OpenAI,
         "gemini" => crate::llm::Provider::Gemini,
         "ollama" => crate::llm::Provider::Ollama,
+        "openrouter" => crate::llm::Provider::OpenRouter,
         _ => {
           log::warn!(
             "Unknown AI provider: {}, defaulting to Anthropic",
@@ -1482,9 +1483,13 @@ pub async fn server_main(
         }
       };
 
-      match crate::ai_proc::AIChatProcess::new(
+      // Get the effective endpoint (custom endpoint or OpenRouter default)
+      let endpoint = ai_config.effective_endpoint();
+
+      match crate::ai_proc::AIChatProcess::new_with_endpoint(
         provider,
         ai_config.model.clone(),
+        endpoint,
       )
       .await
       {
