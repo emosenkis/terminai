@@ -276,14 +276,7 @@ impl App {
   }
 
   async fn new(shell_cmd: String) -> Result<Self> {
-    // Get terminal size BEFORE entering alternate screen
-    let (cols, rows) = crossterm::terminal::size()?;
-
-    // Spawn shell BEFORE setting up our terminal UI
-    // This ensures the shell starts in a clean terminal state
-    let shell = Shell::spawn(&shell_cmd, rows, cols)?;
-
-    // Now setup our terminal UI
+    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -291,6 +284,12 @@ impl App {
     // Create ratatui terminal
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
+
+    // Get terminal size
+    let (cols, rows) = crossterm::terminal::size()?;
+
+    // Spawn shell
+    let shell = Shell::spawn(&shell_cmd, rows, cols)?;
 
     // Initialize AI if API key configured
     // Note: We still show the AI overlay even without a key,
@@ -327,9 +326,6 @@ impl App {
 
   async fn run(&mut self) -> Result<()> {
     log::info!("Termin.AI main loop starting");
-
-    // Give shell time to initialize and output prompt
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Initial render
     self.render()?;
