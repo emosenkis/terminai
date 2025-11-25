@@ -114,7 +114,7 @@ impl LLMClient {
 
     // Extract text from response
     let text = response
-      .content_text_as_str()
+      .first_text()
       .context("No text in response")?
       .to_string();
 
@@ -185,6 +185,7 @@ impl LLMClient {
         .map(|event| match event {
           ChatStreamEvent::Chunk(chunk) => chunk.content,
           ChatStreamEvent::ReasoningChunk(chunk) => chunk.content,
+          ChatStreamEvent::ToolCallChunk(_) => String::new(), // Ignore tool call chunks for now
           ChatStreamEvent::Start => String::new(),
           ChatStreamEvent::End(_) => String::new(),
         })

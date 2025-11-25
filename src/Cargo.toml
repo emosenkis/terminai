@@ -3,7 +3,7 @@ name = "termin"
 version = "0.1.0"
 description = "Interactive terminal wrapper with AI assistant"
 repository = "https://github.com/emosenkis/termin.ai"
-authors = ["Eitan <eitan@mosenkis.net>"]
+authors = ["Eitan Mosenkis <eitan@mosenkis.net>"]
 license = "MIT"
 edition = "2024"
 categories = [
@@ -20,10 +20,6 @@ include = ["*"]
 [lib]
 name = "termin"
 path = "lib.rs"
-
-[[bin]]
-name = "termin"
-path = "main.rs"
 
 [[bin]]
 name = "terminai"
@@ -79,7 +75,7 @@ rustix = { version = "1", features = ["all-apis"] }
 signal-hook = "0.3"
 
 # TERMIN.AI: LLM client dependencies
-genai = "0.3"
+genai = "0.4.4"
 regex = "1.10"
 
 [target."cfg(unix)".dependencies]
