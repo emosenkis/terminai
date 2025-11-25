@@ -13,7 +13,7 @@ use crossterm::{
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Write, stdout};
 use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tui::{
   Terminal,
   backend::CrosstermBackend,
@@ -33,12 +33,13 @@ use termin::vt100;
 #[derive(Debug)]
 enum ShellEvent {
   Output,
+  TermReply(compact_str::CompactString),
   Exited(u32),
 }
 
 // Shell manager - simplified from mprocs' Inst
 struct Shell {
-  vt: Arc<RwLock<vt100::Parser<DummyReplySender>>>,
+  vt: Arc<RwLock<vt100::Parser<ReplySender>>>,
   writer: Box<dyn Write + Send>,
   master: Option<Box<dyn portable_pty::MasterPty + Send>>,
   _pid: u32,
@@ -49,8 +50,14 @@ impl Shell {
   fn spawn(shell_cmd: &str, rows: u16, cols: u16) -> Result<Self> {
     log::info!("Spawning shell: {} ({}x{})", shell_cmd, cols, rows);
 
-    // Create VT100 parser (borrowed from mprocs pattern)
-    let vt = vt100::Parser::new(rows, cols, 1000, DummyReplySender);
+    // Setup event channel
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
+
+    // Create VT100 parser with reply sender
+    let reply_sender = ReplySender {
+      tx: event_tx.clone(),
+    };
+    let vt = vt100::Parser::new(rows, cols, 1000, reply_sender);
     let vt = Arc::new(RwLock::new(vt));
 
     // Create PTY (using portable-pty like mprocs)
@@ -75,9 +82,6 @@ impl Shell {
     // Get reader and writer for PTY
     let mut reader = pair.master.try_clone_reader()?;
     let writer = pair.master.take_writer()?;
-
-    // Setup event channel
-    let (event_tx, event_rx) = mpsc::unbounded_channel();
 
     // Spawn thread to read PTY output (pattern from mprocs' inst.rs)
     let vt_clone = vt.clone();
@@ -149,24 +153,26 @@ impl Shell {
   }
 }
 
-// Dummy reply sender (needed for VT100 parser)
+// Reply sender for VT100 terminal queries
 #[derive(Clone)]
-struct DummyReplySender;
+struct ReplySender {
+  tx: UnboundedSender<ShellEvent>,
+}
 
-impl termin::vt100::TermReplySender for DummyReplySender {
-  fn reply(&self, _reply: compact_str::CompactString) {
-    // Terminal reply sequences (like cursor position reports) would go here
-    // For now, we ignore them
+impl termin::vt100::TermReplySender for ReplySender {
+  fn reply(&self, reply: compact_str::CompactString) {
+    // Send terminal reply back to event loop to write to PTY
+    let _ = self.tx.send(ShellEvent::TermReply(reply));
   }
 }
 
 // Terminal renderer widget (simplified from mprocs' UiTerm)
 struct TerminalWidget<'a> {
-  screen: &'a vt100::Screen<DummyReplySender>,
+  screen: &'a vt100::Screen<ReplySender>,
 }
 
 impl<'a> TerminalWidget<'a> {
-  fn new(screen: &'a vt100::Screen<DummyReplySender>) -> Self {
+  fn new(screen: &'a vt100::Screen<ReplySender>) -> Self {
     Self { screen }
   }
 }
@@ -339,6 +345,15 @@ impl App {
               // Shell produced output - don't render here to avoid performance issues
               // The VT100 parser has already been updated by the PTY reader thread
               // Rendering will happen in the periodic frame below
+            }
+            ShellEvent::TermReply(reply) => {
+              // Write terminal query reply back to PTY so programs like glow get their responses
+              if let Err(e) = self.shell.writer.write_all(reply.as_bytes()) {
+                log::error!("Failed to write terminal reply: {:?}", e);
+              }
+              if let Err(e) = self.shell.writer.flush() {
+                log::error!("Failed to flush terminal reply: {:?}", e);
+              }
             }
             ShellEvent::Exited(code) => {
               log::info!("Shell exited with code: {}", code);
