@@ -67,34 +67,243 @@ terminai
 
 ## Configuration
 
-### Minimal Configuration
+### Quick Start (Environment Variables)
 
-Create `~/.config/terminai/config.yaml`:
+The simplest way to get started is to set an API key environment variable:
+
+```bash
+# Choose one:
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-..."
+export GEMINI_API_KEY="..."
+export OPENROUTER_API_KEY="sk-or-..."
+```
+
+Termin.AI will automatically detect and use the first available API key.
+
+### Configuration File
+
+For more control, create `~/.config/mprocs/mprocs.yaml`:
 
 ```yaml
 ai:
+  # Enable AI assistance (required)
   enabled: true
-  provider: anthropic  # or: openai, gemini, ollama
-  model: claude-3-5-sonnet-20241022  # optional
-  api_key_env: ANTHROPIC_API_KEY
+
+  # Provider: anthropic, openai, gemini, ollama, or openrouter
+  provider: anthropic
+
+  # Model name (optional - uses provider default if not specified)
+  model: claude-3-5-sonnet-20241022
+
+  # Custom endpoint URL (optional)
+  # Useful for OpenRouter, Azure OpenAI, or self-hosted models
+  # endpoint: https://api.custom.com/v1
+
+  # Custom API key environment variable (optional)
+  # If not specified, uses provider's default env var
+  # api_key_env: MY_CUSTOM_API_KEY
 ```
 
 ### Supported Providers
 
-| Provider | Models | API Key Env Var |
-|----------|--------|-----------------|
-| **Anthropic** | claude-3-5-sonnet-20241022, claude-3-opus-20240229 | `ANTHROPIC_API_KEY` |
-| **OpenAI** | gpt-4-turbo, gpt-3.5-turbo | `OPENAI_API_KEY` |
-| **Google** | gemini-pro, gemini-flash | `GOOGLE_API_KEY` |
-| **Ollama** | llama3.2, codellama (local) | None (local) |
+#### Anthropic Claude
 
-### Full Configuration Example
+**Default Model**: `claude-3-5-sonnet-20241022`
+**Environment Variable**: `ANTHROPIC_API_KEY`
+**Get API Key**: https://console.anthropic.com/
 
-See `terminai.example.yaml` for all available options including:
-- Privacy filters
-- Command safety rules
-- UI preferences
-- Keybindings
+```yaml
+ai:
+  enabled: true
+  provider: anthropic
+  model: claude-3-5-sonnet-20241022
+```
+
+**Available Models**:
+- `claude-3-5-sonnet-20241022` (recommended - best balance)
+- `claude-3-opus-20240229` (most capable)
+- `claude-3-sonnet-20240229` (fast)
+- `claude-3-haiku-20240307` (fastest, cheapest)
+
+#### OpenAI
+
+**Default Model**: `gpt-4-turbo`
+**Environment Variable**: `OPENAI_API_KEY`
+**Get API Key**: https://platform.openai.com/api-keys
+
+```yaml
+ai:
+  enabled: true
+  provider: openai
+  model: gpt-4-turbo
+```
+
+**Available Models**:
+- `gpt-4-turbo` (recommended)
+- `gpt-4o` (multimodal)
+- `gpt-4o-mini` (fast, cheap)
+- `gpt-4` (older, reliable)
+- `gpt-3.5-turbo` (cheapest)
+
+#### Google Gemini
+
+**Default Model**: `gemini-pro`
+**Environment Variable**: `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+**Get API Key**: https://makersuite.google.com/app/apikey
+
+```yaml
+ai:
+  enabled: true
+  provider: gemini
+  model: gemini-pro
+```
+
+**Available Models**:
+- `gemini-pro` (recommended)
+- `gemini-2.0-flash` (fast)
+- `gemini-ultra` (most capable, when available)
+
+#### Ollama (Local Models)
+
+**Default Model**: `llama2`
+**Environment Variable**: None (runs locally)
+**Installation**: https://ollama.ai/
+
+```yaml
+ai:
+  enabled: true
+  provider: ollama
+  model: llama3.2
+```
+
+**Note**: Requires Ollama running locally. Install models with `ollama pull <model>`.
+
+**Popular Models**:
+- `llama3.2`, `llama3`
+- `codellama` (optimized for code)
+- `mistral`, `mixtral`
+- See full list: https://ollama.ai/library
+
+#### OpenRouter (Multi-Provider Access)
+
+**NEW!** OpenRouter provides access to 100+ AI models through a single API.
+
+**Default Model**: `anthropic/claude-3-5-sonnet`
+**Environment Variable**: `OPENROUTER_API_KEY`
+**Get API Key**: https://openrouter.ai/keys
+
+```yaml
+ai:
+  enabled: true
+  provider: openrouter
+  model: anthropic/claude-3-5-sonnet
+  # Endpoint automatically defaults to https://openrouter.ai/api/v1
+```
+
+**Popular Models** (OpenRouter format):
+- `anthropic/claude-3-5-sonnet`
+- `openai/gpt-4-turbo`
+- `google/gemini-pro`
+- `meta-llama/llama-3-70b-instruct`
+- `mistralai/mixtral-8x7b-instruct`
+
+See all models: https://openrouter.ai/models
+
+**Benefits**:
+- Try different models without managing multiple API keys
+- Access to models not directly available
+- Automatic fallback if a model is unavailable
+- Pay-per-use pricing across all providers
+
+### Advanced Configuration
+
+#### Custom Endpoints
+
+Use custom API endpoints for Azure OpenAI, AWS Bedrock, or self-hosted models:
+
+```yaml
+ai:
+  enabled: true
+  provider: openai
+  model: gpt-4
+  endpoint: https://your-azure-endpoint.openai.azure.com/openai/deployments/your-deployment/
+  api_key_env: AZURE_OPENAI_KEY
+```
+
+#### Custom API Key Environment Variables
+
+Specify which environment variable to use for the API key:
+
+```yaml
+ai:
+  enabled: true
+  provider: anthropic
+  api_key_env: MY_TEAM_ANTHROPIC_KEY  # Instead of default ANTHROPIC_API_KEY
+```
+
+#### Multiple Environments
+
+Use different configs for different purposes:
+
+```yaml
+# ~/.config/mprocs/mprocs.dev.yaml (development)
+ai:
+  enabled: true
+  provider: openai
+  model: gpt-4o-mini  # Cheaper for testing
+
+# ~/.config/mprocs/mprocs.prod.yaml (production)
+ai:
+  enabled: true
+  provider: anthropic
+  model: claude-3-opus-20240229  # Best quality
+```
+
+#### Environment Variable Fallback
+
+If no configuration file exists, Termin.AI automatically tries these environment variables in order:
+
+1. `ANTHROPIC_API_KEY`
+2. `OPENAI_API_KEY`
+3. `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+4. `OPENROUTER_API_KEY`
+
+The first available API key will be used with its default provider and model.
+
+### Configuration Examples
+
+#### Minimal (Environment Variable Only)
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+terminai  # No config file needed!
+```
+
+#### Basic YAML Config
+
+```yaml
+ai:
+  enabled: true
+  provider: anthropic
+```
+
+#### Complete Configuration
+
+```yaml
+ai:
+  enabled: true
+  provider: openrouter
+  model: anthropic/claude-3-opus
+  api_key_env: OPENROUTER_API_KEY
+
+# Future options (not yet implemented):
+# shell:
+#   path: /bin/zsh
+#   args: ["-l"]
+# privacy:
+#   custom_filters: ["CUSTOM_SECRET_.*"]
+```
 
 ## Usage
 
