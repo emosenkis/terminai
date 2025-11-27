@@ -23,16 +23,38 @@ impl<'a> AIChatUI<'a> {
     // Clear the entire area first to set background
     Clear.render(area, buf);
 
-    let chunks = Layout::default()
-      .direction(Direction::Vertical)
-      .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
-      .split(area);
+    // Determine if we need space for an error message
+    let has_error = self.process.error_message().is_some();
+
+    let chunks = if has_error {
+      Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+          [
+            Constraint::Min(3),
+            Constraint::Length(3),
+            Constraint::Length(3),
+          ]
+          .as_ref(),
+        )
+        .split(area)
+    } else {
+      Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
+        .split(area)
+    };
 
     // Render conversation history
     self.render_conversation(chunks[0], buf);
 
     // Render input area
     self.render_input(chunks[1], buf);
+
+    // Render error message if present
+    if has_error {
+      self.render_error(chunks[2], buf);
+    }
 
     // Render pending command approval if any
     if let Some(pending) = self.process.pending_command() {
@@ -94,16 +116,43 @@ impl<'a> AIChatUI<'a> {
   }
 
   fn render_input(&self, area: Rect, buf: &mut Buffer) {
-    let input_text = format!("> {}", self.process.input_buffer());
+    let input_text = if self.process.is_sending() {
+      format!("> {} [Sending...]", self.process.input_buffer())
+    } else {
+      format!("> {}", self.process.input_buffer())
+    };
+
+    let title = if self.process.is_sending() {
+      " Sending message... "
+    } else {
+      " Your Message (Ctrl+Space to toggle, Enter to send) "
+    };
 
     let paragraph = Paragraph::new(input_text).block(
       Block::default()
         .borders(Borders::ALL)
-        .title(" Your Message (Ctrl+Space to toggle, Enter to send) ")
+        .title(title)
         .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
     );
 
     paragraph.render(area, buf);
+  }
+
+  fn render_error(&self, area: Rect, buf: &mut Buffer) {
+    if let Some(error_msg) = self.process.error_message() {
+      let error_text = format!("⚠ Error: {}", error_msg);
+
+      let paragraph = Paragraph::new(error_text)
+        .block(
+          Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Red).bg(Color::Black)),
+        )
+        .style(Style::default().fg(Color::Red))
+        .wrap(Wrap { trim: false });
+
+      paragraph.render(area, buf);
+    }
   }
 
   fn render_approval_prompt(

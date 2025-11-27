@@ -2500,6 +2500,7 @@ dependencies = [
  "portable-pty",
  "ratatui",
  "regex",
+ "reqwest",
  "rustix 1.0.8",
  "scopeguard",
  "serde",

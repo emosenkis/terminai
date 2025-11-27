@@ -34,6 +34,8 @@ pub struct AIChatProcess {
   active: bool,
   streaming_response: Option<String>,
   awaiting_approval: Option<PendingCommand>,
+  error_message: Option<String>,
+  is_sending: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +71,8 @@ impl AIChatProcess {
       active: false,
       streaming_response: None,
       awaiting_approval: None,
+      error_message: None,
+      is_sending: false,
     })
   }
 
@@ -180,6 +184,10 @@ impl AIChatProcess {
       return Ok(());
     }
 
+    // Clear any previous error message and set sending state
+    self.error_message = None;
+    self.is_sending = true;
+
     let user_message = self.input_buffer.clone();
     self.input_buffer.clear();
 
@@ -210,21 +218,30 @@ impl AIChatProcess {
       .collect();
 
     // Send to LLM
-    let response = self
+    let result = self
       .llm_client
       .send_message(&user_message, &filtered_context, &history)
-      .await?;
+      .await;
 
-    // Add assistant response to conversation
-    self.conversation.push(Message {
-      role: MessageRole::Assistant,
-      content: response.clone(),
-    });
+    // Always clear sending state, whether success or error
+    self.is_sending = false;
 
-    // Check for commands in response
-    self.check_for_commands(&response, None);
+    // Handle the result
+    match result {
+      Ok(response) => {
+        // Add assistant response to conversation
+        self.conversation.push(Message {
+          role: MessageRole::Assistant,
+          content: response.clone(),
+        });
 
-    Ok(())
+        // Check for commands in response
+        self.check_for_commands(&response, None);
+
+        Ok(())
+      }
+      Err(e) => Err(e),
+    }
   }
 
   /// Check the response for commands and set up approval if needed
@@ -274,6 +291,26 @@ impl AIChatProcess {
     self.conversation.clear();
     self.awaiting_approval = None;
   }
+
+  /// Get the current error message, if any
+  pub fn error_message(&self) -> Option<&str> {
+    self.error_message.as_deref()
+  }
+
+  /// Set an error message to display to the user
+  pub fn set_error(&mut self, message: String) {
+    self.error_message = Some(message);
+  }
+
+  /// Clear the current error message
+  pub fn clear_error(&mut self) {
+    self.error_message = None;
+  }
+
+  /// Check if a message is currently being sent
+  pub fn is_sending(&self) -> bool {
+    self.is_sending
+  }
 }
 
 #[cfg(test)]
@@ -297,6 +334,8 @@ mod tests {
       active: false,
       streaming_response: None,
       awaiting_approval: None,
+      error_message: None,
+      is_sending: false,
     };
 
     process.append_input("hello");
@@ -329,6 +368,8 @@ mod tests {
       active: false,
       streaming_response: None,
       awaiting_approval: None,
+      error_message: None,
+      is_sending: false,
     };
 
     assert!(!process.is_active());

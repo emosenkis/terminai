@@ -573,6 +573,8 @@ impl App {
   ) -> bool {
     use crossterm::event::{KeyCode, KeyModifiers};
 
+    log::info!("handle_ai_input called with event: {:?}", event);
+
     if let Event::Key(KeyEvent {
       code,
       modifiers,
@@ -588,8 +590,8 @@ impl App {
 
       if has_pending_command {
         // Handle approval keys
-        match (code, modifiers) {
-          (KeyCode::Char('y'), &KeyModifiers::NONE)
+        match (*code, *modifiers) {
+          (KeyCode::Char('y'), KeyModifiers::NONE)
           | (KeyCode::Char('Y'), _) => {
             // Approve and execute command
             let pending = {
@@ -602,7 +604,7 @@ impl App {
             loop_action.render();
             return true;
           }
-          (KeyCode::Char('n'), &KeyModifiers::NONE)
+          (KeyCode::Char('n'), KeyModifiers::NONE)
           | (KeyCode::Char('N'), _)
           | (KeyCode::Esc, _) => {
             // Reject command
@@ -616,7 +618,14 @@ impl App {
       }
 
       // Handle normal AI input
-      match (code, modifiers) {
+      log::info!(
+        "AI input: code={:?}, modifiers={:?}, contains_control={}, contains_alt={}",
+        code,
+        modifiers,
+        modifiers.contains(KeyModifiers::CONTROL),
+        modifiers.contains(KeyModifiers::ALT)
+      );
+      match (*code, *modifiers) {
         // ESC closes the AI overlay
         (KeyCode::Esc, _) => {
           self.state.ai_visible = false;
@@ -624,7 +633,7 @@ impl App {
           return true;
         }
         // Enter sends the message
-        (KeyCode::Enter, &KeyModifiers::NONE) => {
+        (KeyCode::Enter, KeyModifiers::NONE) => {
           // Extract context synchronously before spawning async task
           let context = {
             use crate::ai_proc::ContextExtractor;
@@ -639,6 +648,8 @@ impl App {
             let mut ai_locked = ai.lock().await;
             if let Err(e) = ai_locked.send_input_with_context(context).await {
               log::error!("Failed to send AI message: {:?}", e);
+              // Set user-visible error message
+              ai_locked.set_error(format!("Failed to send message: {}", e));
             }
           });
 
@@ -657,24 +668,28 @@ impl App {
           if !modifiers.contains(KeyModifiers::CONTROL)
             && !modifiers.contains(KeyModifiers::ALT) =>
         {
+          log::info!("Matched regular character pattern: '{}'", c);
           let mut ai = ai_process.blocking_lock();
           ai.append_input(&c.to_string());
           loop_action.render();
           return true;
         }
         // Space character
-        (KeyCode::Char(' '), &KeyModifiers::NONE) => {
+        (KeyCode::Char(' '), KeyModifiers::NONE) => {
+          log::info!("Matched space pattern");
           let mut ai = ai_process.blocking_lock();
           ai.append_input(" ");
           loop_action.render();
           return true;
         }
         // Ctrl-Space toggles AI (let it fall through to handle_event)
-        (KeyCode::Char(' '), &KeyModifiers::CONTROL) => {
+        (KeyCode::Char(' '), KeyModifiers::CONTROL) => {
+          log::info!("Matched Ctrl-Space pattern");
           return false;
         }
         _ => {
           // Consume but ignore other keys
+          log::info!("Matched catch-all pattern - ignoring key");
           return true;
         }
       }
@@ -1442,6 +1457,74 @@ pub fn create_app_proc(
       deps: Vec::new(),
     }
   }))
+}
+
+#[cfg(test)]
+mod tests {
+  use crossterm::event::{KeyCode, KeyModifiers};
+
+  #[test]
+  fn test_key_modifiers_contains_with_shift() {
+    // Test that SHIFT modifier correctly evaluates with contains()
+    let shift_modifiers = KeyModifiers::SHIFT;
+
+    // Uppercase letter scenario: SHIFT should not contain CONTROL or ALT
+    assert!(!shift_modifiers.contains(KeyModifiers::CONTROL));
+    assert!(!shift_modifiers.contains(KeyModifiers::ALT));
+
+    // This is what the guard clause checks
+    let should_match = !shift_modifiers.contains(KeyModifiers::CONTROL)
+      && !shift_modifiers.contains(KeyModifiers::ALT);
+    assert!(
+      should_match,
+      "Uppercase letters with SHIFT should match the pattern"
+    );
+  }
+
+  #[test]
+  fn test_key_modifiers_contains_with_reference() {
+    // Test with a reference (as it appears in the actual code)
+    let shift_modifiers = KeyModifiers::SHIFT;
+    let modifiers = &shift_modifiers;
+
+    // The guard clause uses contains() on the bound variable
+    let should_match = !modifiers.contains(KeyModifiers::CONTROL)
+      && !modifiers.contains(KeyModifiers::ALT);
+    assert!(
+      should_match,
+      "Uppercase letters with SHIFT reference should match"
+    );
+  }
+
+  #[test]
+  fn test_none_modifiers() {
+    // Test that NONE modifiers work
+    let none_modifiers = KeyModifiers::NONE;
+    let should_match = !none_modifiers.contains(KeyModifiers::CONTROL)
+      && !none_modifiers.contains(KeyModifiers::ALT);
+    assert!(
+      should_match,
+      "Lowercase letters with no modifiers should match"
+    );
+  }
+
+  #[test]
+  fn test_control_modifiers_rejected() {
+    // Test that CONTROL modifiers are rejected
+    let control_modifiers = KeyModifiers::CONTROL;
+    let should_match = !control_modifiers.contains(KeyModifiers::CONTROL)
+      && !control_modifiers.contains(KeyModifiers::ALT);
+    assert!(!should_match, "Keys with CONTROL should not match");
+  }
+
+  #[test]
+  fn test_alt_modifiers_rejected() {
+    // Test that ALT modifiers are rejected
+    let alt_modifiers = KeyModifiers::ALT;
+    let should_match = !alt_modifiers.contains(KeyModifiers::CONTROL)
+      && !alt_modifiers.contains(KeyModifiers::ALT);
+    assert!(!should_match, "Keys with ALT should not match");
+  }
 }
 
 pub async fn server_main(

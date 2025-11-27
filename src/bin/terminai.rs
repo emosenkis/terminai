@@ -314,7 +314,17 @@ impl App {
       for (provider, env_key) in &providers {
         if std::env::var(env_key).is_ok() {
           log::info!("Initializing AI assistant with provider: {}", provider);
-          match AIChatProcess::new(*provider, None).await {
+
+          // For OpenRouter, set the default endpoint
+          let endpoint = if *provider == Provider::OpenRouter {
+            Some("https://openrouter.ai/api/v1".to_string())
+          } else {
+            None
+          };
+
+          match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
+            .await
+          {
             Ok(process) => {
               log::info!("AI assistant initialized successfully");
               ai = Some(process);
@@ -469,8 +479,11 @@ impl App {
                     } else {
                       // No pending command, handle normal input
                       match code {
-                        KeyCode::Char(c) if modifiers.is_empty() => {
-                          // Regular character input
+                        KeyCode::Char(c)
+                          if !modifiers.contains(KeyModifiers::CONTROL)
+                            && !modifiers.contains(KeyModifiers::ALT) =>
+                        {
+                          // Regular character input (allows SHIFT for uppercase)
                           ai_process.append_input(&c.to_string());
                         }
                         KeyCode::Backspace => {
