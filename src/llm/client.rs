@@ -56,13 +56,24 @@ impl LLMClient {
     model: Option<String>,
     custom_endpoint: Option<String>,
   ) -> Result<Self> {
-    let model = model.unwrap_or_else(|| provider.default_model().to_string());
+    let mut model =
+      model.unwrap_or_else(|| provider.default_model().to_string());
+
+    // For OpenRouter, we need to prefix the model with the adapter type
+    // to ensure genai uses the OpenAI adapter instead of incorrectly
+    // detecting it as Ollama (due to the "/" in model names like "anthropic/claude")
+    if custom_endpoint.is_some() && provider == Provider::OpenRouter {
+      // Only add prefix if not already present
+      if !model.starts_with("openai::") {
+        model = format!("openai::{}", model);
+      }
+    }
 
     // Initialize genai client with custom endpoint if needed
     let client = if let Some(ref endpoint) = custom_endpoint {
       // For OpenRouter or custom endpoints, use a ServiceTargetResolver
       use genai::adapter::AdapterKind;
-      use genai::resolver::{Endpoint, ServiceTargetResolver};
+      use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
       use genai::{ModelIden, ServiceTarget};
 
       let endpoint_url = endpoint.clone();
@@ -70,16 +81,31 @@ impl LLMClient {
 
       let target_resolver = ServiceTargetResolver::from_resolver_fn(
         move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-          let ServiceTarget { model, auth, .. } = service_target;
+          let ServiceTarget { model, auth: original_auth, .. } = service_target;
           let endpoint = Endpoint::from_owned(endpoint_url.clone());
 
-          // For OpenRouter, use OpenAI adapter kind
-          let adapter_kind = match provider_copy {
-            Provider::OpenRouter => AdapterKind::OpenAI,
-            Provider::Anthropic => AdapterKind::Anthropic,
-            Provider::OpenAI => AdapterKind::OpenAI,
-            Provider::Gemini => AdapterKind::Gemini,
-            Provider::Ollama => AdapterKind::Ollama,
+          // For OpenRouter, use OpenAI adapter kind but OPENROUTER_API_KEY
+          let (adapter_kind, auth) = match provider_copy {
+            Provider::OpenRouter => (
+              AdapterKind::OpenAI,
+              AuthData::from_env("OPENROUTER_API_KEY"),
+            ),
+            Provider::Anthropic => (
+              AdapterKind::Anthropic,
+              AuthData::from_env("ANTHROPIC_API_KEY"),
+            ),
+            Provider::OpenAI => (
+              AdapterKind::OpenAI,
+              AuthData::from_env("OPENAI_API_KEY"),
+            ),
+            Provider::Gemini => (
+              AdapterKind::Gemini,
+              AuthData::from_env("GOOGLE_API_KEY"),
+            ),
+            Provider::Ollama => {
+              // Ollama doesn't need an API key
+              (AdapterKind::Ollama, original_auth)
+            }
           };
 
           let model = ModelIden::new(adapter_kind, model.model_name);
@@ -87,9 +113,31 @@ impl LLMClient {
         },
       );
 
-      Client::builder()
-        .with_service_target_resolver(target_resolver)
-        .build()
+      let mut builder =
+        Client::builder().with_service_target_resolver(target_resolver);
+
+      // OpenRouter requires specific headers
+      if provider == Provider::OpenRouter {
+        use genai::WebConfig;
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+        let mut headers = HeaderMap::new();
+        // OpenRouter requires HTTP-Referer header
+        headers.insert(
+          HeaderName::from_static("http-referer"),
+          HeaderValue::from_static("https://github.com/yourusername/terminai"),
+        );
+        // Optional: X-Title for display in OpenRouter dashboard
+        headers.insert(
+          HeaderName::from_static("x-title"),
+          HeaderValue::from_static("Termin.AI"),
+        );
+
+        let web_config = WebConfig::default().with_default_headers(headers);
+        builder = builder.with_web_config(web_config);
+      }
+
+      builder.build()
     } else {
       Client::default()
     };
