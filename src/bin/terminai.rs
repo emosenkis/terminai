@@ -72,6 +72,7 @@ impl Shell {
     // Build command
     let mut cmd = CommandBuilder::new(shell_cmd);
     cmd.env("TERM", "xterm-256color");
+    cmd.env("TERMINAI", "1");
 
     // Spawn command
     let mut child = pair.slave.spawn_command(cmd)?;

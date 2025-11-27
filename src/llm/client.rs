@@ -133,6 +133,7 @@ impl LLMClient {
           HeaderValue::from_static("Termin.AI"),
         );
 
+        log::info!("Adding OpenRouter headers: Referer, X-Title");
         let web_config = WebConfig::default().with_default_headers(headers);
         builder = builder.with_web_config(web_config);
       }
