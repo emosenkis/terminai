@@ -3,7 +3,7 @@ use tui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::{Line, Span, Text},
-  widgets::{Block, Borders, Paragraph, Widget, Wrap},
+  widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
 };
 
 use super::chat_process::{AIChatProcess, MessageRole};
@@ -20,6 +20,9 @@ impl<'a> AIChatUI<'a> {
 
   /// Render the full chat UI
   pub fn render(&self, area: Rect, buf: &mut Buffer) {
+    // Clear the entire area first to set background
+    Clear.render(area, buf);
+
     let chunks = Layout::default()
       .direction(Direction::Vertical)
       .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
@@ -112,11 +115,12 @@ impl<'a> AIChatUI<'a> {
     // Create a centered popup for command approval
     let popup_area = centered_rect(60, 40, area);
 
-    // Clear the popup area
-    let clear_block = Block::default()
-      .style(Style::default().bg(Color::Black))
-      .borders(Borders::ALL);
-    clear_block.render(popup_area, buf);
+    // Clear the popup area first
+    Clear.render(popup_area, buf);
+
+    // Render the popup border
+    let border_block = Block::default().borders(Borders::ALL);
+    border_block.render(popup_area, buf);
 
     let chunks = Layout::default()
       .direction(Direction::Vertical)
