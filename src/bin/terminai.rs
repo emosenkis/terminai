@@ -209,7 +209,7 @@ impl Widget for TerminalWidget<'_> {
 async fn main() -> Result<()> {
   // Setup logging
   flexi_logger::Logger::try_with_str("info")?
-    .log_to_file(flexi_logger::FileSpec::default().suppress_timestamp())
+    .log_to_file(flexi_logger::FileSpec::default())
     .start()?;
 
   // Detect user's shell

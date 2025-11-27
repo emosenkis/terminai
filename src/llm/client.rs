@@ -122,10 +122,10 @@ impl LLMClient {
         use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
         let mut headers = HeaderMap::new();
-        // OpenRouter requires HTTP-Referer header
+        // OpenRouter requires Referer header (note: intentionally misspelled in HTTP spec)
         headers.insert(
-          HeaderName::from_static("http-referer"),
-          HeaderValue::from_static("https://github.com/yourusername/terminai"),
+          reqwest::header::REFERER,
+          HeaderValue::from_static("https://github.com/emosenkis/termin.ai"),
         );
         // Optional: X-Title for display in OpenRouter dashboard
         headers.insert(
