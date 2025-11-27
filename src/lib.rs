@@ -38,3 +38,6 @@ pub mod ai_proc;
 pub mod command;
 pub mod llm;
 pub mod privacy;
+
+// TERMIN.AI: Hybrid terminal system
+pub mod hybrid;
