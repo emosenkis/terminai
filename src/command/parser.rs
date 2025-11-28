@@ -1,15 +1,18 @@
 use regex::Regex;
 
-/// Extract bash/shell commands from markdown code blocks
+/// Extract shell commands from markdown code blocks
 pub struct CommandParser {
   code_block_regex: Regex,
 }
 
 impl CommandParser {
   pub fn new() -> Self {
-    // Match code blocks with bash, sh, or shell language tags
-    let code_block_regex = Regex::new(r"```(?:bash|sh|shell)\n([\s\S]*?)```")
-      .expect("Invalid regex");
+    // Match code blocks with shell-input language tag
+    // Allow optional whitespace after language tag and handle both \n and \r\n
+    // Case-insensitive to handle variations like Shell-Input or SHELL-INPUT
+    let code_block_regex =
+      Regex::new(r"(?i)```shell-input\s*\r?\n([\s\S]*?)```")
+        .expect("Invalid regex");
 
     Self { code_block_regex }
   }
@@ -44,7 +47,7 @@ mod tests {
   fn test_extract_single_command() {
     let parser = CommandParser::new();
     let markdown = r#"Here's how to list files:
-```bash
+```shell-input
 ls -la
 ```
 That's it!"#;
@@ -58,17 +61,17 @@ That's it!"#;
   fn test_extract_multiple_commands() {
     let parser = CommandParser::new();
     let markdown = r#"First, check the directory:
-```bash
+```shell-input
 pwd
 ```
 
 Then list files:
-```sh
+```shell-input
 ls -la
 ```
 
 Finally, check disk usage:
-```shell
+```shell-input
 df -h
 ```"#;
 
@@ -83,7 +86,7 @@ df -h
   fn test_multiline_command() {
     let parser = CommandParser::new();
     let markdown = r#"Here's a complex command:
-```bash
+```shell-input
 for file in *.txt; do
     echo "Processing $file"
     cat "$file"
@@ -109,7 +112,7 @@ done
   fn test_empty_code_block() {
     let parser = CommandParser::new();
     let markdown = r#"Empty block:
-```bash
+```shell-input
 ```"#;
 
     let commands = parser.extract_commands(markdown);
@@ -120,11 +123,11 @@ done
   fn test_first_command() {
     let parser = CommandParser::new();
     let markdown = r#"
-```bash
+```shell-input
 ls
 ```
 More text
-```bash
+```shell-input
 pwd
 ```"#;
 
@@ -142,7 +145,7 @@ print("hello")
 ```
 
 Shell code:
-```bash
+```shell-input
 echo "hello"
 ```
 
@@ -154,5 +157,33 @@ console.log("hello");
     let commands = parser.extract_commands(markdown);
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0], "echo \"hello\"");
+  }
+
+  #[test]
+  fn test_code_block_with_whitespace() {
+    let parser = CommandParser::new();
+    // Test with whitespace after shell-input
+    let markdown = r#"Command with space:
+```shell-input 
+ls -la
+```"#;
+
+    let commands = parser.extract_commands(markdown);
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0], "ls -la");
+  }
+
+  #[test]
+  fn test_code_block_case_insensitive() {
+    let parser = CommandParser::new();
+    // Test case-insensitive matching
+    let markdown = r#"Command with different case:
+```Shell-Input
+pwd
+```"#;
+
+    let commands = parser.extract_commands(markdown);
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0], "pwd");
   }
 }

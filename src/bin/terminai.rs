@@ -209,8 +209,33 @@ impl Widget for TerminalWidget<'_> {
 #[tokio::main]
 async fn main() -> Result<()> {
   // Setup logging (enable debug for HTTP/LLM debugging)
-  flexi_logger::Logger::try_with_str("info,genai=debug,reqwest=debug")?
-    .log_to_file(flexi_logger::FileSpec::default())
+  // Get app cache directory
+  let cache_dir = xdg::BaseDirectories::with_prefix("terminai")
+    .get_cache_home()
+    .map(|path| path.to_str().map(String::from))
+    .flatten()
+    .unwrap_or_else(|| {
+      // Fallback to temporary directory if XDG not available
+      std::env::temp_dir()
+        .join("terminai")
+        .to_string_lossy()
+        .to_string()
+    });
+
+  flexi_logger::Logger::try_with_env_or_str("info,genai=debug,reqwest=debug")?
+    .log_to_file(
+      flexi_logger::FileSpec::default()
+        .directory(&cache_dir)
+        .basename("terminai")
+        .suppress_timestamp(), // Don't add timestamp to filename
+    )
+    .append()
+    .rotate(
+      flexi_logger::Criterion::Size(1024 * 1024), // Rotate at 1 MB
+      flexi_logger::Naming::Timestamps, // Add timestamp to rotated files
+      flexi_logger::Cleanup::KeepLogFiles(5), // Keep last 5 rotated log files
+    )
+    .format_for_files(flexi_logger::with_thread) // Format with timestamp and thread
     .start()?;
 
   // Load environment variables from terminai.env (for API keys)
