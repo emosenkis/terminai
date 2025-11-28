@@ -56,18 +56,7 @@ impl LLMClient {
     model: Option<String>,
     custom_endpoint: Option<String>,
   ) -> Result<Self> {
-    let mut model =
-      model.unwrap_or_else(|| provider.default_model().to_string());
-
-    // For OpenRouter, we need to prefix the model with the adapter type
-    // to ensure genai uses the OpenAI adapter instead of incorrectly
-    // detecting it as Ollama (due to the "/" in model names like "anthropic/claude")
-    if custom_endpoint.is_some() && provider == Provider::OpenRouter {
-      // Only add prefix if not already present
-      if !model.starts_with("openai::") {
-        model = format!("openai::{}", model);
-      }
-    }
+    let model = model.unwrap_or_else(|| provider.default_model().to_string());
 
     // Initialize genai client with custom endpoint if needed
     let client = if let Some(ref endpoint) = custom_endpoint {
@@ -122,10 +111,10 @@ impl LLMClient {
         use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
         let mut headers = HeaderMap::new();
-        // OpenRouter requires HTTP-Referer header
+        // OpenRouter requires Referer header (note: intentionally misspelled in HTTP spec)
         headers.insert(
-          HeaderName::from_static("http-referer"),
-          HeaderValue::from_static("https://github.com/yourusername/terminai"),
+          reqwest::header::REFERER,
+          HeaderValue::from_static("https://github.com/emosenkis/termin.ai"),
         );
         // Optional: X-Title for display in OpenRouter dashboard
         headers.insert(
@@ -133,6 +122,7 @@ impl LLMClient {
           HeaderValue::from_static("Termin.AI"),
         );
 
+        log::info!("Adding OpenRouter headers: Referer, X-Title");
         let web_config = WebConfig::default().with_default_headers(headers);
         builder = builder.with_web_config(web_config);
       }

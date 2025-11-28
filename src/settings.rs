@@ -67,7 +67,7 @@ impl Settings {
     } else {
       self.get_xdg_config_dir()?
     };
-    buf.push("mprocs/mprocs.yaml");
+    buf.push("terminai/terminai.yaml");
 
     Some(buf)
   }

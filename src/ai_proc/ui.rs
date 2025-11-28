@@ -2,9 +2,10 @@ use tui::{
   buffer::Buffer,
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
-  text::{Line, Span, Text},
+  text::{Line, Span},
   widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
 };
+use tui_markdown::from_str;
 
 use super::chat_process::{AIChatProcess, MessageRole};
 
@@ -89,10 +90,20 @@ impl<'a> AIChatUI<'a> {
           ),
         };
 
-        let mut lines = vec![Line::from(vec![
-          Span::styled(prefix, style),
-          Span::raw(&msg.content),
-        ])];
+        let mut lines = Vec::new();
+
+        // Add prefix line
+        lines.push(Line::from(Span::styled(prefix, style)));
+
+        // For assistant messages, render markdown; for others, use plain text
+        if matches!(msg.role, MessageRole::Assistant) {
+          // Use tui-markdown to parse and render markdown
+          let md_text = from_str(&msg.content);
+          lines.extend(md_text.lines.into_iter().map(Line::from));
+        } else {
+          // For user and system messages, use plain text
+          lines.push(Line::from(Span::raw(&msg.content)));
+        }
 
         // Add empty line between messages
         lines.push(Line::from(""));
@@ -101,9 +112,7 @@ impl<'a> AIChatUI<'a> {
       })
       .collect();
 
-    let text = Text::from(messages);
-
-    let paragraph = Paragraph::new(text)
+    let paragraph = Paragraph::new(messages)
       .block(
         Block::default()
           .borders(Borders::ALL)

@@ -197,8 +197,25 @@ impl App {
       }
 
       let mut loop_action = LoopAction::default();
-      if let Some(command) = self.pr.recv().await {
+
+      // When AI overlay is visible, use timeout to enable periodic renders for status updates
+      let command = if self.state.ai_visible {
+        tokio::time::timeout(
+          std::time::Duration::from_millis(100),
+          self.pr.recv(),
+        )
+        .await
+        .ok()
+        .flatten()
+      } else {
+        self.pr.recv().await
+      };
+
+      if let Some(command) = command {
         self.handle_proc_command(&mut loop_action, command);
+      } else if self.state.ai_visible {
+        // Timeout occurred while AI visible - trigger render for status updates
+        loop_action.render();
       }
 
       if self.state.quitting && self.state.all_procs_down() {

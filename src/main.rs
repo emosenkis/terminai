@@ -76,7 +76,7 @@ fn setup_logger(target: LogTarget) -> LoggerHandle {
   let logger = flexi_logger::Logger::try_with_str(logger_str).unwrap();
   let logger = match target {
     LogTarget::File => logger
-      .log_to_file(FileSpec::default().suppress_timestamp())
+      .log_to_file(FileSpec::default())
       .append(),
     LogTarget::Stderr => logger.log_to_stderr(),
   };

@@ -63,6 +63,9 @@ impl PtyBridge {
     // Build and spawn command
     let mut cmd = CommandBuilder::new(shell_cmd);
     cmd.env("TERM", "xterm-256color");
+    cmd.env("TERMINAI", "1");
+
+    // Spawn command
     let mut child = pair.slave.spawn_command(cmd)?;
     let pid = child.process_id().unwrap_or(0);
     log::info!("Shell spawned with PID: {}", pid);
@@ -600,10 +603,43 @@ impl App {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  // Setup logging
-  flexi_logger::Logger::try_with_str("info")?
-    .log_to_file(flexi_logger::FileSpec::default().suppress_timestamp())
+  // Setup logging (enable debug for HTTP/LLM debugging)
+  // Get app cache directory
+  let cache_dir = xdg::BaseDirectories::with_prefix("terminai")
+    .get_cache_home()
+    .map(|path| path.to_str().map(String::from))
+    .flatten()
+    .unwrap_or_else(|| {
+      // Fallback to temporary directory if XDG not available
+      std::env::temp_dir()
+        .join("terminai")
+        .to_string_lossy()
+        .to_string()
+    });
+
+  flexi_logger::Logger::try_with_env_or_str("info,genai=debug,reqwest=debug")?
+    .log_to_file(
+      flexi_logger::FileSpec::default()
+        .directory(&cache_dir)
+        .basename("terminai")
+        .suppress_timestamp(), // Don't add timestamp to filename
+    )
+    .append()
+    .rotate(
+      flexi_logger::Criterion::Size(1024 * 1024), // Rotate at 1 MB
+      flexi_logger::Naming::Timestamps, // Add timestamp to rotated files
+      flexi_logger::Cleanup::KeepLogFiles(5), // Keep last 5 rotated log files
+    )
+    .format_for_files(flexi_logger::with_thread) // Format with timestamp and thread
     .start()?;
+
+  // Load environment variables from terminai.env (for API keys)
+  // This must happen before AI initialization
+  if let Err(e) = termin::env_loader::load_env_file() {
+    log::error!("Failed to load terminai.env: {}", e);
+    eprintln!("Error: {}", e);
+    std::process::exit(1);
+  }
 
   // Detect user's shell
   let shell =
