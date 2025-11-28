@@ -1,7 +1,7 @@
 // TERMIN.AI: Environment variable loader with security checks
 //
 // Loads environment variables from terminai.env in the config directory.
-// Includes security checks to ensure the file is not world-readable.
+// Includes security checks to ensure the file is not group or world-readable.
 
 use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
@@ -15,9 +15,9 @@ fn get_env_file_path() -> PathBuf {
     .join("terminai.env")
 }
 
-/// Check if a file is world-readable (insecure for API keys)
+/// Check if a file has insecure permissions (group or world readable)
 #[cfg(unix)]
-fn is_world_readable(path: &std::path::Path) -> Result<bool> {
+fn has_insecure_permissions(path: &std::path::Path) -> Result<bool> {
   use std::os::unix::fs::PermissionsExt;
 
   let metadata = std::fs::metadata(path).with_context(|| {
@@ -27,19 +27,21 @@ fn is_world_readable(path: &std::path::Path) -> Result<bool> {
   let permissions = metadata.permissions();
   let mode = permissions.mode();
 
-  // Check if "other" has read permission (world-readable)
-  // In Unix permissions, the last 3 bits are: read (4), write (2), execute (1)
-  // We check if bit 2 (read for "other") is set
-  Ok((mode & 0o004) != 0)
+  // Check if "group" or "other" has read permission
+  // Unix permissions: owner(rwx) group(rwx) other(rwx)
+  // Group read: 0o040 (bit 5)
+  // Other read: 0o004 (bit 2)
+  // File must be 600 (or 400) - only owner can read
+  Ok((mode & 0o044) != 0)
 }
 
 #[cfg(not(unix))]
-fn is_world_readable(_path: &std::path::Path) -> Result<bool> {
-  // On non-Unix systems, we can't reliably check world-readable permissions
+fn has_insecure_permissions(_path: &std::path::Path) -> Result<bool> {
+  // On non-Unix systems, we can't reliably check file permissions
   // We'll just return false (assume it's secure) and rely on OS file permissions
   log::warn!(
     "Cannot check file permissions on non-Unix systems. \
-     Ensure terminai.env is not world-readable."
+     Ensure terminai.env has appropriate permissions (owner-only readable)."
   );
   Ok(false)
 }
@@ -48,14 +50,14 @@ fn is_world_readable(_path: &std::path::Path) -> Result<bool> {
 ///
 /// This function:
 /// - Locates the terminai.env file in the XDG config directory
-/// - Checks that the file is NOT world-readable (security requirement)
+/// - Checks that the file is NOT group or world-readable (security requirement)
 /// - Loads environment variables from the file if it exists
 /// - Silently succeeds if the file doesn't exist
 ///
 /// # Errors
 ///
 /// Returns an error if:
-/// - The file exists but is world-readable (security violation)
+/// - The file exists but is group or world-readable (security violation)
 /// - The file exists but cannot be read
 /// - The file exists but contains invalid syntax
 pub fn load_env_file() -> Result<()> {
@@ -69,11 +71,11 @@ pub fn load_env_file() -> Result<()> {
 
   log::info!("Found terminai.env file at {}", env_path.display());
 
-  // Security check: ensure the file is NOT world-readable
-  if is_world_readable(&env_path)? {
+  // Security check: ensure the file is NOT group or world-readable
+  if has_insecure_permissions(&env_path)? {
     bail!(
-      "SECURITY ERROR: {} is world-readable!\n\
-       This file may contain API keys and must not be readable by other users.\n\
+      "SECURITY ERROR: {} has insecure permissions!\n\
+       This file may contain API keys and must only be readable by the owner.\n\
        Fix with: chmod 600 {}",
       env_path.display(),
       env_path.display()
@@ -106,7 +108,7 @@ mod tests {
 
   #[cfg(unix)]
   #[test]
-  fn test_world_readable_check() {
+  fn test_permission_checks() {
     use std::os::unix::fs::PermissionsExt;
 
     // Create a temporary file
@@ -119,37 +121,59 @@ mod tests {
       file.write_all(b"TEST_KEY=test_value\n").unwrap();
     }
 
-    // Test 1: Set permissions to 644 (world-readable)
+    // Test 1: 644 (group + world readable) - INSECURE
     std::fs::set_permissions(
       &test_file,
       std::fs::Permissions::from_mode(0o644),
     )
     .unwrap();
     assert!(
-      is_world_readable(&test_file).unwrap(),
-      "File with 644 should be world-readable"
+      has_insecure_permissions(&test_file).unwrap(),
+      "File with 644 should be insecure (group + world readable)"
     );
 
-    // Test 2: Set permissions to 600 (not world-readable)
-    std::fs::set_permissions(
-      &test_file,
-      std::fs::Permissions::from_mode(0o600),
-    )
-    .unwrap();
-    assert!(
-      !is_world_readable(&test_file).unwrap(),
-      "File with 600 should not be world-readable"
-    );
-
-    // Test 3: Set permissions to 640 (not world-readable)
+    // Test 2: 640 (group readable) - INSECURE
     std::fs::set_permissions(
       &test_file,
       std::fs::Permissions::from_mode(0o640),
     )
     .unwrap();
     assert!(
-      !is_world_readable(&test_file).unwrap(),
-      "File with 640 should not be world-readable"
+      has_insecure_permissions(&test_file).unwrap(),
+      "File with 640 should be insecure (group readable)"
+    );
+
+    // Test 3: 604 (world readable) - INSECURE
+    std::fs::set_permissions(
+      &test_file,
+      std::fs::Permissions::from_mode(0o604),
+    )
+    .unwrap();
+    assert!(
+      has_insecure_permissions(&test_file).unwrap(),
+      "File with 604 should be insecure (world readable)"
+    );
+
+    // Test 4: 600 (owner only) - SECURE
+    std::fs::set_permissions(
+      &test_file,
+      std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    assert!(
+      !has_insecure_permissions(&test_file).unwrap(),
+      "File with 600 should be secure (owner read/write only)"
+    );
+
+    // Test 5: 400 (owner read-only) - SECURE
+    std::fs::set_permissions(
+      &test_file,
+      std::fs::Permissions::from_mode(0o400),
+    )
+    .unwrap();
+    assert!(
+      !has_insecure_permissions(&test_file).unwrap(),
+      "File with 400 should be secure (owner read-only)"
     );
 
     // Cleanup
