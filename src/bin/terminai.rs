@@ -213,6 +213,14 @@ async fn main() -> Result<()> {
     .log_to_file(flexi_logger::FileSpec::default())
     .start()?;
 
+  // Load environment variables from terminai.env (for API keys)
+  // This must happen before AI initialization
+  if let Err(e) = termin::env_loader::load_env_file() {
+    log::error!("Failed to load terminai.env: {}", e);
+    eprintln!("Error: {}", e);
+    std::process::exit(1);
+  }
+
   // Detect user's shell
   let shell =
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());

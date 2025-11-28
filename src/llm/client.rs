@@ -56,18 +56,7 @@ impl LLMClient {
     model: Option<String>,
     custom_endpoint: Option<String>,
   ) -> Result<Self> {
-    let mut model =
-      model.unwrap_or_else(|| provider.default_model().to_string());
-
-    // For OpenRouter, we need to prefix the model with the adapter type
-    // to ensure genai uses the OpenAI adapter instead of incorrectly
-    // detecting it as Ollama (due to the "/" in model names like "anthropic/claude")
-    if custom_endpoint.is_some() && provider == Provider::OpenRouter {
-      // Only add prefix if not already present
-      if !model.starts_with("openai::") {
-        model = format!("openai::{}", model);
-      }
-    }
+    let model = model.unwrap_or_else(|| provider.default_model().to_string());
 
     // Initialize genai client with custom endpoint if needed
     let client = if let Some(ref endpoint) = custom_endpoint {
