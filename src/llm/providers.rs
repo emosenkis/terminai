@@ -20,7 +20,7 @@ impl Provider {
       Provider::OpenAI => "gpt-5.1",
       Provider::Gemini => "gemini-2.5-pro",
       Provider::Ollama => "llama3",
-      Provider::OpenRouter => "anthropic/claude-3-5-sonnet",
+      Provider::OpenRouter => "google/gemma-3-27b-it:free",
     }
   }
 
