@@ -10,3 +10,6 @@
 /target
 termin.log
 terminai.log
+
+# Environment variables
+.env
