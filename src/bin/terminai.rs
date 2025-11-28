@@ -208,8 +208,8 @@ impl Widget for TerminalWidget<'_> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  // Setup logging
-  flexi_logger::Logger::try_with_str("info")?
+  // Setup logging (enable debug for HTTP/LLM debugging)
+  flexi_logger::Logger::try_with_str("info,genai=debug,reqwest=debug")?
     .log_to_file(flexi_logger::FileSpec::default())
     .start()?;
 
