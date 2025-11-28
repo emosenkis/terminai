@@ -17,9 +17,9 @@ impl Provider {
   pub fn default_model(&self) -> &str {
     match self {
       Provider::Anthropic => "claude-sonnet-4-5",
-      Provider::OpenAI => "gpt-4-turbo",
-      Provider::Gemini => "gemini-pro",
-      Provider::Ollama => "llama2",
+      Provider::OpenAI => "gpt-5.1",
+      Provider::Gemini => "gemini-2.5-pro",
+      Provider::Ollama => "llama3",
       Provider::OpenRouter => "anthropic/claude-3-5-sonnet",
     }
   }
