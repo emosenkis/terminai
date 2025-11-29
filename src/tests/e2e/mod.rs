@@ -61,10 +61,8 @@ pub struct TestStepResult {
 
 /// Test harness for e2e testing
 pub struct TestHarness {
-  /// Test backend
-  backend: TestBackend,
-  /// Terminal
-  terminal: Terminal<TestBackend>,
+  /// Terminal with TestBackend
+  pub terminal: Terminal<TestBackend>,
   /// Test configuration
   config: TestAppConfig,
   /// Event queue
@@ -84,7 +82,6 @@ impl TestHarness {
     let terminal = Terminal::new(backend).expect("Failed to create terminal");
 
     Self {
-      backend: TestBackend::new(width, height),
       terminal,
       config,
       events: Vec::new(),
@@ -150,18 +147,18 @@ impl TestHarness {
 
   /// Get a reference to the backend
   pub fn backend(&self) -> &TestBackend {
-    &self.backend
+    self.terminal.backend()
   }
 
   /// Get a mutable reference to the backend
   pub fn backend_mut(&mut self) -> &mut TestBackend {
-    &mut self.backend
+    self.terminal.backend_mut()
   }
 
   /// Get the current buffer as a string
   pub fn buffer_as_string(&self) -> String {
     // Extract text content from the buffer
-    let buffer = self.backend.buffer();
+    let buffer = self.terminal.backend().buffer();
     let mut content = String::new();
     for y in 0..buffer.area().height {
       for x in 0..buffer.area().width {
@@ -177,7 +174,7 @@ impl TestHarness {
 
   /// Get the buffer
   pub fn buffer(&self) -> &Buffer {
-    self.backend.buffer()
+    self.terminal.backend().buffer()
   }
 
   /// Assert that the buffer contains a specific string
@@ -197,12 +194,12 @@ impl TestHarness {
     Lines: IntoIterator,
     Lines::Item: Into<tui::text::Line<'line>>,
   {
-    self.backend.assert_buffer_lines(expected);
+    self.terminal.backend().assert_buffer_lines(expected);
   }
 
   /// Clear the terminal
   pub fn clear(&mut self) -> Result<()> {
-    self.backend.clear()?;
+    self.terminal.backend_mut().clear()?;
     Ok(())
   }
 
@@ -215,8 +212,6 @@ impl TestHarness {
       let area = f.area();
       f.render_widget(widget, area);
     })?;
-    // Update our backend reference
-    self.backend = self.terminal.backend().clone();
     Ok(())
   }
 
