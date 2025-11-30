@@ -42,3 +42,7 @@ pub mod privacy;
 
 // TERMIN.AI: Hybrid terminal system
 pub mod hybrid;
+
+// Test utilities
+#[cfg(test)]
+pub mod test_config;

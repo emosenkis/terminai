@@ -255,7 +255,7 @@ mod tests {
   struct NoOpReplySender;
 
   impl TermReplySender for NoOpReplySender {
-    fn send(&self, _data: Vec<u8>) {}
+    fn reply(&self, _s: compact_str::CompactString) {}
   }
 
   fn create_test_router() -> OutputRouter<NoOpReplySender> {

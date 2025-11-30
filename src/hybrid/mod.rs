@@ -28,8 +28,15 @@
 //!
 //! # Usage
 //!
-//! ```no_run
+//! ```ignore
 //! use termin::hybrid::HybridTerminal;
+//! use termin::vt100::TermReplySender;
+//!
+//! #[derive(Clone)]
+//! struct MyReplySender;
+//! impl TermReplySender for MyReplySender {
+//!     fn reply(&self, _s: compact_str::CompactString) {}
+//! }
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create channels for communication
@@ -41,7 +48,7 @@
 //! let mut terminal = HybridTerminal::new(
 //!     80, 24,              // cols, rows
 //!     1000,                // scrollback lines
-//!     reply_sender,        // vt100 reply sender
+//!     MyReplySender,       // vt100 reply sender
 //!     pty_output_rx,       // receive PTY output
 //!     pty_input_tx,        // send input to PTY
 //!     app_event_rx,        // receive app events
