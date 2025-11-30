@@ -7,7 +7,9 @@ use tui::{
   Frame,
   layout::Rect,
   style::{Color, Modifier, Style},
-  widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+  widgets::{
+    Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
+  },
 };
 
 /// State for a modal overlay
@@ -118,6 +120,9 @@ impl ModalState {
       height: modal_height,
     };
 
+    // Clear the modal area first (makes it opaque with background)
+    frame.render_widget(Clear, modal_area);
+
     // Render modal block with border
     let modal_block = Block::default()
       .title(self.title.as_str())
@@ -132,7 +137,8 @@ impl ModalState {
     match &mut self.content {
       ModalContent::Text(text) => {
         let paragraph = Paragraph::new(text.as_str())
-          .style(Style::default().fg(self.style.text_color));
+          .style(Style::default().fg(self.style.text_color))
+          .wrap(Wrap { trim: false }); // Enable text wrapping
         frame.render_widget(paragraph, inner_area);
       }
 
@@ -155,7 +161,8 @@ impl ModalState {
 
       ModalContent::Custom(text) => {
         let paragraph = Paragraph::new(text.as_str())
-          .style(Style::default().fg(self.style.text_color));
+          .style(Style::default().fg(self.style.text_color))
+          .wrap(Wrap { trim: false }); // Enable text wrapping
         frame.render_widget(paragraph, inner_area);
       }
     }
