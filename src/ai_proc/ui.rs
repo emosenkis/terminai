@@ -116,10 +116,11 @@ impl<'a> AIChatUI<'a> {
       .block(
         Block::default()
           .borders(Borders::ALL)
-          .title(" AI Assistant ")
+          .title(" AI Assistant (↑↓ to scroll) ")
           .style(Style::default().bg(Color::Black)),
       )
-      .wrap(Wrap { trim: false });
+      .wrap(Wrap { trim: false })
+      .scroll((self.process.scroll_offset(), 0));
 
     paragraph.render(area, buf);
   }
