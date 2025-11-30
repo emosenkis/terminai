@@ -5,17 +5,14 @@ use anyhow::Result;
 use crossterm::{
   event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
   execute,
-  terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-    enable_raw_mode,
-  },
+  terminal::{disable_raw_mode, enable_raw_mode},
 };
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Write, stdout};
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tui::{
-  Terminal,
+  Terminal, TerminalOptions, Viewport,
   backend::CrosstermBackend,
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Style},
@@ -264,6 +261,8 @@ struct App {
   shell: Shell,
   ai_process: Option<AIChatProcess>,
   ai_visible: bool,
+  /// Track the total row count to detect when content scrolls off screen
+  last_total_rows: usize,
 }
 
 impl App {
@@ -318,15 +317,20 @@ impl App {
   async fn new(shell_cmd: String) -> Result<Self> {
     // Setup terminal
     enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-
-    // Create ratatui terminal
-    let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::new(backend)?;
+    let stdout = stdout();
 
     // Get terminal size
     let (cols, rows) = crossterm::terminal::size()?;
+
+    // Create ratatui terminal with inline viewport for native scrollback
+    // This allows content to scroll into the host terminal's scrollback buffer
+    let backend = CrosstermBackend::new(stdout);
+    let terminal = Terminal::with_options(
+      backend,
+      TerminalOptions {
+        viewport: Viewport::Inline(rows),
+      },
+    )?;
 
     // Spawn shell
     let shell = Shell::spawn(&shell_cmd, rows, cols)?;
@@ -385,6 +389,7 @@ impl App {
       shell,
       ai_process,
       ai_visible: false,
+      last_total_rows: rows as usize,
     })
   }
 
@@ -540,6 +545,16 @@ impl App {
                 self.shell.resize(rows, cols)?;
                 self.render()?;
               }
+              Event::Mouse(mev) => {
+                // Filter out scroll events to allow native terminal scrollback
+                if matches!(mev.kind, crossterm::event::MouseEventKind::ScrollUp | crossterm::event::MouseEventKind::ScrollDown) {
+                  // Ignore scroll events - let the terminal handle them
+                  log::debug!("Ignoring scroll event for native scrollback");
+                } else {
+                  // Handle other mouse events if needed in the future
+                  log::debug!("Unhandled mouse event: {:?}", mev);
+                }
+              }
               _ => {}
             }
           }
@@ -554,6 +569,86 @@ impl App {
   }
 
   fn render(&mut self) -> Result<()> {
+    // Detect when content has scrolled in the VT100 terminal
+    // and write scrolled lines to the host terminal's native scrollback
+    if let Ok(vt) = self.shell.vt.read() {
+      let screen = vt.screen();
+      let current_total_rows = screen.total_rows();
+      let screen_size = screen.size();
+
+      // If total rows increased, content has scrolled into the VT100's scrollback buffer
+      if current_total_rows > self.last_total_rows {
+        let num_scrolled_lines = current_total_rows - self.last_total_rows;
+        log::debug!(
+          "Content scrolled: {} new lines (total rows: {} -> {})",
+          num_scrolled_lines,
+          self.last_total_rows,
+          current_total_rows
+        );
+
+        // Calculate which scrollback rows just scrolled off
+        // The grid structure: [scrollback rows...][visible rows]
+        // row0 = current_total_rows - screen_height
+        // New scrollback rows are at indices: (old row0 - num_scrolled_lines) to (old row0 - 1)
+        let old_row0 = self
+          .last_total_rows
+          .saturating_sub(screen_size.rows as usize);
+        let new_scrollback_start = old_row0.saturating_sub(num_scrolled_lines);
+
+        // Insert these lines above the viewport using insert_before
+        // This will push them into the host terminal's native scrollback
+        drop(vt); // Release the lock before calling insert_before
+
+        if let Err(e) =
+          self
+            .terminal
+            .insert_before(num_scrolled_lines as u16, |buf| {
+              // Re-acquire the lock to read the scrollback rows
+              if let Ok(vt) = self.shell.vt.read() {
+                let screen = vt.screen();
+                let area = buf.area;
+                let current_row0 = screen.row0();
+
+                // The lines that just scrolled off are now in scrollback
+                // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
+                let scrollback_start =
+                  current_row0.saturating_sub(num_scrolled_lines);
+
+                let mut line_idx = 0;
+                for row in screen
+                  .all_rows()
+                  .skip(scrollback_start)
+                  .take(num_scrolled_lines)
+                {
+                  if line_idx >= area.height as usize {
+                    break;
+                  }
+
+                  // Render this row into the buffer
+                  for col in 0..area.width.min(row.cols()) {
+                    if let Some(cell) = row.get(col) {
+                      if let Some(buf_cell) =
+                        buf.cell_mut((area.x + col, area.y + line_idx as u16))
+                      {
+                        *buf_cell = cell.to_tui();
+                        if !cell.has_contents() {
+                          buf_cell.set_char(' ');
+                        }
+                      }
+                    }
+                  }
+                  line_idx += 1;
+                }
+              }
+            })
+        {
+          log::error!("Failed to insert scrollback lines: {:?}", e);
+        }
+
+        self.last_total_rows = current_total_rows;
+      }
+    }
+
     self.terminal.draw(|frame| {
       let area = frame.area();
 
@@ -634,6 +729,5 @@ impl Drop for App {
   fn drop(&mut self) {
     // Cleanup terminal
     let _ = disable_raw_mode();
-    let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
   }
 }

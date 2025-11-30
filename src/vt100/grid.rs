@@ -235,6 +235,16 @@ impl Grid {
     self.rows.iter_mut().skip(row0)
   }
 
+  /// Returns an iterator over ALL rows (scrollback + visible).
+  pub fn all_rows(&self) -> impl Iterator<Item = &Row> {
+    self.rows.iter()
+  }
+
+  /// Public accessor for row0 (where visible rows start).
+  pub fn row0_public(&self) -> usize {
+    self.row0()
+  }
+
   pub fn visible_row(&self, row: u16) -> Option<&Row> {
     self.visible_rows().nth(usize::from(row))
   }
@@ -279,6 +289,12 @@ impl Grid {
 
   pub fn set_scrollback(&mut self, rows: usize) {
     self.scrollback_offset = rows.min(self.row0());
+  }
+
+  /// Returns the total number of rows in the buffer (visible rows + scrollback).
+  /// This increases as content scrolls off the top, up to the scrollback limit.
+  pub fn total_rows(&self) -> usize {
+    self.rows.len()
   }
 
   pub fn erase_all(&mut self, attrs: Attrs) {

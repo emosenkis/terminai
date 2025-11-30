@@ -222,6 +222,34 @@ impl<Reply: TermReplySender> Screen<Reply> {
       .visible_cell(crate::vt100::grid::Pos { row, col })
   }
 
+  /// Returns an iterator over the currently visible drawing rows (no scrollback).
+  /// This is the actual terminal content being displayed.
+  #[must_use]
+  pub fn drawing_rows(&self) -> impl Iterator<Item = &crate::vt100::row::Row> {
+    self.grid().drawing_rows()
+  }
+
+  /// Returns an iterator over all rows including scrollback and visible rows.
+  /// Rows are ordered from oldest (scrollback) to newest (bottom of screen).
+  #[must_use]
+  pub fn all_rows(&self) -> impl Iterator<Item = &crate::vt100::row::Row> {
+    self.grid().all_rows()
+  }
+
+  /// Returns the total number of rows in the grid (visible + scrollback).
+  /// This can be used to detect when content has scrolled.
+  #[must_use]
+  pub fn total_rows(&self) -> usize {
+    self.grid().total_rows()
+  }
+
+  /// Returns the index where visible rows start in the total row buffer.
+  /// Scrollback rows are at indices 0..(row0-1), visible rows at row0..total_rows.
+  #[must_use]
+  pub fn row0(&self) -> usize {
+    self.grid().row0_public()
+  }
+
   #[must_use]
   pub fn cursor_style(&self) -> CursorStyle {
     self.cursor_style
