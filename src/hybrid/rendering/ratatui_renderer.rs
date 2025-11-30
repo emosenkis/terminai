@@ -19,7 +19,7 @@ impl RatatuiRenderer {
   /// Create a new ratatui renderer
   ///
   /// Note: This assumes the stdout is already in raw mode and alternate screen
-  /// if needed. The caller (HybridTerminal) is responsible for managing that.
+  /// if needed. The caller (e.g., terminai.rs) is responsible for managing that.
   pub fn new(stdout: Stdout) -> io::Result<Self> {
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
