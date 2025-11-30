@@ -23,44 +23,14 @@
 //! - `terminal`: Shadow terminal, host controller, content representation
 //! - `routing`: Output routing and buffering
 //! - `rendering`: Ratatui rendering and modal UI
-//! - `event_loop`: Main event loop orchestration
 //! - `input`: Keyboard input handling
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use termin::hybrid::HybridTerminal;
-//! use termin::vt100::TermReplySender;
-//!
-//! #[derive(Clone)]
-//! struct MyReplySender;
-//! impl TermReplySender for MyReplySender {
-//!     fn reply(&self, _s: compact_str::CompactString) {}
-//! }
-//!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create channels for communication
-//! let (pty_output_tx, pty_output_rx) = tokio::sync::mpsc::unbounded_channel();
-//! let (pty_input_tx, pty_input_rx) = tokio::sync::mpsc::unbounded_channel();
-//! let (app_event_tx, app_event_rx) = tokio::sync::mpsc::unbounded_channel();
-//!
-//! // Create hybrid terminal
-//! let mut terminal = HybridTerminal::new(
-//!     80, 24,              // cols, rows
-//!     1000,                // scrollback lines
-//!     MyReplySender,       // vt100 reply sender
-//!     pty_output_rx,       // receive PTY output
-//!     pty_input_tx,        // send input to PTY
-//!     app_event_rx,        // receive app events
-//! )?;
-//!
-//! // Run the event loop
-//! terminal.run().await?;
-//! # Ok(())
-//! # }
-//! ```
+//! The hybrid terminal system is designed to be used by integrating its
+//! components directly into your application. See `src/bin/terminai.rs`
+//! for a complete example of how to use these components.
 
-pub mod event_loop;
 pub mod input;
 pub mod mode;
 pub mod rendering;
@@ -68,7 +38,6 @@ pub mod routing;
 pub mod terminal;
 
 // Re-export main types
-pub use event_loop::{AppEvent, HybridTerminal, HybridTerminalError};
 pub use input::{ModalInputResult, key_to_bytes};
 pub use mode::{Mode, ModeManager, ModeTransition};
 pub use rendering::{ModalContent, ModalState, ModalStyle, RatatuiRenderer};
