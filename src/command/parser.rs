@@ -19,12 +19,28 @@ impl CommandParser {
 
   /// Extract all commands from markdown text
   pub fn extract_commands(&self, markdown: &str) -> Vec<String> {
-    self
+    log::debug!(
+      "Parsing markdown for commands (length: {} chars)",
+      markdown.len()
+    );
+    log::debug!(
+      "Markdown preview (first 500 chars): {:?}",
+      &markdown.chars().take(500).collect::<String>()
+    );
+
+    let commands: Vec<String> = self
       .code_block_regex
       .captures_iter(markdown)
       .map(|cap| cap.get(1).unwrap().as_str().trim().to_string())
       .filter(|cmd| !cmd.is_empty())
-      .collect()
+      .collect();
+
+    log::debug!("Found {} commands", commands.len());
+    for (i, cmd) in commands.iter().enumerate() {
+      log::debug!("Command {}: {:?}", i, cmd);
+    }
+
+    commands
   }
 
   /// Extract the first command from markdown text

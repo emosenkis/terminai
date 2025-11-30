@@ -1418,12 +1418,12 @@ impl ClientHandle {
     Ok(())
   }
 
-  // TERMIN.AI: Calculate AI overlay area (centered, 80% width, 70% height)
+  // TERMIN.AI: Calculate AI overlay area (100% width, 20 lines, at the top)
   fn calculate_ai_overlay_area(screen: Rect) -> Rect {
-    let overlay_width = (screen.width as f32 * 0.8) as u16;
-    let overlay_height = (screen.height as f32 * 0.7) as u16;
-    let x = (screen.width.saturating_sub(overlay_width)) / 2;
-    let y = (screen.height.saturating_sub(overlay_height)) / 2;
+    let overlay_width = screen.width;
+    let overlay_height = 20.min(screen.height); // Use 20 lines or screen height, whichever is smaller
+    let x = 0;
+    let y = 0;
 
     Rect::new(x, y, overlay_width, overlay_height)
   }

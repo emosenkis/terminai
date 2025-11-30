@@ -36,6 +36,7 @@ pub struct AIChatProcess {
   awaiting_approval: Option<PendingCommand>,
   error_message: Option<String>,
   is_sending: bool,
+  scroll_offset: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +74,7 @@ impl AIChatProcess {
       awaiting_approval: None,
       error_message: None,
       is_sending: false,
+      scroll_offset: 0,
     })
   }
 
@@ -255,14 +257,12 @@ impl AIChatProcess {
     if let Some(command) = commands.first() {
       let risk_level = self.safety_validator.assess_risk(command);
 
-      // Auto-approve safe commands, require approval for others
-      if matches!(risk_level, RiskLevel::Caution | RiskLevel::Dangerous) {
-        self.awaiting_approval = Some(PendingCommand {
-          command: command.clone(),
-          risk_level,
-          target_process,
-        });
-      }
+      // All commands require user approval before execution
+      self.awaiting_approval = Some(PendingCommand {
+        command: command.clone(),
+        risk_level,
+        target_process,
+      });
     }
   }
 
@@ -311,6 +311,26 @@ impl AIChatProcess {
   pub fn is_sending(&self) -> bool {
     self.is_sending
   }
+
+  /// Get the current scroll offset
+  pub fn scroll_offset(&self) -> u16 {
+    self.scroll_offset
+  }
+
+  /// Scroll up in the conversation
+  pub fn scroll_up(&mut self, amount: u16) {
+    self.scroll_offset = self.scroll_offset.saturating_add(amount);
+  }
+
+  /// Scroll down in the conversation
+  pub fn scroll_down(&mut self, amount: u16) {
+    self.scroll_offset = self.scroll_offset.saturating_sub(amount);
+  }
+
+  /// Reset scroll to bottom (most recent messages)
+  pub fn scroll_to_bottom(&mut self) {
+    self.scroll_offset = 0;
+  }
 }
 
 #[cfg(test)]
@@ -336,6 +356,7 @@ mod tests {
       awaiting_approval: None,
       error_message: None,
       is_sending: false,
+      scroll_offset: 0,
     };
 
     process.append_input("hello");
@@ -370,6 +391,7 @@ mod tests {
       awaiting_approval: None,
       error_message: None,
       is_sending: false,
+      scroll_offset: 0,
     };
 
     assert!(!process.is_active());
