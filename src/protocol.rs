@@ -376,4 +376,22 @@ impl Backend for ProxyBackend {
     self.send(SrvToClt::SetCursor { x: pos.x, y: pos.y });
     Ok(())
   }
+
+  fn scroll_region_up(
+    &mut self,
+    _region: std::ops::Range<u16>,
+    _by: u16,
+  ) -> std::io::Result<()> {
+    // Not implemented for ProxyBackend - scrolling handled by the terminal client
+    Ok(())
+  }
+
+  fn scroll_region_down(
+    &mut self,
+    _region: std::ops::Range<u16>,
+    _by: u16,
+  ) -> std::io::Result<()> {
+    // Not implemented for ProxyBackend - scrolling handled by the terminal client
+    Ok(())
+  }
 }
