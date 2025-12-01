@@ -9,7 +9,7 @@ use crate::{
   event::{AppEvent, CopyMove},
   key::Key,
   keymap::Keymap,
-  yaml_val::{Val, value_to_string},
+  yaml_val::{value_to_string, Val},
 };
 
 #[derive(Debug)]
@@ -67,7 +67,7 @@ impl Settings {
     } else {
       self.get_xdg_config_dir()?
     };
-    buf.push("terminai/terminai.yaml");
+    buf.push("mprocs/mprocs.yaml");
 
     Some(buf)
   }
@@ -252,16 +252,6 @@ impl Settings {
     s.keymap_add_p(
       Key::new(KeyCode::Char('z'), KeyModifiers::NONE),
       AppEvent::Zoom,
-    );
-
-    // TERMIN.AI: Ctrl-Space to toggle AI assistant
-    s.keymap_add_p(
-      Key::new(KeyCode::Char(' '), KeyModifiers::CONTROL),
-      AppEvent::ToggleAI,
-    );
-    s.keymap_add_t(
-      Key::new(KeyCode::Char(' '), KeyModifiers::CONTROL),
-      AppEvent::ToggleAI,
     );
 
     s.keymap_add_p(

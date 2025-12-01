@@ -25,11 +25,15 @@ path = "lib.rs"
 name = "terminai"
 path = "bin/terminai.rs"
 
+[[bin]]
+name = "termcap"
+path = "bin/termcap.rs"
+
 [dependencies]
 anyhow = "1.0.72"
 assert_matches = "1.5.0"
 base64 = "0.22.0"
-clap = { version = "4.3.19", features = ["cargo"] }
+clap = { version = "4.3.19", features = ["cargo", "derive"] }
 clipboard-win = "5.3.1"
 crossterm = { version = "0.29", features = ["serde"] }
 dunce = "1.0.4"
@@ -81,6 +85,7 @@ regex = "1.10"
 reqwest = { version = "0.12", default-features = false }
 dotenvy = "0.15"
 tui-markdown = "0.3"
+tui-textarea = "0.7.0"
 
 [target."cfg(unix)".dependencies]
 daemonize = "0.5.0"

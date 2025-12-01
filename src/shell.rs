@@ -1,0 +1,170 @@
+use anyhow::Result;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use std::io::Write;
+use std::sync::{Arc, RwLock};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+
+use crate::encode_term::{KeyCodeEncodeModes, encode_key};
+use crate::key::Key;
+use crate::vt100;
+
+// Shell events
+#[derive(Debug)]
+pub enum ShellEvent {
+  Output,
+  TermReply(compact_str::CompactString),
+  Exited(u32),
+}
+
+// Shell manager - simplified from mprocs' Inst
+pub struct Shell {
+  pub vt: Arc<RwLock<vt100::Parser<ReplySender>>>,
+  pub writer: Box<dyn Write + Send>,
+  pub master: Option<Box<dyn portable_pty::MasterPty + Send>>,
+  pub _pid: u32,
+  pub event_rx: UnboundedReceiver<ShellEvent>,
+}
+
+impl Shell {
+  /// Spawn a shell command (runs through /bin/sh -c)
+  pub fn spawn(shell_cmd: &str, rows: u16, cols: u16) -> Result<Self> {
+    log::info!("Spawning shell: {} ({}x{})", shell_cmd, cols, rows);
+    Self::spawn_internal(shell_cmd, &[], rows, cols)
+  }
+
+  /// Spawn a command with explicit arguments (no shell interpretation)
+  pub fn spawn_command(
+    cmd: &str,
+    args: &[String],
+    rows: u16,
+    cols: u16,
+  ) -> Result<Self> {
+    log::info!("Spawning command: {} {:?} ({}x{})", cmd, args, cols, rows);
+    Self::spawn_internal(cmd, args, rows, cols)
+  }
+
+  fn spawn_internal(
+    cmd: &str,
+    args: &[String],
+    rows: u16,
+    cols: u16,
+  ) -> Result<Self> {
+    // Setup event channel
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
+
+    // Create VT100 parser with reply sender
+    let reply_sender = ReplySender {
+      tx: event_tx.clone(),
+    };
+    let vt = vt100::Parser::new(rows, cols, 1000, reply_sender);
+    let vt = Arc::new(RwLock::new(vt));
+
+    // Create PTY (using portable-pty like mprocs)
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+      rows,
+      cols,
+      pixel_width: 0,
+      pixel_height: 0,
+    })?;
+
+    // Build command
+    let mut command = CommandBuilder::new(cmd);
+    for arg in args {
+      command.arg(arg);
+    }
+    command.env("TERM", "xterm-256color");
+    command.env("TERMINAI", "1");
+
+    // Spawn command
+    let mut child = pair.slave.spawn_command(command)?;
+    let pid = child.process_id().unwrap_or(0);
+
+    log::info!("Command spawned with PID: {}", pid);
+
+    // Get reader and writer for PTY
+    let mut reader = pair.master.try_clone_reader()?;
+    let writer = pair.master.take_writer()?;
+
+    // Spawn thread to read PTY output (pattern from mprocs' inst.rs)
+    let vt_clone = vt.clone();
+    let event_tx_clone = event_tx.clone();
+    std::thread::spawn(move || {
+      let mut buf = vec![0u8; 32 * 1024];
+      loop {
+        match reader.read(&mut buf) {
+          Ok(0) => break, // EOF
+          Ok(count) => {
+            // Process through VT100 parser
+            if let Ok(mut vt) = vt_clone.write() {
+              vt.process(&buf[..count]);
+              let _ = event_tx_clone.send(ShellEvent::Output);
+            }
+          }
+          Err(e) => {
+            log::error!("PTY read error: {}", e);
+            break;
+          }
+        }
+      }
+    });
+
+    // Spawn thread to wait for child exit
+    std::thread::spawn(move || {
+      let exit_code = match child.wait() {
+        Ok(status) => status.exit_code(),
+        Err(_) => 1,
+      };
+      let _ = event_tx.send(ShellEvent::Exited(exit_code));
+    });
+
+    Ok(Shell {
+      vt,
+      writer,
+      master: Some(pair.master),
+      _pid: pid,
+      event_rx,
+    })
+  }
+
+  pub fn send_key(&mut self, key: Key) -> Result<()> {
+    // Encode key using mprocs' encoder
+    let encoded = encode_key(&key, KeyCodeEncodeModes::default())?;
+    self.writer.write_all(encoded.as_bytes())?;
+    self.writer.flush()?;
+    Ok(())
+  }
+
+  pub fn resize(&mut self, rows: u16, cols: u16) -> Result<()> {
+    // Resize PTY (pattern from mprocs' inst.rs)
+    if let Some(master) = &self.master {
+      master.resize(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+      })?;
+    }
+
+    // Resize VT100 parser
+    if let Ok(mut vt) = self.vt.write() {
+      vt.set_size(rows, cols);
+    }
+
+    log::info!("Shell resized to {}x{}", cols, rows);
+    Ok(())
+  }
+}
+
+// Reply sender for VT100 terminal queries
+#[derive(Clone)]
+pub struct ReplySender {
+  tx: UnboundedSender<ShellEvent>,
+}
+
+impl crate::vt100::TermReplySender for ReplySender {
+  fn reply(&self, reply: compact_str::CompactString) {
+    // Send terminal reply back to event loop to write to PTY
+    let _ = self.tx.send(ShellEvent::TermReply(reply));
+  }
+}

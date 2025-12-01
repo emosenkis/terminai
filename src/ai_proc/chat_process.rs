@@ -6,8 +6,6 @@ use crate::command::{CommandParser, RiskLevel, SafetyValidator};
 use crate::llm::{LLMClient, Provider};
 use crate::privacy::PrivacyFilter;
 
-use super::context::ContextExtractor;
-
 /// Message in the chat conversation
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -26,13 +24,10 @@ pub enum MessageRole {
 pub struct AIChatProcess {
   llm_client: Arc<LLMClient>,
   conversation: Vec<Message>,
-  input_buffer: String,
-  context_extractor: ContextExtractor,
   command_parser: CommandParser,
   safety_validator: SafetyValidator,
   privacy_filter: PrivacyFilter,
   active: bool,
-  streaming_response: Option<String>,
   awaiting_approval: Option<PendingCommand>,
   error_message: Option<String>,
   is_sending: bool,
@@ -64,13 +59,10 @@ impl AIChatProcess {
     Ok(Self {
       llm_client,
       conversation: Vec::new(),
-      input_buffer: String::new(),
-      context_extractor: ContextExtractor::default(),
       command_parser: CommandParser::new(),
       safety_validator: SafetyValidator::new(),
       privacy_filter: PrivacyFilter::new(),
       active: false,
-      streaming_response: None,
       awaiting_approval: None,
       error_message: None,
       is_sending: false,
@@ -93,96 +85,13 @@ impl AIChatProcess {
     self.active
   }
 
-  /// Get the current input buffer
-  pub fn input_buffer(&self) -> &str {
-    &self.input_buffer
-  }
-
-  /// Append text to input buffer
-  pub fn append_input(&mut self, text: &str) {
-    self.input_buffer.push_str(text);
-  }
-
-  /// Delete the last character from input buffer
-  pub fn delete_char(&mut self) {
-    self.input_buffer.pop();
-  }
-
-  /// Clear the input buffer
-  pub fn clear_input(&mut self) {
-    self.input_buffer.clear();
-  }
-
-  /// Send the current input as a message
-  pub async fn send_input(
-    &mut self,
-    proc_views: &[crate::proc::view::ProcView],
-    target_process: Option<usize>,
-  ) -> Result<()> {
-    if self.input_buffer.is_empty() {
-      return Ok(());
-    }
-
-    let user_message = self.input_buffer.clone();
-    self.input_buffer.clear();
-
-    // Add user message to conversation
-    self.conversation.push(Message {
-      role: MessageRole::User,
-      content: user_message.clone(),
-    });
-
-    // Extract context
-    let cwd = ContextExtractor::get_cwd();
-    let context =
-      self
-        .context_extractor
-        .extract_context(proc_views, target_process, cwd);
-
-    // Filter sensitive information from context
-    let filtered_context = crate::llm::TerminalContext {
-      history_lines: self.privacy_filter.filter_lines(&context.history_lines),
-      cwd: context.cwd,
-      last_exit_code: context.last_exit_code,
-    };
-
-    // Convert conversation to genai format
-    let history: Vec<ChatMessage> = self
-      .conversation
-      .iter()
-      .filter_map(|msg| match msg.role {
-        MessageRole::User => Some(ChatMessage::user(msg.content.clone())),
-        MessageRole::Assistant => {
-          Some(ChatMessage::assistant(msg.content.clone()))
-        }
-        MessageRole::System => None, // System messages handled separately
-      })
-      .collect();
-
-    // Send to LLM
-    let response = self
-      .llm_client
-      .send_message(&user_message, &filtered_context, &history)
-      .await?;
-
-    // Add assistant response to conversation
-    self.conversation.push(Message {
-      role: MessageRole::Assistant,
-      content: response.clone(),
-    });
-
-    // Check for commands in response
-    self.check_for_commands(&response, target_process);
-
-    Ok(())
-  }
-
   /// Send the current input with pre-extracted context
   pub async fn send_input_with_context(
     &mut self,
+    user_message: &str,
     context: crate::llm::TerminalContext,
   ) -> Result<()> {
-    if self.input_buffer.is_empty() {
+    if user_message.is_empty() {
       return Ok(());
     }
 
@@ -190,13 +99,10 @@ impl AIChatProcess {
     self.error_message = None;
     self.is_sending = true;
 
-    let user_message = self.input_buffer.clone();
-    self.input_buffer.clear();
-
     // Add user message to conversation
     self.conversation.push(Message {
       role: MessageRole::User,
-      content: user_message.clone(),
+      content: user_message.to_string(),
     });
 
     // Filter sensitive information from context
@@ -338,41 +244,6 @@ mod tests {
   use super::*;
 
   #[test]
-  fn test_input_buffer() {
-    let mut process = AIChatProcess {
-      // Create a mock LLM client for testing
-      llm_client: Arc::new(
-        futures::executor::block_on(LLMClient::new(Provider::Anthropic, None))
-          .expect("Failed to create test LLM client"),
-      ),
-      conversation: Vec::new(),
-      input_buffer: String::new(),
-      context_extractor: ContextExtractor::default(),
-      command_parser: CommandParser::new(),
-      safety_validator: SafetyValidator::new(),
-      privacy_filter: PrivacyFilter::new(),
-      active: false,
-      streaming_response: None,
-      awaiting_approval: None,
-      error_message: None,
-      is_sending: false,
-      scroll_offset: 0,
-    };
-
-    process.append_input("hello");
-    assert_eq!(process.input_buffer(), "hello");
-
-    process.append_input(" world");
-    assert_eq!(process.input_buffer(), "hello world");
-
-    process.delete_char();
-    assert_eq!(process.input_buffer(), "hello worl");
-
-    process.clear_input();
-    assert_eq!(process.input_buffer(), "");
-  }
-
-  #[test]
   fn test_activation() {
     let mut process = AIChatProcess {
       // Create a mock LLM client for testing
@@ -381,13 +252,10 @@ mod tests {
           .expect("Failed to create test LLM client"),
       ),
       conversation: Vec::new(),
-      input_buffer: String::new(),
-      context_extractor: ContextExtractor::default(),
       command_parser: CommandParser::new(),
       safety_validator: SafetyValidator::new(),
       privacy_filter: PrivacyFilter::new(),
       active: false,
-      streaming_response: None,
       awaiting_approval: None,
       error_message: None,
       is_sending: false,

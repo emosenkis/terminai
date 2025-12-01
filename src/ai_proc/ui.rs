@@ -6,26 +6,34 @@ use tui::{
   widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
 };
 use tui_markdown::from_str;
+use tui_textarea::TextArea;
 
 use super::chat_process::{AIChatProcess, MessageRole};
 
 /// Render the AI chat interface
 pub struct AIChatUI<'a> {
-  process: &'a AIChatProcess,
+  input: TextArea<'a>,
 }
 
 impl<'a> AIChatUI<'a> {
-  pub fn new(process: &'a AIChatProcess) -> Self {
-    Self { process }
+  pub fn new() -> Self {
+    Self {
+      input: TextArea::default(),
+    }
   }
 
   /// Render the full chat UI
-  pub fn render(&self, area: Rect, buf: &mut Buffer) {
+  pub fn render(
+    &mut self,
+    process: &AIChatProcess,
+    area: Rect,
+    buf: &mut Buffer,
+  ) {
     // Clear the entire area first to set background
     Clear.render(area, buf);
 
     // Determine if we need space for an error message
-    let has_error = self.process.error_message().is_some();
+    let has_error = process.error_message().is_some();
 
     let chunks = if has_error {
       Layout::default()
@@ -47,25 +55,29 @@ impl<'a> AIChatUI<'a> {
     };
 
     // Render conversation history
-    self.render_conversation(chunks[0], buf);
+    self.render_conversation(process, chunks[0], buf);
 
     // Render input area
-    self.render_input(chunks[1], buf);
+    self.render_input(process, chunks[1], buf);
 
     // Render error message if present
     if has_error {
-      self.render_error(chunks[2], buf);
+      self.render_error(process, chunks[2], buf);
     }
 
     // Render pending command approval if any
-    if let Some(pending) = self.process.pending_command() {
+    if let Some(pending) = process.pending_command() {
       self.render_approval_prompt(area, buf, pending);
     }
   }
 
-  fn render_conversation(&self, area: Rect, buf: &mut Buffer) {
-    let messages: Vec<Line> = self
-      .process
+  fn render_conversation(
+    &self,
+    process: &AIChatProcess,
+    area: Rect,
+    buf: &mut Buffer,
+  ) {
+    let messages: Vec<Line> = process
       .conversation()
       .iter()
       .flat_map(|msg| {
@@ -120,36 +132,39 @@ impl<'a> AIChatUI<'a> {
           .style(Style::default().bg(Color::Black)),
       )
       .wrap(Wrap { trim: false })
-      .scroll((self.process.scroll_offset(), 0));
+      .scroll((process.scroll_offset(), 0));
 
     paragraph.render(area, buf);
   }
 
-  fn render_input(&self, area: Rect, buf: &mut Buffer) {
-    let input_text = if self.process.is_sending() {
-      format!("> {} [Sending...]", self.process.input_buffer())
-    } else {
-      format!("> {}", self.process.input_buffer())
-    };
-
-    let title = if self.process.is_sending() {
+  fn render_input(
+    &mut self,
+    process: &AIChatProcess,
+    area: Rect,
+    buf: &mut Buffer,
+  ) {
+    let title = if process.is_sending() {
       " Sending message... "
     } else {
       " Your Message (Ctrl+Space to toggle, Enter to send) "
     };
-
-    let paragraph = Paragraph::new(input_text).block(
+    self.input.set_block(
       Block::default()
         .borders(Borders::ALL)
         .title(title)
         .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
     );
 
-    paragraph.render(area, buf);
+    self.input.render(area, buf);
   }
 
-  fn render_error(&self, area: Rect, buf: &mut Buffer) {
-    if let Some(error_msg) = self.process.error_message() {
+  fn render_error(
+    &self,
+    process: &AIChatProcess,
+    area: Rect,
+    buf: &mut Buffer,
+  ) {
+    if let Some(error_msg) = process.error_message() {
       let error_text = format!("⚠ Error: {}", error_msg);
 
       let paragraph = Paragraph::new(error_text)
@@ -219,6 +234,14 @@ impl<'a> AIChatUI<'a> {
         .add_modifier(Modifier::BOLD),
     );
     prompt_para.render(chunks[2], buf);
+  }
+
+  pub fn get_input_value(&self) -> String {
+    self.input.lines().join("\n").trim().to_string()
+  }
+
+  pub fn input_event(&mut self, event: impl Into<tui_textarea::Input>) {
+    self.input.input(event);
   }
 }
 

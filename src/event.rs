@@ -2,9 +2,7 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-  app::ClientId, kernel::proc::ProcId, key::Key, proc::msg::CustomProcCmd,
-};
+use crate::{app::ClientId, key::Key};
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(tag = "c", rename_all = "kebab-case")]
@@ -21,9 +19,6 @@ pub enum AppEvent {
   FocusTerm,
   Zoom,
 
-  // TERMIN.AI: Toggle AI assistant
-  ToggleAI,
-
   ShowCommandsMenu,
   NextProc,
   PrevProc,
@@ -39,7 +34,7 @@ pub enum AppEvent {
   AddProc { cmd: String, name: Option<String> },
   DuplicateProc,
   ShowRemoveProc,
-  RemoveProc { id: ProcId },
+  RemoveProc { id: usize },
 
   CloseCurrentModal,
 
@@ -58,8 +53,6 @@ pub enum AppEvent {
   SendKey { key: Key },
 }
 
-impl CustomProcCmd for AppEvent {}
-
 impl AppEvent {
   pub fn desc(&self) -> String {
     match self {
@@ -74,8 +67,6 @@ impl AppEvent {
       AppEvent::FocusProcs => "Focus process list".to_string(),
       AppEvent::FocusTerm => "Focus terminal".to_string(),
       AppEvent::Zoom => "Zoom into terminal".to_string(),
-      // TERMIN.AI: AI assistant description
-      AppEvent::ToggleAI => "Toggle AI assistant".to_string(),
       AppEvent::ShowCommandsMenu => "Show commands menu".to_string(),
       AppEvent::NextProc => "Next".to_string(),
       AppEvent::PrevProc => "Prev".to_string(),
@@ -88,10 +79,10 @@ impl AppEvent {
       AppEvent::ForceRestartProc => "Force restart".to_string(),
       AppEvent::ShowAddProc => "New process dialog".to_string(),
       AppEvent::ShowRenameProc => "Rename process dialog".to_string(),
-      AppEvent::AddProc { cmd, name: _ } => format!("New process `{}`", cmd),
+      AppEvent::AddProc { cmd, name } => format!("New process `{}`", cmd),
       AppEvent::DuplicateProc => "Duplicate current process".to_string(),
       AppEvent::ShowRemoveProc => "Remove process dialog".to_string(),
-      AppEvent::RemoveProc { id } => format!("Remove process by id {}", id.0),
+      AppEvent::RemoveProc { id } => format!("Remove process by id {}", id),
       AppEvent::CloseCurrentModal => "Close current modal".to_string(),
       AppEvent::ScrollDownLines { n } => {
         format!("Scroll down {} {}", n, lines_str(*n))
@@ -115,7 +106,11 @@ impl AppEvent {
 }
 
 fn lines_str(n: usize) -> &'static str {
-  if n == 1 { "line" } else { "lines" }
+  if n == 1 {
+    "line"
+  } else {
+    "lines"
+  }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]

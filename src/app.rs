@@ -1,5 +1,3 @@
-use std::{any::Any, collections::HashMap, fmt::Debug, time::Instant};
-
 use anyhow::bail;
 use crossterm::event::{
   Event, KeyEvent, KeyEventKind, MouseButton, MouseEventKind,
@@ -7,22 +5,25 @@ use crossterm::event::{
 use futures::{future::FutureExt, select};
 use serde::{Deserialize, Serialize};
 use termwiz::escape::csi::CursorStyle;
-use tokio::{io::AsyncReadExt, sync::mpsc::UnboundedReceiver};
+use tokio::{
+  io::AsyncReadExt,
+  sync::mpsc::{UnboundedReceiver, UnboundedSender},
+};
 use tui::{
-  Terminal,
   layout::{Constraint, Direction, Layout, Margin, Rect},
   widgets::Widget,
+  Terminal,
 };
+use vt100::Size;
 
 use crate::{
   config::{CmdConfig, Config, ProcConfig, ServerConfig},
   error::ResultLogger,
-  event::{AppEvent, CopyMove},
-  host::{receiver::MsgReceiver, sender::MsgSender},
-  kernel::{
-    kernel_message::{KernelCommand, ProcContext, ProcSender},
-    proc::{ProcId, ProcInit, ProcStatus},
+  event::AppEvent,
+  host::{
+    receiver::MsgReceiver, sender::MsgSender, socket::bind_server_socket,
   },
+  kernel::kernel_message::{KernelMessage, KernelSender},
   key::Key,
   keymap::Keymap,
   modal::{
@@ -32,19 +33,16 @@ use crate::{
   },
   mouse::MouseEvent,
   proc::{
-    CopyMode, Pos, StopSignal,
-    msg::{ProcCmd, ProcUpdate},
-    proc::launch_proc,
-    view::RESTART_THRESHOLD_SECONDS,
+    create_proc,
+    msg::{ProcCmd, ProcEvent},
+    StopSignal,
   },
   protocol::{CltToSrv, ProxyBackend, SrvToClt},
-  server::server_message::ServerMessage,
   state::{Scope, State},
   ui_keymap::render_keymap,
   ui_procs::{procs_check_hit, procs_get_clicked_index, render_procs},
   ui_term::{render_term, term_check_hit},
   ui_zoom_tip::render_zoom_tip,
-  vt100::{MouseProtocolMode, Size},
 };
 
 type Term = Terminal<ProxyBackend>;
@@ -76,12 +74,12 @@ pub struct App {
   keymap: Keymap,
   state: State,
   modal: Option<Box<dyn Modal>>,
-  pr: tokio::sync::mpsc::UnboundedReceiver<ProcCmd>,
-  pc: ProcContext,
-
-  // TERMIN.AI: AI assistant
-  ai_process:
-    Option<std::sync::Arc<tokio::sync::Mutex<crate::ai_proc::AIChatProcess>>>,
+  proc_rx: UnboundedReceiver<(usize, ProcEvent)>,
+  proc_tx: UnboundedSender<(usize, ProcEvent)>,
+  ev_rx: UnboundedReceiver<AppEvent>,
+  ev_tx: UnboundedSender<AppEvent>,
+  // kernel_sender: KernelSender,
+  kernel_receiver: tokio::sync::mpsc::UnboundedReceiver<KernelMessage>,
 
   screen_size: Size,
   clients: Vec<ClientHandle>,
@@ -91,13 +89,12 @@ impl App {
   pub async fn run(self) -> anyhow::Result<()> {
     let (exit_trigger, exit_listener) = triggered::trigger();
 
-    let app_proc_id = self.pc.proc_id;
     let server_thread = if let Some(ref server_addr) = self.config.server {
       let server = match server_addr {
         ServerConfig::Tcp(addr) => tokio::net::TcpListener::bind(addr).await?,
       };
 
-      let ev_pc = self.pc.clone();
+      let ev_tx = self.ev_tx.clone();
       let server_thread = tokio::spawn(async move {
         loop {
           let on_exit = exit_listener.clone();
@@ -112,7 +109,7 @@ impl App {
             }
           };
 
-          let ctl_pc = ev_pc.clone();
+          let ctl_tx = ev_tx.clone();
           let on_exit = exit_listener.clone();
           tokio::spawn(async move {
             let mut buf: Vec<u8> = Vec::with_capacity(32);
@@ -126,10 +123,7 @@ impl App {
             };
             let msg: AppEvent = serde_yaml::from_slice(buf.as_slice()).unwrap();
             // log::info!("Received remote command: {:?}", msg);
-            ctl_pc.send(KernelCommand::ProcCmd(
-              app_proc_id,
-              ProcCmd::Custom(Box::new(msg)),
-            ));
+            ctl_tx.send(msg).unwrap();
           });
         }
       });
@@ -139,21 +133,16 @@ impl App {
     };
 
     let result = self.main_loop().await;
-    exit_trigger.trigger();
-    if let Err(err) = result {
-      log::error!("App main loop error: {err}");
-    }
 
+    exit_trigger.trigger();
     if let Some(server_thread) = server_thread {
       let _ = server_thread.await;
     }
 
-    Ok(())
+    result
   }
 
   async fn main_loop(mut self) -> anyhow::Result<()> {
-    self.pc.send(KernelCommand::ListenProcUpdates);
-
     self.start_procs(Rect::new(
       0,
       0,
@@ -162,27 +151,10 @@ impl App {
     ))?;
 
     let mut render_needed = true;
-    let mut last_term_size = self.get_layout().term_area().as_size();
-
     loop {
-      let layout = self.get_layout();
-
-      let term_size = layout.term_area().as_size();
-      if term_size != last_term_size {
-        for proc_handle in &mut self.state.procs {
-          self.pc.send(KernelCommand::ProcCmd(
-            proc_handle.id(),
-            ProcCmd::Resize {
-              w: term_size.width,
-              h: term_size.height,
-            },
-          ));
-        }
-
-        last_term_size = term_size;
-      }
-
       if render_needed {
+        let layout = self.get_layout();
+
         if let Some((first, rest)) = self.clients.split_first_mut() {
           first.render(
             &mut self.state,
@@ -191,32 +163,28 @@ impl App {
             &self.keymap,
             &mut self.modal,
             rest,
-            &self.ai_process,
           )?;
         }
       }
 
       let mut loop_action = LoopAction::default();
-
-      // When AI overlay is visible, use timeout to enable periodic renders for status updates
-      let command = if self.state.ai_visible {
-        tokio::time::timeout(
-          std::time::Duration::from_millis(100),
-          self.pr.recv(),
-        )
-        .await
-        .ok()
-        .flatten()
-      } else {
-        self.pr.recv().await
+      let () = select! {
+        event = self.kernel_receiver.recv().fuse() => {
+          if let Some(event) = event {
+            self.handle_kernel_message(&mut loop_action, event)?
+          }
+        }
+        event = self.proc_rx.recv().fuse() => {
+          if let Some(event) = event {
+            self.handle_proc_event(&mut loop_action, event)
+          }
+        }
+        event = self.ev_rx.recv().fuse() => {
+          if let Some(event) = event {
+            self.handle_event(&mut loop_action, &event)
+          }
+        }
       };
-
-      if let Some(command) = command {
-        self.handle_proc_command(&mut loop_action, command);
-      } else if self.state.ai_visible {
-        // Timeout occurred while AI visible - trigger render for status updates
-        loop_action.render();
-      }
 
       if self.state.quitting && self.state.all_procs_down() {
         break;
@@ -239,33 +207,16 @@ impl App {
       sender.send(SrvToClt::Quit).log_ignore();
     }
 
-    self.pc.send(KernelCommand::UnlistenProcUpdates);
-
     Ok(())
   }
 
   fn start_procs(&mut self, size: Rect) -> anyhow::Result<()> {
-    let mut id_map = HashMap::with_capacity(self.config.procs.len());
-    for proc_cfg in &self.config.procs {
-      let proc_id = self.pc.alloc_id();
-      id_map.insert(proc_cfg.name.clone(), proc_id);
-    }
-
     let mut procs = self
       .config
       .procs
       .iter()
       .map(|proc_cfg| {
-        let mut deps = Vec::new();
-        for dep_name in &proc_cfg.deps {
-          if let Some(dep_id) = id_map.get(dep_name) {
-            deps.push(*dep_id);
-          } else {
-            // TODO: Show error.
-          }
-        }
-        let proc_id = id_map.get(&proc_cfg.name).unwrap();
-        launch_proc(&self.pc, proc_cfg.clone(), *proc_id, deps, size)
+        create_proc(proc_cfg.name.clone(), proc_cfg, self.proc_tx.clone(), size)
       })
       .collect::<Vec<_>>();
 
@@ -274,21 +225,21 @@ impl App {
     Ok(())
   }
 
-  fn handle_server_message(
+  fn handle_kernel_message(
     &mut self,
     loop_action: &mut LoopAction,
-    msg: ServerMessage,
+    msg: KernelMessage,
   ) -> anyhow::Result<()> {
     match msg {
-      ServerMessage::ClientMessage { client_id, msg } => {
+      KernelMessage::ClientMessage { client_id, msg } => {
         self.handle_client_msg(loop_action, client_id, msg)?;
       }
-      ServerMessage::ClientConnected { handle } => {
+      KernelMessage::ClientConnected { handle } => {
         self.clients.push(handle);
         self.update_screen_size();
         loop_action.render();
       }
-      ServerMessage::ClientDisconnected { client_id } => {
+      KernelMessage::ClientDisconnected { client_id } => {
         self.clients.retain(|c| c.id != client_id);
         self.update_screen_size();
         loop_action.render();
@@ -299,7 +250,23 @@ impl App {
 
   fn update_screen_size(&mut self) {
     if let Some(client) = self.clients.first_mut() {
-      self.screen_size = client.size();
+      let size = client.size();
+      if self.screen_size != size {
+        self.screen_size = size;
+        self.sync_proc_handle_size();
+      }
+    }
+  }
+
+  fn sync_proc_handle_size(&mut self) {
+    let area = self.get_layout().term_area();
+    for proc_handle in &mut self.state.procs {
+      proc_handle.send(ProcCmd::Resize {
+        x: area.x,
+        y: area.y,
+        w: area.width,
+        h: area.height,
+      });
     }
   }
 
@@ -327,29 +294,18 @@ impl App {
     client_id: ClientId,
     event: Event,
   ) {
-    if let Event::Key(KeyEvent {
-      kind: KeyEventKind::Release,
-      ..
-    }) = event
-    {
-      return;
+    match event {
+      Event::Key(KeyEvent {
+        kind: KeyEventKind::Release,
+        ..
+      }) => return,
+      _ => (),
     }
 
     if let Some(modal) = &mut self.modal {
       let handled = modal.handle_input(&mut self.state, loop_action, &event);
       if handled {
         return;
-      }
-    }
-
-    // TERMIN.AI: Handle AI input when overlay is visible
-    if self.state.ai_visible {
-      if let Some(ai_process) = &self.ai_process {
-        let handled =
-          self.handle_ai_input(loop_action, &event, ai_process.clone());
-        if handled {
-          return;
-        }
       }
     }
 
@@ -387,138 +343,23 @@ impl App {
 
         let layout = self.get_layout();
         if term_check_hit(layout.term_area(), mev.column, mev.row) {
-          if let (Scope::Procs, MouseEventKind::Down(_)) =
-            (self.state.scope, mev.kind)
-          {
-            self.state.scope = Scope::Term
+          match (self.state.scope, mev.kind) {
+            (Scope::Procs, MouseEventKind::Down(_)) => {
+              self.state.scope = Scope::Term
+            }
+            _ => (),
           }
           if let Some(proc) = self.state.get_current_proc_mut() {
-            let local_event = mouse_event.translate(layout.term_area());
-
-            proc.copy_mode = match std::mem::take(&mut proc.copy_mode) {
-              CopyMode::None(pos) => {
-                let mouse_mode = proc
-                  .vt
-                  .as_ref()
-                  .map(|vt| vt.read().unwrap().screen().mouse_protocol_mode())
-                  .unwrap_or_default();
-
-                match mouse_mode {
-                  MouseProtocolMode::None => match local_event.kind {
-                    MouseEventKind::Down(btn) => match btn {
-                      MouseButton::Left => {
-                        if let Some(vt_ref) = proc.vt.as_mut() {
-                          let vt = vt_ref.read().log_get().unwrap();
-                          CopyMode::None(Some(
-                            local_event
-                              .pos_with_scrollback(vt.screen().scrollback()),
-                          ))
-                        } else {
-                          CopyMode::None(pos)
-                        }
-                      }
-                      MouseButton::Right | MouseButton::Middle => {
-                        CopyMode::None(pos)
-                      }
-                    },
-                    MouseEventKind::Up(_) => CopyMode::None(pos),
-                    MouseEventKind::Drag(MouseButton::Left) => {
-                      if let Some(vt_ref) = proc.vt.as_mut() {
-                        let vt = vt_ref.read().log_get().unwrap();
-                        let new_pos = local_event
-                          .pos_with_scrollback(vt.screen().scrollback());
-                        CopyMode::Active(
-                          vt.screen().clone(),
-                          pos.unwrap_or_default(),
-                          Some(new_pos),
-                        )
-                      } else {
-                        CopyMode::None(pos)
-                      }
-                    }
-                    MouseEventKind::Drag(_) => CopyMode::None(pos),
-                    MouseEventKind::Moved => CopyMode::None(pos),
-                    MouseEventKind::ScrollDown => {
-                      if let Some(vt_ref) = proc.vt.as_mut() {
-                        let mut vt = vt_ref.write().log_get().unwrap();
-                        vt.screen
-                          .scroll_screen_down(self.config.mouse_scroll_speed);
-                      }
-                      CopyMode::None(pos)
-                    }
-                    MouseEventKind::ScrollUp => {
-                      if let Some(vt_ref) = proc.vt.as_mut() {
-                        let mut vt = vt_ref.write().log_get().unwrap();
-                        vt.screen
-                          .scroll_screen_up(self.config.mouse_scroll_speed);
-                      }
-                      CopyMode::None(pos)
-                    }
-                    MouseEventKind::ScrollLeft
-                    | MouseEventKind::ScrollRight => CopyMode::None(pos),
-                  },
-                  MouseProtocolMode::Press
-                  | MouseProtocolMode::PressRelease
-                  | MouseProtocolMode::ButtonMotion
-                  | MouseProtocolMode::AnyMotion => {
-                    self.pc.send(KernelCommand::ProcCmd(
-                      proc.id(),
-                      ProcCmd::SendMouse(local_event),
-                    ));
-                    CopyMode::None(pos)
-                  }
-                }
-              }
-              CopyMode::Active(mut screen, start, end) => {
-                match local_event.kind {
-                  MouseEventKind::Down(btn) => match btn {
-                    MouseButton::Left => {
-                      let pos =
-                        local_event.pos_with_scrollback(screen.scrollback());
-                      let (start, end) = if end.is_some() {
-                        (start, Some(pos))
-                      } else {
-                        (pos, None)
-                      };
-                      CopyMode::Active(screen, start, end)
-                    }
-                    MouseButton::Right => {
-                      let pos =
-                        local_event.pos_with_scrollback(screen.scrollback());
-                      CopyMode::Active(screen, start, Some(pos))
-                    }
-                    MouseButton::Middle => CopyMode::Active(screen, start, end),
-                  },
-                  MouseEventKind::Up(_) => CopyMode::Active(screen, start, end),
-                  MouseEventKind::Drag(MouseButton::Left) => {
-                    let pos =
-                      local_event.pos_with_scrollback(screen.scrollback());
-                    CopyMode::Active(screen, start, Some(pos))
-                  }
-                  MouseEventKind::Drag(_) => {
-                    CopyMode::Active(screen, start, end)
-                  }
-                  MouseEventKind::Moved => CopyMode::Active(screen, start, end),
-                  MouseEventKind::ScrollDown => {
-                    screen.scroll_screen_down(self.config.mouse_scroll_speed);
-                    CopyMode::Active(screen, start, end)
-                  }
-                  MouseEventKind::ScrollUp => {
-                    screen.scroll_screen_up(self.config.mouse_scroll_speed);
-                    CopyMode::Active(screen, start, end)
-                  }
-                  MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
-                    CopyMode::Active(screen, start, end)
-                  }
-                }
-              }
-            }
+            proc.send(ProcCmd::SendMouse(
+              mouse_event.translate(layout.term_area()),
+            ));
           }
         } else if procs_check_hit(layout.procs, mev.column, mev.row) {
-          if let (Scope::Term, MouseEventKind::Down(_)) =
-            (self.state.scope, mev.kind)
-          {
-            self.state.scope = Scope::Procs
+          match (self.state.scope, mev.kind) {
+            (Scope::Term, MouseEventKind::Down(_)) => {
+              self.state.scope = Scope::Procs
+            }
+            _ => (),
           }
           match mev.kind {
             MouseEventKind::Down(btn) => match btn {
@@ -579,166 +420,7 @@ impl App {
     }
   }
 
-  // TERMIN.AI: Handle AI overlay input
-  fn handle_ai_input(
-    &mut self,
-    loop_action: &mut LoopAction,
-    event: &Event,
-    ai_process: std::sync::Arc<
-      tokio::sync::Mutex<crate::ai_proc::AIChatProcess>,
-    >,
-  ) -> bool {
-    use crossterm::event::{KeyCode, KeyModifiers};
-
-    log::info!("handle_ai_input called with event: {:?}", event);
-
-    if let Event::Key(KeyEvent {
-      code,
-      modifiers,
-      kind: KeyEventKind::Press | KeyEventKind::Repeat,
-      ..
-    }) = event
-    {
-      // Check if there's a pending command approval
-      let has_pending_command = {
-        let ai = ai_process.blocking_lock();
-        ai.pending_command().is_some()
-      };
-
-      if has_pending_command {
-        // Handle approval keys
-        match (*code, *modifiers) {
-          (KeyCode::Char('y'), KeyModifiers::NONE)
-          | (KeyCode::Char('Y'), _) => {
-            // Approve and execute command
-            let pending = {
-              let mut ai = ai_process.blocking_lock();
-              ai.approve_command()
-            };
-            if let Some(cmd) = pending {
-              self.execute_ai_command(&cmd);
-            }
-            loop_action.render();
-            return true;
-          }
-          (KeyCode::Char('n'), KeyModifiers::NONE)
-          | (KeyCode::Char('N'), _)
-          | (KeyCode::Esc, _) => {
-            // Reject command
-            let mut ai = ai_process.blocking_lock();
-            ai.reject_command();
-            loop_action.render();
-            return true;
-          }
-          _ => return true, // Consume all other input when waiting for approval
-        }
-      }
-
-      // Handle normal AI input
-      log::info!(
-        "AI input: code={:?}, modifiers={:?}, contains_control={}, contains_alt={}",
-        code,
-        modifiers,
-        modifiers.contains(KeyModifiers::CONTROL),
-        modifiers.contains(KeyModifiers::ALT)
-      );
-      match (*code, *modifiers) {
-        // ESC closes the AI overlay
-        (KeyCode::Esc, _) => {
-          self.state.ai_visible = false;
-          loop_action.render();
-          return true;
-        }
-        // Enter sends the message
-        (KeyCode::Enter, KeyModifiers::NONE) => {
-          // Extract context synchronously before spawning async task
-          let context = {
-            use crate::ai_proc::ContextExtractor;
-            let extractor = ContextExtractor::default();
-            let cwd = ContextExtractor::get_cwd();
-            let target_process = Some(self.state.selected);
-            extractor.extract_context(&self.state.procs, target_process, cwd)
-          };
-
-          let ai = ai_process.clone();
-          tokio::spawn(async move {
-            let mut ai_locked = ai.lock().await;
-            if let Err(e) = ai_locked.send_input_with_context(context).await {
-              log::error!("Failed to send AI message: {:?}", e);
-              // Set user-visible error message
-              ai_locked.set_error(format!("Failed to send message: {}", e));
-            }
-          });
-
-          loop_action.render();
-          return true;
-        }
-        // Backspace deletes character
-        (KeyCode::Backspace, _) => {
-          let mut ai = ai_process.blocking_lock();
-          ai.delete_char();
-          loop_action.render();
-          return true;
-        }
-        // Regular characters append to input
-        (KeyCode::Char(c), modifiers)
-          if !modifiers.contains(KeyModifiers::CONTROL)
-            && !modifiers.contains(KeyModifiers::ALT) =>
-        {
-          log::info!("Matched regular character pattern: '{}'", c);
-          let mut ai = ai_process.blocking_lock();
-          ai.append_input(&c.to_string());
-          loop_action.render();
-          return true;
-        }
-        // Space character
-        (KeyCode::Char(' '), KeyModifiers::NONE) => {
-          log::info!("Matched space pattern");
-          let mut ai = ai_process.blocking_lock();
-          ai.append_input(" ");
-          loop_action.render();
-          return true;
-        }
-        // Ctrl-Space toggles AI (let it fall through to handle_event)
-        (KeyCode::Char(' '), KeyModifiers::CONTROL) => {
-          log::info!("Matched Ctrl-Space pattern");
-          return false;
-        }
-        _ => {
-          // Consume but ignore other keys
-          log::info!("Matched catch-all pattern - ignoring key");
-          return true;
-        }
-      }
-    }
-
-    false
-  }
-
-  // TERMIN.AI: Execute approved command
-  fn execute_ai_command(
-    &mut self,
-    pending_cmd: &crate::ai_proc::PendingCommand,
-  ) {
-    use crate::command::CommandExecutor;
-
-    if let Some(proc) = self.state.get_current_proc_mut() {
-      log::info!("Executing AI command: {}", pending_cmd.command);
-      let executor = CommandExecutor::new();
-
-      // Send each character as a key event to the process
-      for key in executor.command_to_keys(&pending_cmd.command) {
-        self
-          .pc
-          .send(KernelCommand::ProcCmd(proc.id, ProcCmd::SendKey(key)));
-      }
-    } else {
-      log::warn!("No active process to execute command in");
-    }
-  }
-
   fn handle_event(&mut self, loop_action: &mut LoopAction, event: &AppEvent) {
-    let pc = self.pc.clone();
     match event {
       AppEvent::Batch { cmds } => {
         for cmd in cmds {
@@ -750,14 +432,14 @@ impl App {
       }
 
       AppEvent::QuitOrAsk => {
-        self.modal = Some(QuitModal::new(self.pc.clone()).boxed());
+        self.modal = Some(QuitModal::new(self.ev_tx.clone()).boxed());
         loop_action.render();
       }
       AppEvent::Quit => {
         self.state.quitting = true;
         for proc_handle in self.state.procs.iter_mut() {
           if proc_handle.is_up() {
-            pc.send(KernelCommand::ProcCmd(proc_handle.id(), ProcCmd::Stop));
+            proc_handle.send(ProcCmd::Stop);
           }
         }
         loop_action.render();
@@ -765,12 +447,12 @@ impl App {
       AppEvent::ForceQuit => {
         for proc_handle in self.state.procs.iter_mut() {
           if proc_handle.is_up() {
-            pc.send(KernelCommand::ProcCmd(proc_handle.id(), ProcCmd::Kill));
+            proc_handle.send(ProcCmd::Kill);
           }
         }
         loop_action.force_quit();
       }
-      AppEvent::Detach { client_id: _ } => {
+      AppEvent::Detach { client_id } => {
         // TODO: Client-server mode is disabled for mprocs 0.7
         // self.clients.retain_mut(|c| c.id != *client_id);
         // self.update_screen_size();
@@ -795,7 +477,7 @@ impl App {
       }
 
       AppEvent::ShowCommandsMenu => {
-        self.modal = Some(CommandsMenuModal::new(self.pc.clone()).boxed());
+        self.modal = Some(CommandsMenuModal::new(self.ev_tx.clone()).boxed());
         loop_action.render();
       }
       AppEvent::NextProc => {
@@ -822,26 +504,26 @@ impl App {
 
       AppEvent::StartProc => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Start));
+          proc.send(ProcCmd::Start);
         }
       }
       AppEvent::TermProc => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Stop));
+          proc.send(ProcCmd::Stop);
         }
       }
       AppEvent::KillProc => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Kill));
+          proc.send(ProcCmd::Kill);
         }
       }
       AppEvent::RestartProc => {
         if let Some(proc) = self.state.get_current_proc_mut() {
           if proc.is_up() {
             proc.to_restart = true;
-            pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Stop));
+            proc.send(ProcCmd::Stop);
           } else {
-            pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Start));
+            proc.send(ProcCmd::Start);
           }
         }
       }
@@ -849,65 +531,39 @@ impl App {
         if let Some(proc) = self.state.get_current_proc_mut() {
           if proc.is_up() {
             proc.to_restart = true;
-            pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Kill));
+            proc.send(ProcCmd::Kill);
           } else {
-            pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::Start));
+            proc.send(ProcCmd::Start);
           }
         }
       }
 
       AppEvent::ScrollUpLines { n } => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          match &mut proc.copy_mode {
-            CopyMode::None(_) => pc.send(KernelCommand::ProcCmd(
-              proc.id,
-              ProcCmd::ScrollUpLines { n: *n },
-            )),
-            CopyMode::Active(screen, _, _) => screen.scroll_screen_up(*n),
-          }
+          proc.send(ProcCmd::ScrollUpLines { n: *n });
           loop_action.render();
         }
       }
       AppEvent::ScrollDownLines { n } => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          match &mut proc.copy_mode {
-            CopyMode::None(_) => pc.send(KernelCommand::ProcCmd(
-              proc.id,
-              ProcCmd::ScrollDownLines { n: *n },
-            )),
-            CopyMode::Active(screen, _, _) => screen.scroll_screen_down(*n),
-          }
+          proc.send(ProcCmd::ScrollDownLines { n: *n });
           loop_action.render();
         }
       }
       AppEvent::ScrollUp => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          match &mut proc.copy_mode {
-            CopyMode::None(_) => {
-              pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::ScrollUp))
-            }
-            CopyMode::Active(screen, _, _) => {
-              screen.scroll_screen_up(screen.size().rows as usize / 2)
-            }
-          }
+          proc.send(ProcCmd::ScrollUp);
           loop_action.render();
         }
       }
       AppEvent::ScrollDown => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          match &mut proc.copy_mode {
-            CopyMode::None(_) => {
-              pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::ScrollDown))
-            }
-            CopyMode::Active(screen, _, _) => {
-              screen.scroll_screen_down(screen.size().rows as usize / 2)
-            }
-          }
+          proc.send(ProcCmd::ScrollDown);
           loop_action.render();
         }
       }
       AppEvent::ShowAddProc => {
-        self.modal = Some(AddProcModal::new(self.pc.clone()).boxed());
+        self.modal = Some(AddProcModal::new(self.ev_tx.clone()).boxed());
         loop_action.render();
       }
       AppEvent::AddProc { cmd, name } => {
@@ -915,53 +571,47 @@ impl App {
           Some(s) => s,
           None => cmd,
         };
-        let proc_config = ProcConfig {
-          name: name.clone(),
-          cmd: CmdConfig::Shell {
-            shell: cmd.to_string(),
+        let proc_handle = create_proc(
+          name.clone(),
+          &ProcConfig {
+            name: name.clone(),
+            cmd: CmdConfig::Shell {
+              shell: cmd.to_string(),
+            },
+            cwd: None,
+            env: None,
+            autostart: true,
+            autorestart: false,
+            stop: StopSignal::default(),
+            mouse_scroll_speed: self.config.mouse_scroll_speed,
+            scrollback_len: self.config.scrollback_len,
           },
-          cwd: None,
-          env: None,
-          autostart: true,
-          autorestart: false,
-          stop: StopSignal::default(),
-          deps: Vec::new(),
-          mouse_scroll_speed: self.config.mouse_scroll_speed,
-          scrollback_len: self.config.scrollback_len,
-        };
-        let proc_handle = launch_proc(
-          &pc,
-          proc_config,
-          self.pc.alloc_id(),
-          Vec::new(),
+          self.proc_tx.clone(),
           self.get_layout().term_area(),
         );
         self.state.procs.push(proc_handle);
-
         loop_action.render();
       }
       AppEvent::DuplicateProc => {
-        let cfg = match self.state.get_current_proc_mut() {
-          Some(proc_handle) => Some(proc_handle.cfg.clone()),
-          None => None,
-        };
-        if let Some(cfg) = cfg {
-          let size = self.get_layout().term_area();
-          log::error!("TODO: Copy deps for duplicate proc.");
-          let proc_handle =
-            launch_proc(&pc, cfg, self.pc.alloc_id(), Vec::new(), size);
+        if let Some(proc_handle) = self.state.get_current_proc_mut() {
+          let proc_handle = proc_handle.duplicate();
           self.state.procs.push(proc_handle);
-          loop_action.render();
         }
+        loop_action.render();
       }
       AppEvent::ShowRemoveProc => {
-        let id = match self.state.get_current_proc() {
-          Some(proc) if !proc.is_up() => Some(proc.id()),
-          _ => None,
-        };
-        if let Some(id) = id {
-          self.modal = Some(RemoveProcModal::new(id, self.pc.clone()).boxed());
-          loop_action.render();
+        let id = self
+          .state
+          .get_current_proc()
+          .map(|proc| if proc.is_up() { None } else { Some(proc.id()) })
+          .flatten();
+        match id {
+          Some(id) => {
+            self.modal =
+              Some(RemoveProcModal::new(id, self.ev_tx.clone()).boxed());
+            loop_action.render();
+          }
+          None => (),
         }
       }
       AppEvent::RemoveProc { id } => {
@@ -975,7 +625,7 @@ impl App {
       }
 
       AppEvent::ShowRenameProc => {
-        self.modal = Some(RenameProcModal::new(self.pc.clone()).boxed());
+        self.modal = Some(RenameProcModal::new(self.ev_tx.clone()).boxed());
         loop_action.render();
       }
       AppEvent::RenameProc { name } => {
@@ -986,202 +636,66 @@ impl App {
       }
 
       AppEvent::CopyModeEnter => {
-        if let Some(proc) = self.state.get_current_proc_mut() {
-          if let Some(vt_ref) = proc.vt.as_ref() {
-            let screen = vt_ref.read().unwrap().screen().clone();
-            let y = (screen.size().rows - 1) as i32;
-            proc.copy_mode = CopyMode::Active(screen, Pos { y, x: 0 }, None);
+        match self.state.get_current_proc_mut() {
+          Some(proc) => {
+            proc.send(ProcCmd::CopyModeEnter);
+            self.state.scope = Scope::Term;
+            loop_action.render();
           }
-          self.state.scope = Scope::Term;
-          loop_action.render();
+          None => (),
         };
       }
       AppEvent::CopyModeLeave => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          proc.copy_mode = CopyMode::None(None);
+          proc.send(ProcCmd::CopyModeLeave);
         }
         loop_action.render();
       }
       AppEvent::CopyModeMove { dir } => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          match &mut proc.copy_mode {
-            CopyMode::None(_) => (),
-            CopyMode::Active(screen, start, end) => {
-              let pos_ = if let Some(end) = end { end } else { start };
-              match dir {
-                CopyMove::Up => {
-                  if pos_.y > -(screen.scrollback_len() as i32) {
-                    pos_.y -= 1
-                  }
-                }
-                CopyMove::Right => {
-                  if pos_.x + 1 < screen.size().cols as i32 {
-                    pos_.x += 1
-                  }
-                }
-                CopyMove::Left => {
-                  if pos_.x > 0 {
-                    pos_.x -= 1
-                  }
-                }
-                CopyMove::Down => {
-                  if pos_.y + 1 < screen.size().rows as i32 {
-                    pos_.y += 1
-                  }
-                }
-              };
-            }
-          }
+          proc.send(ProcCmd::CopyModeMove { dir: *dir });
         }
         loop_action.render();
       }
       AppEvent::CopyModeEnd => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          proc.copy_mode = match std::mem::take(&mut proc.copy_mode) {
-            CopyMode::Active(screen, start, None) => {
-              CopyMode::Active(screen, start.clone(), Some(start))
-            }
-            other => other,
-          };
+          proc.send(ProcCmd::CopyModeEnd);
         }
         loop_action.render();
       }
       AppEvent::CopyModeCopy => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          if let CopyMode::Active(screen, start, Some(end)) = &proc.copy_mode {
-            let (low, high) = Pos::to_low_high(start, end);
-            let text = screen.get_selected_text(low.x, low.y, high.x, high.y);
-            crate::clipboard::copy(text.as_str());
-          }
-          proc.copy_mode = CopyMode::None(None);
+          proc.send(ProcCmd::CopyModeCopy);
         }
         loop_action.render();
       }
 
       AppEvent::ToggleKeymapWindow => {
         self.state.toggle_keymap_window();
+        self.sync_proc_handle_size();
         loop_action.render();
       }
 
       AppEvent::SendKey { key } => {
         if let Some(proc) = self.state.get_current_proc_mut() {
-          pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::SendKey(*key)));
+          proc.send(ProcCmd::SendKey(key.clone()));
         }
-      }
-
-      AppEvent::ToggleAI => {
-        // TERMIN.AI: Toggle AI overlay visibility
-        if self.ai_process.is_some() {
-          self.state.ai_visible = !self.state.ai_visible;
-          log::info!("AI overlay toggled: {}", self.state.ai_visible);
-        } else {
-          log::warn!("AI assistant not initialized");
-        }
-        loop_action.render();
       }
     }
   }
 
-  fn handle_proc_command(
+  fn handle_proc_event(
     &mut self,
     loop_action: &mut LoopAction,
-    command: ProcCmd,
+    event: (usize, ProcEvent),
   ) {
-    match command {
-      ProcCmd::Start => (),
-      ProcCmd::Stop => (),
-      ProcCmd::Kill => (),
-      ProcCmd::SendKey(_key) => (),
-      ProcCmd::SendMouse(_mouse_event) => (),
-      ProcCmd::ScrollUp => (),
-      ProcCmd::ScrollDown => (),
-      ProcCmd::ScrollUpLines { .. } => (),
-      ProcCmd::ScrollDownLines { .. } => (),
-      ProcCmd::Resize { .. } => (),
-
-      ProcCmd::Custom(custom) => {
-        match (custom as Box<dyn Any>).downcast::<AppEvent>() {
-          Ok(app_event) => {
-            self.handle_event(loop_action, &app_event);
-          }
-          Err(custom) => {
-            match (custom as Box<dyn Any>).downcast::<ServerMessage>() {
-              Ok(server_msg) => {
-                let r = self.handle_server_message(loop_action, *server_msg);
-                if let Err(err) = r {
-                  log::debug!("ServerMessage error: {:?}", err);
-                }
-              }
-              Err(custom) => {
-                log::error!(
-                  "App received unknown custom command: {:?}",
-                  custom
-                );
-              }
-            }
-          }
-        }
-      }
-
-      ProcCmd::OnProcUpdate(proc_id, update) => match update {
-        ProcUpdate::Started => {
-          if let Some(proc) = self.state.get_proc_mut(proc_id) {
-            proc.is_up = true;
-            proc.last_start = Some(Instant::now());
-            loop_action.render();
-          }
-        }
-        ProcUpdate::Stopped(exit_code) => {
-          if let Some(proc) = self.state.get_proc_mut(proc_id) {
-            proc.is_up = false;
-            proc.exit_code = Some(exit_code);
-
-            if proc.cfg.autorestart && !proc.to_restart && exit_code != 0 {
-              match proc.last_start {
-                Some(last_start) => {
-                  let elapsed_time = Instant::now().duration_since(last_start);
-                  if elapsed_time.as_secs_f64() > RESTART_THRESHOLD_SECONDS {
-                    proc.to_restart = true;
-                  }
-                }
-                None => proc.to_restart = true,
-              }
-            }
-            if proc.to_restart {
-              proc.to_restart = false;
-              self
-                .pc
-                .send(KernelCommand::ProcCmd(proc_id, ProcCmd::Start));
-            }
-            loop_action.render();
-          }
-        }
-        ProcUpdate::Waiting(waiting) => {
-          if let Some(proc) = self.state.get_proc_mut(proc_id) {
-            proc.is_waiting = waiting;
-            loop_action.render();
-          }
-        }
-        ProcUpdate::ScreenChanged(vt) => {
-          if let Some(proc) = self.state.get_proc_mut(proc_id) {
-            proc.vt = vt;
-            proc.changed = true;
-            loop_action.render();
-          }
-        }
-        ProcUpdate::Rendered => {
-          let is_current = self
-            .state
-            .get_current_proc()
-            .is_some_and(|p| p.id() == proc_id);
-          if let Some(proc) = self.state.get_proc_mut(proc_id) {
-            if !is_current {
-              proc.changed = true;
-            }
-            loop_action.render();
-          }
-        }
-      },
+    let selected = self
+      .state
+      .get_current_proc()
+      .map_or(false, |p| p.id() == event.0);
+    if let Some(proc) = self.state.get_proc_mut(event.0) {
+      proc.handle_event(event.1, selected);
+      loop_action.render();
     }
   }
 
@@ -1239,7 +753,7 @@ impl AppLayout {
   }
 
   pub fn term_area(&self) -> Rect {
-    self.term.inner(Margin {
+    self.term.inner(&Margin {
       vertical: 1,
       horizontal: 1,
     })
@@ -1247,55 +761,43 @@ impl AppLayout {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-pub struct ClientId(pub u32);
+pub struct ClientId(u32);
 
-pub async fn client_loop(
-  id: ClientId,
-  app_sender: ProcSender,
-  (client_sender, mut server_receiver): (
-    MsgSender<SrvToClt>,
-    MsgReceiver<CltToSrv>,
-  ),
-) {
-  log::info!("client_loop: server_receiver.recv()");
-  let init_msg = server_receiver.recv().await;
-  match init_msg {
-    Some(Ok(CltToSrv::Init { width, height })) => {
-      let client_handle =
-        ClientHandle::create(id, client_sender, Size { width, height });
-      match client_handle {
-        Ok(handle) => {
-          app_sender
-            .send(ProcCmd::custom(ServerMessage::ClientConnected { handle }));
+struct ClientConnector;
+
+impl ClientConnector {
+  fn connect(
+    id: ClientId,
+    (sender, mut receiver): (MsgSender<SrvToClt>, MsgReceiver<CltToSrv>),
+    kernel_sender: KernelSender,
+  ) -> Self {
+    tokio::spawn(async move {
+      let init_msg = receiver.recv().await;
+      match init_msg {
+        Some(Ok(CltToSrv::Init { width, height })) => {
+          let client_handle = ClientHandle::create(
+            id,
+            (receiver, sender),
+            kernel_sender.clone(),
+            Size { width, height },
+          );
+          match client_handle {
+            Ok(handle) => {
+              kernel_sender
+                .send(KernelMessage::ClientConnected { handle })
+                .log_ignore();
+            }
+            Err(err) => {
+              log::error!("Client creation error: {:?}", err);
+            }
+          }
         }
-        Err(err) => {
-          log::error!("Client creation error: {:?}", err);
-        }
+        _ => todo!(),
       }
-    }
-    _ => todo!(),
-  }
+    });
 
-  loop {
-    let msg = if let Some(msg) = server_receiver.recv().await {
-      msg
-    } else {
-      break;
-    };
-
-    match msg {
-      Ok(msg) => {
-        app_sender.send(ProcCmd::custom(ServerMessage::ClientMessage {
-          client_id: id,
-          msg,
-        }));
-      }
-      Err(_err) => break,
-    }
+    ClientConnector
   }
-  app_sender.send(ProcCmd::custom(ServerMessage::ClientDisconnected {
-    client_id: id,
-  }));
 }
 
 pub struct ClientHandle {
@@ -1306,22 +808,45 @@ pub struct ClientHandle {
   cursor_style: CursorStyle,
 }
 
-impl Debug for ClientHandle {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("ClientHandle")
-      .field("id", &self.id)
-      .finish()
-  }
-}
-
 impl ClientHandle {
   fn create(
     id: ClientId,
-    client_sender: MsgSender<SrvToClt>,
+    (mut read, write): (MsgReceiver<CltToSrv>, MsgSender<SrvToClt>),
+    kernel_sender: KernelSender,
     size: Size,
   ) -> anyhow::Result<Self> {
+    {
+      let kernel_sender = kernel_sender.clone();
+      tokio::spawn(async move {
+        loop {
+          let msg = if let Some(msg) = read.recv().await {
+            msg
+          } else {
+            break;
+          };
+
+          match msg {
+            Ok(msg) => {
+              kernel_sender
+                .send(
+                  crate::kernel::kernel_message::KernelMessage::ClientMessage {
+                    client_id: id,
+                    msg,
+                  },
+                )
+                .log_ignore();
+            }
+            Err(_err) => break,
+          }
+        }
+        kernel_sender
+          .send(KernelMessage::ClientDisconnected { client_id: id })
+          .log_ignore();
+      });
+    }
+
     let backend = ProxyBackend {
-      tx: client_sender.clone(),
+      tx: write.clone(),
       width: size.width,
       height: size.height,
       x: 0,
@@ -1331,7 +856,7 @@ impl ClientHandle {
 
     Ok(Self {
       id,
-      sender: client_sender,
+      sender: write,
       terminal,
 
       cursor_style: CursorStyle::Default,
@@ -1365,29 +890,14 @@ impl ClientHandle {
     keymap: &Keymap,
     modal: &mut Option<Box<dyn Modal>>,
     rest: &mut [ClientHandle],
-    ai_process: &Option<
-      std::sync::Arc<tokio::sync::Mutex<crate::ai_proc::AIChatProcess>>,
-    >,
   ) -> anyhow::Result<()> {
     self.terminal.draw(|f| {
       let mut cursor_style = self.cursor_style;
 
-      render_procs(layout.procs, f, state, config);
+      render_procs(layout.procs, f, state, &config);
       render_term(layout.term, f, state, &mut cursor_style);
       render_keymap(layout.keymap, f, state, keymap);
       render_zoom_tip(layout.zoom_banner, f, keymap);
-
-      // TERMIN.AI: Render AI overlay if visible
-      if state.ai_visible {
-        if let Some(ai) = ai_process {
-          // Try to lock without blocking - if we can't get the lock, skip rendering this frame
-          if let Ok(ai_locked) = ai.try_lock() {
-            let ai_ui = crate::ai_proc::AIChatUI::new(&ai_locked);
-            let overlay_area = Self::calculate_ai_overlay_area(f.area());
-            ai_ui.render(overlay_area, f.buffer_mut());
-          }
-        }
-      }
 
       if let Some(modal) = modal {
         cursor_style = CursorStyle::Default;
@@ -1395,7 +905,7 @@ impl ClientHandle {
       }
 
       for client_handle in rest {
-        f.render_widget(RenderOtherClient(client_handle), f.area());
+        f.render_widget(RenderOtherClient(client_handle), f.size());
       }
 
       if self.cursor_style != cursor_style {
@@ -1412,20 +922,10 @@ impl ClientHandle {
 
   fn render_from(&mut self, buf: &tui::buffer::Buffer) -> anyhow::Result<()> {
     self.terminal.draw(|f| {
-      let area = buf.area().intersection(f.area());
+      let area = buf.area().intersection(f.size());
       f.render_widget(CopyBuffer(buf), area);
     })?;
     Ok(())
-  }
-
-  // TERMIN.AI: Calculate AI overlay area (100% width, 20 lines, at the top)
-  fn calculate_ai_overlay_area(screen: Rect) -> Rect {
-    let overlay_width = screen.width;
-    let overlay_height = 20.min(screen.height); // Use 20 lines or screen height, whichever is smaller
-    let x = 0;
-    let y = 0;
-
-    Rect::new(x, y, overlay_width, overlay_height)
   }
 }
 
@@ -1443,113 +943,71 @@ impl Widget for CopyBuffer<'_> {
   fn render(self, area: Rect, buf: &mut tui::prelude::Buffer) {
     for row in area.y..area.height {
       for col in area.x..area.width {
-        let from = self.0.cell((col, row));
-        if let Some(cell) = buf.cell_mut((col, row)) {
-          *cell = from.cloned().unwrap_or_default();
+        let from = self.0.get(col, row);
+        *buf.get_mut(col, row) = from.clone();
+      }
+    }
+  }
+}
+
+pub async fn start_kernel_process(
+  config: Config,
+  keymap: Keymap,
+) -> anyhow::Result<()> {
+  let (kernel_sender, kernel_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+  let mut server_socket = bind_server_socket().await?;
+  let _accept_thread = {
+    let kernel_sender = kernel_sender.clone();
+    tokio::spawn(async move {
+      let mut last_client_id = 0;
+
+      log::debug!("Waiting for clients...");
+      loop {
+        match server_socket.accept().await {
+          Ok(socket) => {
+            last_client_id += 1;
+            let id = ClientId(last_client_id);
+            ClientConnector::connect(id, socket, kernel_sender.clone());
+          }
+          Err(err) => {
+            log::info!("Server socket accept error: {}", err.to_string());
+            break;
+          }
         }
       }
-    }
-  }
+    })
+  };
+
+  kernel_main(config, keymap, kernel_receiver).await
 }
 
-pub fn create_app_proc(
+pub async fn start_kernel_thread(
   config: Config,
   keymap: Keymap,
-  pc: &ProcContext,
-) -> ProcId {
-  pc.add_proc(Box::new(|pc| {
-    log::debug!("Creating app proc (id: {})", pc.proc_id.0);
-    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-    tokio::spawn(async {
-      let r = server_main(config, keymap, receiver, pc).await;
-      match r {
-        Ok(()) => (),
-        Err(err) => log::error!("App proc finished with error: {:?}", err),
-      }
-    });
-    ProcInit {
-      sender,
-      stop_on_quit: false,
-      status: ProcStatus::Running,
-      deps: Vec::new(),
-    }
-  }))
-}
-
-#[cfg(test)]
-mod tests {
-  use crossterm::event::{KeyCode, KeyModifiers};
-
-  #[test]
-  fn test_key_modifiers_contains_with_shift() {
-    // Test that SHIFT modifier correctly evaluates with contains()
-    let shift_modifiers = KeyModifiers::SHIFT;
-
-    // Uppercase letter scenario: SHIFT should not contain CONTROL or ALT
-    assert!(!shift_modifiers.contains(KeyModifiers::CONTROL));
-    assert!(!shift_modifiers.contains(KeyModifiers::ALT));
-
-    // This is what the guard clause checks
-    let should_match = !shift_modifiers.contains(KeyModifiers::CONTROL)
-      && !shift_modifiers.contains(KeyModifiers::ALT);
-    assert!(
-      should_match,
-      "Uppercase letters with SHIFT should match the pattern"
-    );
-  }
-
-  #[test]
-  fn test_key_modifiers_contains_with_reference() {
-    // Test with a reference (as it appears in the actual code)
-    let shift_modifiers = KeyModifiers::SHIFT;
-    let modifiers = &shift_modifiers;
-
-    // The guard clause uses contains() on the bound variable
-    let should_match = !modifiers.contains(KeyModifiers::CONTROL)
-      && !modifiers.contains(KeyModifiers::ALT);
-    assert!(
-      should_match,
-      "Uppercase letters with SHIFT reference should match"
-    );
-  }
-
-  #[test]
-  fn test_none_modifiers() {
-    // Test that NONE modifiers work
-    let none_modifiers = KeyModifiers::NONE;
-    let should_match = !none_modifiers.contains(KeyModifiers::CONTROL)
-      && !none_modifiers.contains(KeyModifiers::ALT);
-    assert!(
-      should_match,
-      "Lowercase letters with no modifiers should match"
-    );
-  }
-
-  #[test]
-  fn test_control_modifiers_rejected() {
-    // Test that CONTROL modifiers are rejected
-    let control_modifiers = KeyModifiers::CONTROL;
-    let should_match = !control_modifiers.contains(KeyModifiers::CONTROL)
-      && !control_modifiers.contains(KeyModifiers::ALT);
-    assert!(!should_match, "Keys with CONTROL should not match");
-  }
-
-  #[test]
-  fn test_alt_modifiers_rejected() {
-    // Test that ALT modifiers are rejected
-    let alt_modifiers = KeyModifiers::ALT;
-    let should_match = !alt_modifiers.contains(KeyModifiers::CONTROL)
-      && !alt_modifiers.contains(KeyModifiers::ALT);
-    assert!(!should_match, "Keys with ALT should not match");
-  }
-}
-
-pub async fn server_main(
-  config: Config,
-  keymap: Keymap,
-  pr: UnboundedReceiver<ProcCmd>,
-  pc: ProcContext,
+  socket: (MsgSender<SrvToClt>, MsgReceiver<CltToSrv>),
 ) -> anyhow::Result<()> {
+  let (kernel_sender, kernel_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+  let id = ClientId(1);
+  ClientConnector::connect(id, socket, kernel_sender.clone());
+
+  tokio::spawn(async {
+    kernel_main(config, keymap, kernel_receiver).await;
+  });
+
+  Ok(())
+}
+
+pub async fn kernel_main(
+  config: Config,
+  keymap: Keymap,
+  kernel_receiver: UnboundedReceiver<KernelMessage>,
+) -> anyhow::Result<()> {
+  let (upd_tx, upd_rx) =
+    tokio::sync::mpsc::unbounded_channel::<(usize, ProcEvent)>();
+  let (ev_tx, ev_rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+
   let state = State {
     current_client_id: None,
 
@@ -1558,59 +1016,7 @@ pub async fn server_main(
     selected: 0,
     hide_keymap_window: config.hide_keymap_window,
 
-    // TERMIN.AI: AI initially hidden
-    ai_visible: false,
-
     quitting: false,
-  };
-
-  // TERMIN.AI: Initialize AI process if AI config is present and enabled
-  let ai_process = if let Some(ref ai_config) = config.ai {
-    if ai_config.enabled {
-      // Convert provider string to Provider enum
-      let provider = match ai_config.provider.as_str() {
-        "anthropic" => crate::llm::Provider::Anthropic,
-        "openai" => crate::llm::Provider::OpenAI,
-        "gemini" => crate::llm::Provider::Gemini,
-        "ollama" => crate::llm::Provider::Ollama,
-        "openrouter" => crate::llm::Provider::OpenRouter,
-        _ => {
-          log::warn!(
-            "Unknown AI provider: {}, defaulting to Anthropic",
-            ai_config.provider
-          );
-          crate::llm::Provider::Anthropic
-        }
-      };
-
-      // Get the effective endpoint (custom endpoint or OpenRouter default)
-      let endpoint = ai_config.effective_endpoint();
-
-      match crate::ai_proc::AIChatProcess::new_with_endpoint(
-        provider,
-        ai_config.model.clone(),
-        endpoint,
-      )
-      .await
-      {
-        Ok(process) => {
-          log::info!(
-            "AI assistant initialized with provider: {}",
-            ai_config.provider
-          );
-          Some(std::sync::Arc::new(tokio::sync::Mutex::new(process)))
-        }
-        Err(err) => {
-          log::warn!("Failed to initialize AI assistant: {:?}", err);
-          None
-        }
-      }
-    } else {
-      log::info!("AI assistant disabled in config");
-      None
-    }
-  } else {
-    None
   };
 
   let app = App {
@@ -1618,10 +1024,13 @@ pub async fn server_main(
     keymap,
     state,
     modal: None,
-    pr,
-    pc,
+    proc_rx: upd_rx,
+    proc_tx: upd_tx,
 
-    ai_process,
+    ev_rx,
+    ev_tx,
+
+    kernel_receiver,
 
     screen_size: Size {
       width: 160,

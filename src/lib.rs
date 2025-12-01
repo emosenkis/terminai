@@ -39,6 +39,7 @@ pub mod command;
 pub mod env_loader;
 pub mod llm;
 pub mod privacy;
+pub mod shell;
 
 // Test utilities
 #[cfg(test)]

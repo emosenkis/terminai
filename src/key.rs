@@ -238,6 +238,35 @@ impl KeyParser<'_> {
   }
 }
 
+impl Into<tui_textarea::Input> for Key {
+  fn into(self) -> tui_textarea::Input {
+    let key = match self.code {
+      KeyCode::Char(c) => tui_textarea::Key::Char(c),
+      KeyCode::Backspace => tui_textarea::Key::Backspace,
+      KeyCode::Enter => tui_textarea::Key::Enter,
+      KeyCode::Left => tui_textarea::Key::Left,
+      KeyCode::Right => tui_textarea::Key::Right,
+      KeyCode::Up => tui_textarea::Key::Up,
+      KeyCode::Down => tui_textarea::Key::Down,
+      KeyCode::Tab => tui_textarea::Key::Tab,
+      KeyCode::Delete => tui_textarea::Key::Delete,
+      KeyCode::Home => tui_textarea::Key::Home,
+      KeyCode::End => tui_textarea::Key::End,
+      KeyCode::PageUp => tui_textarea::Key::PageUp,
+      KeyCode::PageDown => tui_textarea::Key::PageDown,
+      KeyCode::Esc => tui_textarea::Key::Esc,
+      KeyCode::F(x) => tui_textarea::Key::F(x),
+      _ => tui_textarea::Key::Null,
+    };
+    tui_textarea::Input {
+      key,
+      alt: self.mods.contains(KeyModifiers::ALT),
+      ctrl: self.mods.contains(KeyModifiers::CONTROL),
+      shift: self.mods.contains(KeyModifiers::SHIFT),
+    }
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use assert_matches::assert_matches;

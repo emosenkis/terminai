@@ -2,15 +2,12 @@
 // Uses only the minimal PTY/VT100 code from mprocs, no UI chrome
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
   event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-  execute,
   terminal::{disable_raw_mode, enable_raw_mode},
 };
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Write, stdout};
-use std::sync::{Arc, RwLock};
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tui::{
   Terminal, TerminalOptions, Viewport,
   backend::CrosstermBackend,
@@ -21,156 +18,27 @@ use tui::{
 
 // Import only what we need from the crate
 use termin::ai_proc::{AIChatProcess, AIChatUI};
-use termin::encode_term::{KeyCodeEncodeModes, encode_key};
 use termin::key::Key;
 use termin::llm::{Provider, TerminalContext};
 use termin::vt100;
 
-// Shell events
-#[derive(Debug)]
-enum ShellEvent {
-  Output,
-  TermReply(compact_str::CompactString),
-  Exited(u32),
-}
+use termin::shell::{Shell, ShellEvent};
 
-// Shell manager - simplified from mprocs' Inst
-struct Shell {
-  vt: Arc<RwLock<vt100::Parser<ReplySender>>>,
-  writer: Box<dyn Write + Send>,
-  master: Option<Box<dyn portable_pty::MasterPty + Send>>,
-  _pid: u32,
-  event_rx: UnboundedReceiver<ShellEvent>,
-}
-
-impl Shell {
-  fn spawn(shell_cmd: &str, rows: u16, cols: u16) -> Result<Self> {
-    log::info!("Spawning shell: {} ({}x{})", shell_cmd, cols, rows);
-
-    // Setup event channel
-    let (event_tx, event_rx) = mpsc::unbounded_channel();
-
-    // Create VT100 parser with reply sender
-    let reply_sender = ReplySender {
-      tx: event_tx.clone(),
-    };
-    let vt = vt100::Parser::new(rows, cols, 1000, reply_sender);
-    let vt = Arc::new(RwLock::new(vt));
-
-    // Create PTY (using portable-pty like mprocs)
-    let pty_system = native_pty_system();
-    let pair = pty_system.openpty(PtySize {
-      rows,
-      cols,
-      pixel_width: 0,
-      pixel_height: 0,
-    })?;
-
-    // Build command
-    let mut cmd = CommandBuilder::new(shell_cmd);
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("TERMINAI", "1");
-
-    // Spawn command
-    let mut child = pair.slave.spawn_command(cmd)?;
-    let pid = child.process_id().unwrap_or(0);
-
-    log::info!("Shell spawned with PID: {}", pid);
-
-    // Get reader and writer for PTY
-    let mut reader = pair.master.try_clone_reader()?;
-    let writer = pair.master.take_writer()?;
-
-    // Spawn thread to read PTY output (pattern from mprocs' inst.rs)
-    let vt_clone = vt.clone();
-    let event_tx_clone = event_tx.clone();
-    std::thread::spawn(move || {
-      let mut buf = vec![0u8; 32 * 1024];
-      loop {
-        match reader.read(&mut buf) {
-          Ok(0) => break, // EOF
-          Ok(count) => {
-            // Process through VT100 parser
-            if let Ok(mut vt) = vt_clone.write() {
-              vt.process(&buf[..count]);
-              let _ = event_tx_clone.send(ShellEvent::Output);
-            }
-          }
-          Err(e) => {
-            log::error!("PTY read error: {}", e);
-            break;
-          }
-        }
-      }
-    });
-
-    // Spawn thread to wait for child exit
-    std::thread::spawn(move || {
-      let exit_code = match child.wait() {
-        Ok(status) => status.exit_code(),
-        Err(_) => 1,
-      };
-      let _ = event_tx.send(ShellEvent::Exited(exit_code));
-    });
-
-    Ok(Shell {
-      vt,
-      writer,
-      master: Some(pair.master),
-      _pid: pid,
-      event_rx,
-    })
-  }
-
-  fn send_key(&mut self, key: Key) -> Result<()> {
-    // Encode key using mprocs' encoder
-    let encoded = encode_key(&key, KeyCodeEncodeModes::default())?;
-    self.writer.write_all(encoded.as_bytes())?;
-    self.writer.flush()?;
-    Ok(())
-  }
-
-  fn resize(&mut self, rows: u16, cols: u16) -> Result<()> {
-    // Resize PTY (pattern from mprocs' inst.rs)
-    if let Some(master) = &self.master {
-      master.resize(PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-      })?;
-    }
-
-    // Resize VT100 parser
-    if let Ok(mut vt) = self.vt.write() {
-      vt.set_size(rows, cols);
-    }
-
-    log::info!("Shell resized to {}x{}", cols, rows);
-    Ok(())
-  }
-}
-
-// Reply sender for VT100 terminal queries
-#[derive(Clone)]
-struct ReplySender {
-  tx: UnboundedSender<ShellEvent>,
-}
-
-impl termin::vt100::TermReplySender for ReplySender {
-  fn reply(&self, reply: compact_str::CompactString) {
-    // Send terminal reply back to event loop to write to PTY
-    let _ = self.tx.send(ShellEvent::TermReply(reply));
-  }
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+  /// Command to run (if not specified, uses $SHELL)
+  #[arg(last = true)]
+  command: Vec<String>,
 }
 
 // Terminal renderer widget (simplified from mprocs' UiTerm)
 struct TerminalWidget<'a> {
-  screen: &'a vt100::Screen<ReplySender>,
+  screen: &'a vt100::Screen<termin::shell::ReplySender>,
 }
 
 impl<'a> TerminalWidget<'a> {
-  fn new(screen: &'a vt100::Screen<ReplySender>) -> Self {
+  fn new(screen: &'a vt100::Screen<termin::shell::ReplySender>) -> Self {
     Self { screen }
   }
 }
@@ -249,29 +117,31 @@ async fn main() -> Result<()> {
     std::process::exit(1);
   }
 
-  // Detect user's shell
-  let shell =
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+  // Parse command line arguments
+  let args = Args::parse();
 
-  log::info!("Termin.AI starting with shell: {}", shell);
+  log::info!("Termin.AI starting");
 
   // Create and run the app
-  let mut app = App::new(shell).await?;
+  let mut app = App::new(args.command).await?;
   app.run().await?;
 
   Ok(())
 }
 
-struct App {
+struct App<'a> {
   terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
   shell: Shell,
   ai_process: Option<AIChatProcess>,
+  ai_ui: AIChatUI<'a>,
   ai_visible: bool,
   /// Track the total row count to detect when content scrolls off screen
   last_total_rows: usize,
+  /// Viewport height (N-2 where N is terminal height)
+  viewport_height: u16,
 }
 
-impl App {
+impl<'a> App<'a> {
   /// Extract terminal context from shell for AI
   fn extract_context(&self) -> TerminalContext {
     use std::path::PathBuf;
@@ -320,7 +190,7 @@ impl App {
     TerminalContext::new(history_lines, cwd, None)
   }
 
-  async fn new(shell_cmd: String) -> Result<Self> {
+  async fn new(command: Vec<String>) -> Result<Self> {
     // Setup terminal
     enable_raw_mode()?;
     let stdout = stdout();
@@ -329,17 +199,31 @@ impl App {
     let (cols, rows) = crossterm::terminal::size()?;
 
     // Create ratatui terminal with inline viewport for native scrollback
+    // Use bottom N-2 lines (leaving 2 lines at top for scrollback)
     // This allows content to scroll into the host terminal's scrollback buffer
     let backend = CrosstermBackend::new(stdout);
+    let viewport_height = rows.saturating_sub(2);
     let terminal = Terminal::with_options(
       backend,
       TerminalOptions {
-        viewport: Viewport::Inline(rows),
+        viewport: Viewport::Inline(viewport_height),
       },
     )?;
 
-    // Spawn shell
-    let shell = Shell::spawn(&shell_cmd, rows, cols)?;
+    // Spawn shell or command with viewport height (not full terminal height)
+    let shell = if command.is_empty() {
+      // No command specified, use $SHELL
+      let shell_cmd =
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+      log::info!("Spawning shell: {}", shell_cmd);
+      Shell::spawn(&shell_cmd, viewport_height, cols)?
+    } else {
+      // Command specified, spawn it directly
+      let cmd = &command[0];
+      let args = &command[1..];
+      log::info!("Spawning command: {} {:?}", cmd, args);
+      Shell::spawn_command(cmd, &args.to_vec(), viewport_height, cols)?
+    };
 
     // Initialize AI if API key configured
     // Try multiple providers in order of preference
@@ -394,8 +278,10 @@ impl App {
       terminal,
       shell,
       ai_process,
+      ai_ui: AIChatUI::new(),
       ai_visible: false,
-      last_total_rows: rows as usize,
+      last_total_rows: viewport_height as usize,
+      viewport_height,
     })
   }
 
@@ -460,9 +346,9 @@ impl App {
                   // Route to AI overlay when visible
 
                   // Handle Enter key specially - needs to extract context first
-                  if matches!(code, KeyCode::Enter) {
-                    if let Some(ref ai_process) = self.ai_process {
-                      if !ai_process.input_buffer().is_empty() {
+                  if matches!((code, modifiers), (KeyCode::Enter, KeyModifiers::NONE)) {
+                      let message = self.ai_ui.get_input_value();
+                      if !message.is_empty() {
                         log::info!("Sending message to LLM");
 
                         // Extract context before taking mutable borrow
@@ -470,7 +356,7 @@ impl App {
 
                         // Now get mutable reference and send
                         if let Some(ref mut ai_process) = self.ai_process {
-                          match ai_process.send_input_with_context(context).await {
+                          match ai_process.send_input_with_context(&message, context).await {
                             Ok(()) => {
                               log::info!("Message sent successfully");
                               self.render()?;
@@ -480,7 +366,6 @@ impl App {
                               // Error is logged, user will see no response
                             }
                           }
-                        }
                       }
                     }
                   } else if let Some(ref mut ai_process) = self.ai_process {
@@ -523,22 +408,12 @@ impl App {
                       }
                     } else {
                       // No pending command, handle normal input
-                      match code {
-                        KeyCode::Char(c)
-                          if !modifiers.contains(KeyModifiers::CONTROL)
-                            && !modifiers.contains(KeyModifiers::ALT) =>
-                        {
-                          // Regular character input (allows SHIFT for uppercase)
-                          ai_process.append_input(&c.to_string());
-                        }
-                        KeyCode::Backspace => {
-                          // Delete last character
-                          ai_process.delete_char();
-                        }
-                        _ => {
-                          // Ignore other keys when overlay is visible
-                          log::debug!("Unhandled AI overlay input: {:?}", key);
-                        }
+                      if key.code() == KeyCode::Enter && key.mods() == KeyModifiers::SHIFT {
+                        // TODO: Why doesn't this ever happen?
+                        log::debug!("Got Shift-Enter");
+                        self.ai_ui.input_event(Key::new(KeyCode::Enter, KeyModifiers::NONE));
+                      } else {
+                        self.ai_ui.input_event(key);
                       }
                     }
                   }
@@ -548,10 +423,14 @@ impl App {
                 }
               }
               Event::Resize(cols, rows) => {
-                self.shell.resize(rows, cols)?;
+                // Update viewport height and resize shell to match
+                self.viewport_height = rows.saturating_sub(2);
+                self.shell.resize(self.viewport_height, cols)?;
                 self.render()?;
               }
               Event::Mouse(mev) => {
+                // TODO: Pass on mouse events to AI message input?
+
                 // Filter out scroll events to allow native terminal scrollback
                 if matches!(mev.kind, crossterm::event::MouseEventKind::ScrollUp | crossterm::event::MouseEventKind::ScrollDown) {
                   // Ignore scroll events - let the terminal handle them
@@ -580,7 +459,8 @@ impl App {
     if let Ok(vt) = self.shell.vt.read() {
       let screen = vt.screen();
       let current_total_rows = screen.total_rows();
-      let screen_size = screen.size();
+      drop(vt); // Release the lock before calling insert_before
+      // let screen_size = screen.size();
 
       // If total rows increased, content has scrolled into the VT100's scrollback buffer
       if current_total_rows > self.last_total_rows {
@@ -592,58 +472,66 @@ impl App {
           current_total_rows
         );
 
+        // TODO: Delete this?
         // Calculate which scrollback rows just scrolled off
         // The grid structure: [scrollback rows...][visible rows]
         // row0 = current_total_rows - screen_height
         // New scrollback rows are at indices: (old row0 - num_scrolled_lines) to (old row0 - 1)
-        let old_row0 = self
-          .last_total_rows
-          .saturating_sub(screen_size.rows as usize);
-        let new_scrollback_start = old_row0.saturating_sub(num_scrolled_lines);
+        // let old_row0 = self
+        //   .last_total_rows
+        //   .saturating_sub(screen_size.rows as usize);
+        // let new_scrollback_start = old_row0.saturating_sub(num_scrolled_lines);
 
         // Insert these lines above the viewport using insert_before
         // This will push them into the host terminal's native scrollback
-        drop(vt); // Release the lock before calling insert_before
 
         if let Err(e) =
           self
             .terminal
             .insert_before(num_scrolled_lines as u16, |buf| {
               // Re-acquire the lock to read the scrollback rows
-              if let Ok(vt) = self.shell.vt.read() {
-                let screen = vt.screen();
-                let area = buf.area;
-                let current_row0 = screen.row0();
+              match self.shell.vt.read() {
+                Ok(vt) => {
+                  let screen = vt.screen();
+                  let area = buf.area;
+                  let current_row0 = screen.row0();
 
-                // The lines that just scrolled off are now in scrollback
-                // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
-                let scrollback_start =
-                  current_row0.saturating_sub(num_scrolled_lines);
+                  // The lines that just scrolled off are now in scrollback
+                  // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
+                  let scrollback_start =
+                    current_row0.saturating_sub(num_scrolled_lines);
 
-                let mut line_idx = 0;
-                for row in screen
-                  .all_rows()
-                  .skip(scrollback_start)
-                  .take(num_scrolled_lines)
-                {
-                  if line_idx >= area.height as usize {
-                    break;
-                  }
+                  let mut line_idx = 0;
+                  for row in screen
+                    .all_rows()
+                    .skip(scrollback_start)
+                    .take(num_scrolled_lines)
+                  {
+                    if line_idx >= area.height as usize {
+                      break;
+                    }
 
-                  // Render this row into the buffer
-                  for col in 0..area.width.min(row.cols()) {
-                    if let Some(cell) = row.get(col) {
-                      if let Some(buf_cell) =
-                        buf.cell_mut((area.x + col, area.y + line_idx as u16))
-                      {
-                        *buf_cell = cell.to_tui();
-                        if !cell.has_contents() {
-                          buf_cell.set_char(' ');
+                    // Render this row into the buffer
+                    for col in 0..area.width.min(row.cols()) {
+                      if let Some(cell) = row.get(col) {
+                        if let Some(buf_cell) =
+                          buf.cell_mut((area.x + col, area.y + line_idx as u16))
+                        {
+                          *buf_cell = cell.to_tui();
+                          if !cell.has_contents() {
+                            buf_cell.set_char(' ');
+                          }
                         }
                       }
                     }
+                    line_idx += 1;
                   }
-                  line_idx += 1;
+                }
+                Err(e) => {
+                  log::error!(
+                    "Failed to acquire read lock on VT for scrollback: {:?}",
+                    e
+                  );
                 }
               }
             })
@@ -653,6 +541,8 @@ impl App {
 
         self.last_total_rows = current_total_rows;
       }
+    } else {
+      log::error!("Failed to acquire read lock on VT");
     }
 
     self.terminal.draw(|frame| {
@@ -665,10 +555,12 @@ impl App {
         frame.render_widget(widget, area);
 
         // Set cursor position if cursor is visible
-        if !screen.hide_cursor() {
+        if !self.ai_visible && !screen.hide_cursor() {
           let cursor = screen.cursor_position();
           frame.set_cursor_position((area.x + cursor.1, area.y + cursor.0));
         }
+      } else {
+        log::error!("Failed to acquire read lock on VT for shell");
       }
 
       // Render AI overlay if visible
@@ -678,9 +570,8 @@ impl App {
 
         if let Some(ref ai_process) = self.ai_process {
           // Render AI chat interface
-          let ai_ui = AIChatUI::new(ai_process);
           let buf = frame.buffer_mut();
-          ai_ui.render(overlay_area, buf);
+          self.ai_ui.render(ai_process, overlay_area, buf);
         } else {
           // Show "not configured" message
           let message = Paragraph::new(
@@ -731,7 +622,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
-impl Drop for App {
+impl<'a> Drop for App<'a> {
   fn drop(&mut self) {
     // Cleanup terminal
     let _ = disable_raw_mode();
