@@ -1,7 +1,8 @@
 use crate::{
   app::ClientId,
+  kernel::proc::ProcId,
   keymap::KeymapGroup,
-  proc::{handle::ProcHandle, CopyMode},
+  proc::{CopyMode, view::ProcView},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,7 +34,7 @@ pub struct State {
   pub current_client_id: Option<ClientId>,
 
   pub scope: Scope,
-  pub procs: Vec<ProcHandle>,
+  pub procs: Vec<ProcView>,
   pub selected: usize,
   pub hide_keymap_window: bool,
 
@@ -41,11 +42,11 @@ pub struct State {
 }
 
 impl State {
-  pub fn get_current_proc(&self) -> Option<&ProcHandle> {
+  pub fn get_current_proc(&self) -> Option<&ProcView> {
     self.procs.get(self.selected)
   }
 
-  pub fn get_current_proc_mut(&mut self) -> Option<&mut ProcHandle> {
+  pub fn get_current_proc_mut(&mut self) -> Option<&mut ProcView> {
     self.procs.get_mut(self.selected)
   }
 
@@ -56,7 +57,7 @@ impl State {
     }
   }
 
-  pub fn get_proc_mut(&mut self, id: usize) -> Option<&mut ProcHandle> {
+  pub fn get_proc_mut(&mut self, id: ProcId) -> Option<&mut ProcView> {
     self.procs.iter_mut().find(|p| p.id() == id)
   }
 
@@ -66,7 +67,7 @@ impl State {
       Scope::Term | Scope::TermZoom => match self.get_current_proc() {
         Some(proc) => match proc.copy_mode() {
           CopyMode::None(_) => KeymapGroup::Term,
-          CopyMode::Start(_, _) | CopyMode::Range(_, _, _) => KeymapGroup::Copy,
+          CopyMode::Active(_, _, _) => KeymapGroup::Copy,
         },
         None => KeymapGroup::Term,
       },
