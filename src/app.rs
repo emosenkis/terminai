@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use termwiz::escape::csi::CursorStyle;
 use tokio::{io::AsyncReadExt, sync::mpsc::UnboundedReceiver};
 use tui::{
-  Terminal,
   layout::{Constraint, Direction, Layout, Margin, Rect},
   widgets::Widget,
+  Terminal,
 };
 
 use crate::{
@@ -32,10 +32,10 @@ use crate::{
   },
   mouse::MouseEvent,
   proc::{
-    CopyMode, Pos, StopSignal,
     msg::{ProcCmd, ProcUpdate},
     proc::launch_proc,
     view::RESTART_THRESHOLD_SECONDS,
+    CopyMode, Pos, StopSignal,
   },
   protocol::{CltToSrv, ProxyBackend, SrvToClt},
   server::server_message::ServerMessage,
