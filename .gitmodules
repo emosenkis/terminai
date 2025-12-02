@@ -1,0 +1,4 @@
+[submodule "ratatui"]
+	path = ratatui
+	url = https://github.com/emosenkis/ratatui.git
+	branch = fix-scrolling-regions-viewport
