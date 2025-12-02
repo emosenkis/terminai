@@ -137,8 +137,6 @@ struct App<'a> {
   ai_visible: bool,
   /// Track the total row count to detect when content scrolls off screen
   last_total_rows: usize,
-  /// Viewport height (N-2 where N is terminal height)
-  viewport_height: u16,
 }
 
 impl<'a> App<'a> {
@@ -199,30 +197,28 @@ impl<'a> App<'a> {
     let (cols, rows) = crossterm::terminal::size()?;
 
     // Create ratatui terminal with inline viewport for native scrollback
-    // Use bottom N-2 lines (leaving 2 lines at top for scrollback)
     // This allows content to scroll into the host terminal's scrollback buffer
     let backend = CrosstermBackend::new(stdout);
-    let viewport_height = rows.saturating_sub(2);
     let terminal = Terminal::with_options(
       backend,
       TerminalOptions {
-        viewport: Viewport::Inline(viewport_height),
+        viewport: Viewport::Inline(rows),
       },
     )?;
 
-    // Spawn shell or command with viewport height (not full terminal height)
+    // Spawn shell or command
     let shell = if command.is_empty() {
       // No command specified, use $SHELL
       let shell_cmd =
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
       log::info!("Spawning shell: {}", shell_cmd);
-      Shell::spawn(&shell_cmd, viewport_height, cols)?
+      Shell::spawn(&shell_cmd, rows, cols)?
     } else {
       // Command specified, spawn it directly
       let cmd = &command[0];
       let args = &command[1..];
       log::info!("Spawning command: {} {:?}", cmd, args);
-      Shell::spawn_command(cmd, &args.to_vec(), viewport_height, cols)?
+      Shell::spawn_command(cmd, &args.to_vec(), rows, cols)?
     };
 
     // Initialize AI if API key configured
@@ -280,8 +276,7 @@ impl<'a> App<'a> {
       ai_process,
       ai_ui: AIChatUI::new(),
       ai_visible: false,
-      last_total_rows: viewport_height as usize,
-      viewport_height,
+      last_total_rows: rows as usize,
     })
   }
 
@@ -423,9 +418,7 @@ impl<'a> App<'a> {
                 }
               }
               Event::Resize(cols, rows) => {
-                // Update viewport height and resize shell to match
-                self.viewport_height = rows.saturating_sub(2);
-                self.shell.resize(self.viewport_height, cols)?;
+                self.shell.resize(rows, cols)?;
                 self.render()?;
               }
               Event::Mouse(mev) => {

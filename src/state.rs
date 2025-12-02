@@ -2,7 +2,7 @@ use crate::{
   app::ClientId,
   kernel::proc::ProcId,
   keymap::KeymapGroup,
-  proc::{view::ProcView, CopyMode},
+  proc::{CopyMode, view::ProcView},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
