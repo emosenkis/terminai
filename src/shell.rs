@@ -91,15 +91,42 @@ impl Shell {
     let event_tx_clone = event_tx.clone();
     std::thread::spawn(move || {
       let mut buf = vec![0u8; 32 * 1024];
+
+      // Calculate chunk size for incremental processing
+      // Use ~1/2 screen of characters as chunk size to trigger events frequently enough
+      // to catch scrolling before too much accumulates
+      let chunk_size = (rows as usize * cols as usize / 2).max(4096);
+
       loop {
         match reader.read(&mut buf) {
           Ok(0) => break, // EOF
           Ok(count) => {
-            // Process through VT100 parser
-            if let Ok(mut vt) = vt_clone.write() {
-              vt.process(&buf[..count]);
-              let _ = event_tx_clone.send(ShellEvent::Output);
+            // Process through VT100 parser in chunks, sending events between chunks
+            // to allow the main loop to catch scrollback before too much accumulates
+            let data = &buf[..count];
+            let mut offset = 0;
+
+            while offset < data.len() {
+              let chunk_end = (offset + chunk_size).min(data.len());
+              let chunk = &data[offset..chunk_end];
+
+              if let Ok(mut vt) = vt_clone.write() {
+                let rows_before = vt.screen().total_rows();
+                vt.process(chunk);
+                let rows_after = vt.screen().total_rows();
+
+                // Send event if this chunk caused scrolling
+                if rows_after > rows_before {
+                  let _ = event_tx_clone.send(ShellEvent::Output);
+                }
+              }
+
+              offset = chunk_end;
             }
+
+            // Always send at least one event per read, even if no scrolling occurred
+            // (in case the last chunk didn't cause scrolling but earlier ones did)
+            let _ = event_tx_clone.send(ShellEvent::Output);
           }
           Err(e) => {
             log::error!("PTY read error: {}", e);
