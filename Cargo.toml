@@ -14,4 +14,4 @@ members = ["helpers/print-key", "src"]
 all = "allow"
 
 [patch.crates-io]
-ratatui = { path = "ratatui" }
+ratatui = { git = "https://github.com/emosenkis/ratatui", branch = "backport/scroll-up-v0.29.0" }
