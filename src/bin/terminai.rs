@@ -20,6 +20,7 @@ use tui::{
 use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
 use termin::llm::{Provider, TerminalContext};
+use termin::terminai_config::TerminAIConfig;
 use termin::vt100;
 
 use termin::shell::{Shell, ShellEvent};
@@ -221,53 +222,142 @@ impl<'a> App<'a> {
       Shell::spawn_command(cmd, &args.to_vec(), rows, cols)?
     };
 
-    // Initialize AI if API key configured
-    // Try multiple providers in order of preference
+    // Initialize AI using configuration file or fallback to auto-detection
     // Note: We still show the AI overlay even without a key,
     // but it will display a "not configured" message
     let ai_process = {
-      let providers = [
-        (Provider::Anthropic, "ANTHROPIC_API_KEY"),
-        (Provider::OpenAI, "OPENAI_API_KEY"),
-        (Provider::Gemini, "GOOGLE_API_KEY"),
-        (Provider::Gemini, "GEMINI_API_KEY"),
-        (Provider::OpenRouter, "OPENROUTER_API_KEY"),
-      ];
+      // Try to load configuration from ~/.config/terminai/terminai.yaml
+      match TerminAIConfig::load() {
+        Ok(config) => {
+          log::info!("Configuration loaded successfully");
 
-      let mut ai = None;
-      for (provider, env_key) in &providers {
-        if std::env::var(env_key).is_ok() {
-          log::info!("Initializing AI assistant with provider: {}", provider);
+          // Get the default provider and model from config
+          match config.get_default_provider_and_model() {
+            Ok((provider_config, model_config)) => {
+              log::info!(
+                "Using configured provider: {} with model: {}",
+                provider_config.name,
+                model_config.name
+              );
 
-          // For OpenRouter, set the default endpoint
-          let endpoint = if *provider == Provider::OpenRouter {
-            Some("https://openrouter.ai/api/v1".to_string())
-          } else {
-            None
-          };
+              // Get the API key environment variable
+              let api_key_env = provider_config.effective_api_key_env();
+              if let Some(ref env_key) = api_key_env {
+                if std::env::var(env_key).is_ok() {
+                  // Parse provider name
+                  if let Ok(provider) =
+                    std::str::FromStr::from_str(&provider_config.name)
+                  {
+                    // For OpenRouter, set the default endpoint
+                    let endpoint = if provider == Provider::OpenRouter {
+                      Some("https://openrouter.ai/api/v1".to_string())
+                    } else {
+                      None
+                    };
 
-          match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
-            .await
-          {
-            Ok(process) => {
-              log::info!("AI assistant initialized successfully");
-              ai = Some(process);
-              break;
+                    match AIChatProcess::new_with_endpoint(
+                      provider,
+                      Some(model_config.model.clone()),
+                      endpoint,
+                    )
+                    .await
+                    {
+                      Ok(process) => {
+                        log::info!("AI assistant initialized successfully");
+                        Some(process)
+                      }
+                      Err(e) => {
+                        log::error!(
+                          "Failed to initialize AI with configured provider: {:?}",
+                          e
+                        );
+                        None
+                      }
+                    }
+                  } else {
+                    log::error!(
+                      "Unknown provider in config: {}",
+                      provider_config.name
+                    );
+                    None
+                  }
+                } else {
+                  log::warn!(
+                    "API key environment variable {} not set",
+                    env_key
+                  );
+                  None
+                }
+              } else {
+                log::warn!("No API key environment variable configured");
+                None
+              }
             }
             Err(e) => {
-              log::warn!("Failed to initialize AI with {}: {:?}", provider, e);
+              log::error!(
+                "Failed to get default provider/model from config: {:?}",
+                e
+              );
+              None
             }
           }
         }
-      }
+        Err(e) => {
+          log::info!("No config file found or failed to load: {:?}", e);
+          log::info!("Falling back to auto-detection of API keys");
 
-      if ai.is_none() {
-        log::info!(
-          "No API keys found - AI overlay will show config instructions"
-        );
-      }
+          // Fallback: Try multiple providers in order of preference
+          let providers = [
+            (Provider::Anthropic, "ANTHROPIC_API_KEY"),
+            (Provider::OpenAI, "OPENAI_API_KEY"),
+            (Provider::Gemini, "GOOGLE_API_KEY"),
+            (Provider::Gemini, "GEMINI_API_KEY"),
+            (Provider::OpenRouter, "OPENROUTER_API_KEY"),
+          ];
 
-      ai
+          let mut ai = None;
+          for (provider, env_key) in &providers {
+            if std::env::var(env_key).is_ok() {
+              log::info!(
+                "Initializing AI assistant with provider: {}",
+                provider
+              );
+
+              // For OpenRouter, set the default endpoint
+              let endpoint = if *provider == Provider::OpenRouter {
+                Some("https://openrouter.ai/api/v1".to_string())
+              } else {
+                None
+              };
+
+              match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
+                .await
+              {
+                Ok(process) => {
+                  log::info!("AI assistant initialized successfully");
+                  ai = Some(process);
+                  break;
+                }
+                Err(e) => {
+                  log::warn!(
+                    "Failed to initialize AI with {}: {:?}",
+                    provider,
+                    e
+                  );
+                }
+              }
+            }
+          }
+
+          if ai.is_none() {
+            log::info!(
+              "No API keys found - AI overlay will show config instructions"
+            );
+          }
+
+          ai
+        }
+      }
     };
 
     Ok(Self {

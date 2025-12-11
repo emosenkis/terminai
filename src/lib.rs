@@ -40,6 +40,7 @@ pub mod env_loader;
 pub mod llm;
 pub mod privacy;
 pub mod shell;
+pub mod terminai_config;
 
 // Test utilities
 #[cfg(test)]
