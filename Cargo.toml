@@ -12,3 +12,6 @@ members = ["helpers/print-key", "src"]
 
 [workspace.lints.clippy]
 all = "allow"
+
+[patch.crates-io]
+ratatui = { path = "ratatui" }

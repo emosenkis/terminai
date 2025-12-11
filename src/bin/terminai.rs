@@ -448,100 +448,79 @@ impl<'a> App<'a> {
 
   fn render(&mut self) -> Result<()> {
     // Detect when content has scrolled in the VT100 terminal
-    // and write scrolled lines to the host terminal's native scrollback
-    if let Ok(vt) = self.shell.vt.read() {
+    // and calculate how many lines to push to native scrollback
+    let num_scrolled_lines = if let Ok(vt) = self.shell.vt.read() {
       let screen = vt.screen();
       let current_total_rows = screen.total_rows();
-      drop(vt); // Release the lock before calling insert_before
-      // let screen_size = screen.size();
 
       // If total rows increased, content has scrolled into the VT100's scrollback buffer
       if current_total_rows > self.last_total_rows {
-        let num_scrolled_lines = current_total_rows - self.last_total_rows;
+        let num = current_total_rows - self.last_total_rows;
         log::debug!(
           "Content scrolled: {} new lines (total rows: {} -> {})",
-          num_scrolled_lines,
+          num,
           self.last_total_rows,
           current_total_rows
         );
-
-        // TODO: Delete this?
-        // Calculate which scrollback rows just scrolled off
-        // The grid structure: [scrollback rows...][visible rows]
-        // row0 = current_total_rows - screen_height
-        // New scrollback rows are at indices: (old row0 - num_scrolled_lines) to (old row0 - 1)
-        // let old_row0 = self
-        //   .last_total_rows
-        //   .saturating_sub(screen_size.rows as usize);
-        // let new_scrollback_start = old_row0.saturating_sub(num_scrolled_lines);
-
-        // Insert these lines above the viewport using insert_before
-        // This will push them into the host terminal's native scrollback
-
-        if let Err(e) =
-          self
-            .terminal
-            .insert_before(num_scrolled_lines as u16, |buf| {
-              // Re-acquire the lock to read the scrollback rows
-              match self.shell.vt.read() {
-                Ok(vt) => {
-                  let screen = vt.screen();
-                  let area = buf.area;
-                  let current_row0 = screen.row0();
-
-                  // The lines that just scrolled off are now in scrollback
-                  // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
-                  let scrollback_start =
-                    current_row0.saturating_sub(num_scrolled_lines);
-
-                  let mut line_idx = 0;
-                  for row in screen
-                    .all_rows()
-                    .skip(scrollback_start)
-                    .take(num_scrolled_lines)
-                  {
-                    if line_idx >= area.height as usize {
-                      break;
-                    }
-
-                    // Render this row into the buffer
-                    for col in 0..area.width.min(row.cols()) {
-                      if let Some(cell) = row.get(col) {
-                        if let Some(buf_cell) =
-                          buf.cell_mut((area.x + col, area.y + line_idx as u16))
-                        {
-                          *buf_cell = cell.to_tui();
-                          if !cell.has_contents() {
-                            buf_cell.set_char(' ');
-                          }
-                        }
-                      }
-                    }
-                    line_idx += 1;
-                  }
-                }
-                Err(e) => {
-                  log::error!(
-                    "Failed to acquire read lock on VT for scrollback: {:?}",
-                    e
-                  );
-                }
-              }
-            })
-        {
-          log::error!("Failed to insert scrollback lines: {:?}", e);
-        }
-
         self.last_total_rows = current_total_rows;
+        num
+      } else {
+        0
       }
     } else {
       log::error!("Failed to acquire read lock on VT");
-    }
+      0
+    };
 
     self.terminal.draw(|frame| {
       let area = frame.area();
 
-      // Render shell output (full screen)
+      // If content has scrolled, render the scrolled lines and push to native scrollback
+      if num_scrolled_lines > 0 {
+        // First, render the content that was just scrolled off
+        if let Ok(vt) = self.shell.vt.read() {
+          let screen = vt.screen();
+          let current_row0 = screen.row0();
+
+          // The lines that just scrolled off are now in scrollback
+          // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
+          let scrollback_start = current_row0.saturating_sub(num_scrolled_lines);
+
+          let mut line_idx = 0;
+          for row in screen
+            .all_rows()
+            .skip(scrollback_start)
+            .take(num_scrolled_lines)
+          {
+            if line_idx >= area.height as usize {
+              break;
+            }
+
+            // Render this row into the buffer
+            for col in 0..area.width.min(row.cols()) {
+              if let Some(cell) = row.get(col) {
+                let buf = frame.buffer_mut();
+                if let Some(buf_cell) =
+                  buf.cell_mut((area.x + col, area.y + line_idx as u16))
+                {
+                  *buf_cell = cell.to_tui();
+                  if !cell.has_contents() {
+                    buf_cell.set_char(' ');
+                  }
+                }
+              }
+            }
+            line_idx += 1;
+          }
+        } else {
+          log::error!("Failed to acquire read lock on VT for scrollback");
+        }
+
+        // Capture this content and scroll it into native scrollback
+        frame.set_scroll_up(num_scrolled_lines as u16);
+      }
+
+      // Render current shell output (full screen)
       if let Ok(vt) = self.shell.vt.read() {
         let screen = vt.screen();
         let widget = TerminalWidget::new(screen);
