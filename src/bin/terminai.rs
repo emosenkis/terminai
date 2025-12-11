@@ -292,9 +292,39 @@ impl<'a> App<'a> {
         Some(event) = self.shell.event_rx.recv() => {
           match event {
             ShellEvent::Output => {
-              // Shell produced output - don't render here to avoid performance issues
+              // Shell produced output - check if we need to render immediately
+              // to prevent losing scrollback content
               // The VT100 parser has already been updated by the PTY reader thread
-              // Rendering will happen in the periodic frame below
+
+              // Check how many lines have scrolled since last render
+              let should_render = if let Ok(vt) = self.shell.vt.read() {
+                let screen = vt.screen();
+                let current_total_rows = screen.total_rows();
+                let screen_height = screen.size().rows as usize;
+                let scrolled_since_last_render = current_total_rows.saturating_sub(self.last_total_rows);
+
+                // If we've scrolled close to a full screen height, render immediately
+                // to push content to native scrollback before it gets overwritten
+                // Use 80% threshold to leave some safety margin
+                let threshold = screen_height * 4 / 5;
+                if scrolled_since_last_render >= threshold {
+                  log::debug!(
+                    "Triggering immediate render: scrolled {} lines (threshold: {})",
+                    scrolled_since_last_render,
+                    threshold
+                  );
+                  true
+                } else {
+                  false
+                }
+              } else {
+                false
+              };
+
+              if should_render {
+                self.render()?;
+              }
+              // Otherwise, rendering will happen in the periodic frame below
             }
             ShellEvent::TermReply(reply) => {
               // Write terminal query reply back to PTY so programs like glow get their responses
