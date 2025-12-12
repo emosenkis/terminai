@@ -3,10 +3,8 @@
 
 use anyhow::{Error, Result};
 use clap::Parser;
-use crossterm::{
-  event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-  terminal::{disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::io::{Write, stdout};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -22,10 +20,10 @@ use tui::{
 // rat-salsa imports
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
-  poll::{PollCrossterm, PollEvents, PollRendered},
+  poll::{PollEvents, PollRendered},
   run_tui,
 };
-use rat_theme4::{WidgetStyle, create_salsa_theme, theme::SalsaTheme};
+use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 
 // Import only what we need from the crate
 use termin::ai_proc::{AIChatProcess, AIChatUI};
@@ -72,9 +70,6 @@ impl Global {
 /// Application events
 #[derive(Debug)]
 pub enum AppEvent {
-  /// Crossterm event (keyboard, mouse, resize)
-  Event(crossterm::event::Event),
-
   /// Post-render event (for focus rebuild)
   Rendered,
 
@@ -87,12 +82,6 @@ pub enum AppEvent {
 impl From<rat_salsa::event::RenderedEvent> for AppEvent {
   fn from(_: rat_salsa::event::RenderedEvent) -> Self {
     Self::Rendered
-  }
-}
-
-impl From<crossterm::event::Event> for AppEvent {
-  fn from(value: crossterm::event::Event) -> Self {
-    Self::Event(value)
   }
 }
 
@@ -132,7 +121,7 @@ impl PollEvents<AppEvent, Error> for PollShell {
         Err(mpsc::error::TryRecvError::Empty) => Ok(false),
         Err(mpsc::error::TryRecvError::Disconnected) => {
           // Shell died - cache a synthetic exit event
-          *self.cached_event.lock().unwrap() = Some(ShellEvent::Exited(-1));
+          *self.cached_event.lock().unwrap() = Some(ShellEvent::Exited(1));
           Ok(true)
         }
       }
@@ -147,10 +136,10 @@ impl PollEvents<AppEvent, Error> for PollShell {
       match event {
         ShellEvent::Output => Ok(Control::Event(AppEvent::ShellOutput)),
         ShellEvent::TermReply(reply) => {
-          Ok(Control::Event(AppEvent::ShellTermReply(reply)))
+          Ok(Control::Event(AppEvent::ShellTermReply(reply.to_string())))
         }
         ShellEvent::Exited(code) => {
-          Ok(Control::Event(AppEvent::ShellExited(code)))
+          Ok(Control::Event(AppEvent::ShellExited(code as i32)))
         }
       }
     } else {
@@ -407,36 +396,21 @@ async fn main() -> Result<()> {
     last_total_rows: rows as usize,
   };
 
-  // PROBLEM: We need to extract shell.event_rx for PollShell
-  // But state.shell is not accessible after moving into state
-  // Need to refactor Shell or use Arc<Mutex<>> approach
-  // For now, let's use a placeholder and come back to fix this
-
-  // TODO: Implement proper shell event polling
-  // let poll_shell = PollShell::new(event_rx);
-
   // Run rat-salsa event loop
-  // NOTE: run_tui is currently commented out because we need to implement
-  // init, render, event, error functions first
-  // run_tui(
-  //   init,
-  //   render,
-  //   event,
-  //   error,
-  //   &mut global,
-  //   &mut state,
-  //   RunConfig::default()?
-  //     .poll(rat_salsa::poll::PollCrossterm)
-  //     .poll(rat_salsa::poll::PollRendered),
-  // )?;
+  // NOTE: For Phase 1, we poll crossterm events manually to avoid version conflicts
+  // NOTE: Shell events are also polled inline in the event() function
+  // TODO: Phase 2+: Use PollCrossterm and PollShell properly
+  run_tui(
+    init,
+    render,
+    event,
+    error,
+    &mut global,
+    &mut state,
+    RunConfig::default()?.poll(PollRendered),
+  )?;
 
-  // Temporary: Keep old code working
-  log::error!(
-    "MIGRATION IN PROGRESS - rat-salsa event loop not yet implemented"
-  );
-  std::process::exit(1);
-
-  // Ok(())
+  Ok(())
 }
 
 /// Application state (previously App)
@@ -498,527 +472,8 @@ impl<'a> AppState<'a> {
     TerminalContext::new(history_lines, cwd, None)
   }
 
-  async fn new(command: Vec<String>) -> Result<Self> {
-    // Setup terminal
-    enable_raw_mode()?;
-    let stdout = stdout();
-
-    // Get terminal size
-    let (cols, rows) = crossterm::terminal::size()?;
-
-    // Create ratatui terminal with inline viewport for native scrollback
-    // This allows content to scroll into the host terminal's scrollback buffer
-    let backend = CrosstermBackend::new(stdout);
-    let terminal = Terminal::with_options(
-      backend,
-      TerminalOptions {
-        viewport: Viewport::Inline(rows),
-      },
-    )?;
-
-    // Spawn shell or command
-    let shell = if command.is_empty() {
-      // No command specified, use $SHELL
-      let shell_cmd =
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-      log::info!("Spawning shell: {}", shell_cmd);
-      Shell::spawn(&shell_cmd, rows, cols)?
-    } else {
-      // Command specified, spawn it directly
-      let cmd = &command[0];
-      let args = &command[1..];
-      log::info!("Spawning command: {} {:?}", cmd, args);
-      Shell::spawn_command(cmd, &args.to_vec(), rows, cols)?
-    };
-
-    // Initialize AI using configuration file or fallback to auto-detection
-    // Note: We still show the AI overlay even without a key,
-    // but it will display a "not configured" message
-    let ai_process = {
-      // Try to load configuration from ~/.config/terminai/terminai.yaml
-      match TerminAIConfig::load() {
-        Ok(config) => {
-          log::info!("Configuration loaded successfully");
-
-          // Get the default provider and model from config
-          match config.get_default_provider_and_model() {
-            Ok((provider_config, model_config)) => {
-              log::info!(
-                "Using configured provider: {} with model: {}",
-                provider_config.name,
-                model_config.name
-              );
-
-              // Get the API key environment variable
-              let api_key_env = provider_config.effective_api_key_env();
-              if let Some(ref env_key) = api_key_env {
-                if std::env::var(env_key).is_ok() {
-                  // Parse provider name
-                  if let Ok(provider) =
-                    std::str::FromStr::from_str(&provider_config.name)
-                  {
-                    // For OpenRouter, set the default endpoint
-                    let endpoint = if provider == Provider::OpenRouter {
-                      Some("https://openrouter.ai/api/v1".to_string())
-                    } else {
-                      None
-                    };
-
-                    match AIChatProcess::new_with_endpoint(
-                      provider,
-                      Some(model_config.model.clone()),
-                      endpoint,
-                    )
-                    .await
-                    {
-                      Ok(process) => {
-                        log::info!("AI assistant initialized successfully");
-                        Some(process)
-                      }
-                      Err(e) => {
-                        log::error!(
-                          "Failed to initialize AI with configured provider: {:?}",
-                          e
-                        );
-                        None
-                      }
-                    }
-                  } else {
-                    log::error!(
-                      "Unknown provider in config: {}",
-                      provider_config.name
-                    );
-                    None
-                  }
-                } else {
-                  log::warn!(
-                    "API key environment variable {} not set",
-                    env_key
-                  );
-                  None
-                }
-              } else {
-                log::warn!("No API key environment variable configured");
-                None
-              }
-            }
-            Err(e) => {
-              log::error!(
-                "Failed to get default provider/model from config: {:?}",
-                e
-              );
-              None
-            }
-          }
-        }
-        Err(e) => {
-          log::info!("No config file found or failed to load: {:?}", e);
-          log::info!("Falling back to auto-detection of API keys");
-
-          // Fallback: Try multiple providers in order of preference
-          let providers = [
-            (Provider::Anthropic, "ANTHROPIC_API_KEY"),
-            (Provider::OpenAI, "OPENAI_API_KEY"),
-            (Provider::Gemini, "GOOGLE_API_KEY"),
-            (Provider::Gemini, "GEMINI_API_KEY"),
-            (Provider::OpenRouter, "OPENROUTER_API_KEY"),
-          ];
-
-          let mut ai = None;
-          for (provider, env_key) in &providers {
-            if std::env::var(env_key).is_ok() {
-              log::info!(
-                "Initializing AI assistant with provider: {}",
-                provider
-              );
-
-              // For OpenRouter, set the default endpoint
-              let endpoint = if *provider == Provider::OpenRouter {
-                Some("https://openrouter.ai/api/v1".to_string())
-              } else {
-                None
-              };
-
-              match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
-                .await
-              {
-                Ok(process) => {
-                  log::info!("AI assistant initialized successfully");
-                  ai = Some(process);
-                  break;
-                }
-                Err(e) => {
-                  log::warn!(
-                    "Failed to initialize AI with {}: {:?}",
-                    provider,
-                    e
-                  );
-                }
-              }
-            }
-          }
-
-          if ai.is_none() {
-            log::info!(
-              "No API keys found - AI overlay will show config instructions"
-            );
-          }
-
-          ai
-        }
-      }
-    };
-
-    Ok(Self {
-      terminal,
-      shell,
-      ai_process,
-      ai_ui: AIChatUI::new(),
-      ai_visible: false,
-      last_total_rows: rows as usize,
-    })
-  }
-
-  async fn run(&mut self) -> Result<()> {
-    log::info!("Termin.AI main loop starting");
-
-    // Initial render
-    self.render()?;
-
-    loop {
-      tokio::select! {
-        // Handle shell events
-        Some(event) = self.shell.event_rx.recv() => {
-          match event {
-            ShellEvent::Output => {
-              // Shell produced output - check if we need to render immediately
-              // to prevent losing scrollback content
-              // The VT100 parser has already been updated by the PTY reader thread
-
-              // Check how many lines have scrolled since last render
-              let should_render = if let Ok(vt) = self.shell.vt.read() {
-                let screen = vt.screen();
-                let current_total_rows = screen.total_rows();
-                let screen_height = screen.size().rows as usize;
-                let scrolled_since_last_render = current_total_rows.saturating_sub(self.last_total_rows);
-
-                // If we've scrolled close to a full screen height, render immediately
-                // to push content to native scrollback before it gets overwritten
-                // Use 80% threshold to leave some safety margin
-                let threshold = screen_height * 4 / 5;
-                if scrolled_since_last_render >= threshold {
-                  log::debug!(
-                    "Triggering immediate render: scrolled {} lines (threshold: {})",
-                    scrolled_since_last_render,
-                    threshold
-                  );
-                  true
-                } else {
-                  false
-                }
-              } else {
-                false
-              };
-
-              if should_render {
-                self.render()?;
-              }
-              // Otherwise, rendering will happen in the periodic frame below
-            }
-            ShellEvent::TermReply(reply) => {
-              // Write terminal query reply back to PTY so programs like glow get their responses
-              if let Err(e) = self.shell.writer.write_all(reply.as_bytes()) {
-                log::error!("Failed to write terminal reply: {:?}", e);
-              }
-              if let Err(e) = self.shell.writer.flush() {
-                log::error!("Failed to flush terminal reply: {:?}", e);
-              }
-            }
-            ShellEvent::Exited(code) => {
-              log::info!("Shell exited with code: {}", code);
-              break;
-            }
-          }
-        }
-
-        // Periodic rendering and keyboard input (60fps)
-        _ = tokio::time::sleep(std::time::Duration::from_millis(16)) => {
-          // Process all available keyboard events before rendering (important for paste performance)
-          while event::poll(std::time::Duration::from_millis(0))? {
-            match event::read()? {
-              Event::Key(KeyEvent {
-                code,
-                modifiers,
-                kind: crossterm::event::KeyEventKind::Press,
-                ..
-              }) => {
-                // Convert to our Key type
-                let key = Key::new(code, modifiers);
-
-                // Check for hotkeys
-                if matches!((code, modifiers), (KeyCode::Char(' '), KeyModifiers::CONTROL)) {
-                  // Ctrl-Space: toggle AI overlay
-                  self.ai_visible = !self.ai_visible;
-                  log::info!("AI overlay toggled: {}", self.ai_visible);
-                } else if matches!(code, KeyCode::Esc) && self.ai_visible {
-                  // ESC: close AI overlay
-                  self.ai_visible = false;
-                } else if !self.ai_visible {
-                  // Route to shell when AI overlay not visible
-                  self.shell.send_key(key)?;
-                } else if self.ai_process.is_some() {
-                  // Route to AI overlay when visible
-
-                  // Handle Enter key specially - needs to extract context first
-                  if matches!((code, modifiers), (KeyCode::Enter, KeyModifiers::NONE)) {
-                      let message = self.ai_ui.get_input_value();
-                      if !message.is_empty() {
-                        log::info!("Sending message to LLM");
-
-                        // Extract context before taking mutable borrow
-                        let context = self.extract_context();
-
-                        // Now get mutable reference and send
-                        if let Some(ref mut ai_process) = self.ai_process {
-                          match ai_process.send_input_with_context(&message, context).await {
-                            Ok(()) => {
-                              log::info!("Message sent successfully");
-                              self.render()?;
-                            }
-                            Err(e) => {
-                              log::error!("Failed to send message: {:?}", e);
-                              // Error is logged, user will see no response
-                            }
-                          }
-                      }
-                    }
-                  } else if let Some(ref mut ai_process) = self.ai_process {
-                    // Check if there's a pending command approval
-                    if ai_process.pending_command().is_some() {
-                      // Handle approval/rejection keys
-                      match code {
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                          // Approve command
-                          if let Some(pending) = ai_process.approve_command() {
-                            log::info!("Command approved: {}", pending.command);
-
-                            // Execute command by injecting into shell
-                            for ch in pending.command.chars() {
-                              let key = Key::new(KeyCode::Char(ch), KeyModifiers::NONE);
-                              if let Err(e) = self.shell.send_key(key) {
-                                log::error!("Failed to send command character: {:?}", e);
-                              }
-                            }
-
-                            // Send Enter to execute
-                            let enter_key = Key::new(KeyCode::Enter, KeyModifiers::NONE);
-                            if let Err(e) = self.shell.send_key(enter_key) {
-                              log::error!("Failed to send Enter: {:?}", e);
-                            }
-
-                            log::info!("Command executed in shell");
-                            self.render()?;
-                          }
-                        }
-                        KeyCode::Char('n') | KeyCode::Char('N') => {
-                          // Reject command
-                          ai_process.reject_command();
-                          log::info!("Command rejected");
-                        }
-                        _ => {
-                          // Ignore other keys when waiting for approval
-                          log::debug!("Waiting for Y/N approval, ignoring key: {:?}", key);
-                        }
-                      }
-                    } else {
-                      // No pending command, handle normal input
-                      if key.code() == KeyCode::Enter && key.mods() == KeyModifiers::SHIFT {
-                        // TODO: Why doesn't this ever happen?
-                        log::debug!("Got Shift-Enter");
-                        self.ai_ui.input_event(Key::new(KeyCode::Enter, KeyModifiers::NONE));
-                      } else {
-                        self.ai_ui.input_event(key);
-                      }
-                    }
-                  }
-                } else {
-                  // AI overlay visible but no AI process (shouldn't happen, but log it)
-                  log::debug!("AI overlay visible but no AI process");
-                }
-              }
-              Event::Resize(cols, rows) => {
-                self.shell.resize(rows, cols)?;
-                self.render()?;
-              }
-              Event::Mouse(mev) => {
-                // TODO: Pass on mouse events to AI message input?
-
-                // Filter out scroll events to allow native terminal scrollback
-                if matches!(mev.kind, crossterm::event::MouseEventKind::ScrollUp | crossterm::event::MouseEventKind::ScrollDown) {
-                  // Ignore scroll events - let the terminal handle them
-                  log::debug!("Ignoring scroll event for native scrollback");
-                } else {
-                  // Handle other mouse events if needed in the future
-                  log::debug!("Unhandled mouse event: {:?}", mev);
-                }
-              }
-              _ => {}
-            }
-          }
-
-          // Render once after processing all keyboard events
-          self.render()?;
-        }
-      }
-    }
-
-    Ok(())
-  }
-
-  fn render(&mut self) -> Result<()> {
-    // Get current VT state and screen dimensions
-    let (current_total_rows, screen_height, current_row0) =
-      if let Ok(vt) = self.shell.vt.read() {
-        let screen = vt.screen();
-        (
-          screen.total_rows(),
-          screen.size().rows as usize,
-          screen.row0(),
-        )
-      } else {
-        log::error!("Failed to acquire read lock on VT");
-        return Ok(());
-      };
-
-    // Calculate how much scrollback needs to be pushed to native terminal
-    let total_scrolled =
-      current_total_rows.saturating_sub(self.last_total_rows);
-
-    if total_scrolled > 0 {
-      log::debug!(
-        "Content scrolled: {} new lines (total rows: {} -> {})",
-        total_scrolled,
-        self.last_total_rows,
-        current_total_rows
-      );
-
-      // If we have more than one screen of scrollback to push, process it in chunks
-      // to avoid losing content (we can only render screen_height lines at once)
-      let mut remaining = total_scrolled;
-      let mut scrollback_offset = 0;
-
-      while remaining > 0 {
-        let chunk_size = remaining.min(screen_height);
-
-        log::debug!(
-          "Rendering scrollback chunk: {} lines (remaining: {}, offset: {})",
-          chunk_size,
-          remaining,
-          scrollback_offset
-        );
-
-        self.terminal.draw(|frame| {
-          let area = frame.area();
-
-          // Render this chunk of scrollback content
-          if let Ok(vt) = self.shell.vt.read() {
-            let screen = vt.screen();
-
-            // Calculate which scrollback rows to render for this chunk
-            // The oldest scrollback is at (current_row0 - total_scrolled)
-            // This chunk starts at (current_row0 - total_scrolled + scrollback_offset)
-            let chunk_start = current_row0
-              .saturating_sub(total_scrolled)
-              .saturating_add(scrollback_offset);
-
-            let mut line_idx = 0;
-            for row in screen.all_rows().skip(chunk_start).take(chunk_size) {
-              if line_idx >= area.height as usize {
-                break;
-              }
-
-              // Render this row into the buffer
-              for col in 0..area.width.min(row.cols()) {
-                if let Some(cell) = row.get(col) {
-                  let buf = frame.buffer_mut();
-                  if let Some(buf_cell) =
-                    buf.cell_mut((area.x + col, area.y + line_idx as u16))
-                  {
-                    *buf_cell = cell.to_tui();
-                    if !cell.has_contents() {
-                      buf_cell.set_char(' ');
-                    }
-                  }
-                }
-              }
-              line_idx += 1;
-            }
-          } else {
-            log::error!(
-              "Failed to acquire read lock on VT for scrollback chunk"
-            );
-          }
-
-          // Scroll this chunk into native scrollback
-          frame.set_scroll_up(chunk_size as u16);
-        })?;
-
-        // Update tracking
-        scrollback_offset += chunk_size;
-        remaining -= chunk_size;
-        self.last_total_rows += chunk_size;
-      }
-    }
-
-    // Final render: display current terminal state and UI widgets
-    self.terminal.draw(|frame| {
-      let area = frame.area();
-
-      // Render current shell output (full screen)
-      if let Ok(vt) = self.shell.vt.read() {
-        let screen = vt.screen();
-        let widget = TerminalWidget::new(screen);
-        frame.render_widget(widget, area);
-
-        // Set cursor position if cursor is visible
-        if !self.ai_visible && !screen.hide_cursor() {
-          let cursor = screen.cursor_position();
-          frame.set_cursor_position((area.x + cursor.1, area.y + cursor.0));
-        }
-      } else {
-        log::error!("Failed to acquire read lock on VT for shell");
-      }
-
-      // Render AI overlay if visible
-      if self.ai_visible {
-        // Calculate overlay area (80% x 70%, centered)
-        let overlay_area = centered_rect(80, 70, area);
-
-        if let Some(ref ai_process) = self.ai_process {
-          // Render AI chat interface
-          let buf = frame.buffer_mut();
-          self.ai_ui.render(ai_process, overlay_area, buf);
-        } else {
-          // Show "not configured" message
-          let message = Paragraph::new(
-            "AI Assistant not configured.\n\n\
-             Set ANTHROPIC_API_KEY environment variable to enable AI features.\n\n\
-             Press ESC or Ctrl-Space to close this overlay."
-          )
-          .block(
-            Block::default()
-              .borders(Borders::ALL)
-              .title(" AI Assistant ")
-              .style(Style::default().fg(Color::Yellow))
-          )
-          .style(Style::default().fg(Color::White));
-
-          frame.render_widget(message, overlay_area);
-        }
-      }
-    })?;
-    Ok(())
-  }
+  // OLD METHODS REMOVED - now using rat-salsa init/render/event functions instead
+  // See init(), render(), event(), error() functions below
 }
 
 /// Helper function to create a centered rectangle
@@ -1046,6 +501,100 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
       .as_ref(),
     )
     .split(popup_layout[1])[1]
+}
+
+/// rat-salsa init function - initialize focus and state
+pub fn init(_state: &mut AppState, _ctx: &mut Global) -> Result<(), Error> {
+  // TODO: Initialize focus when we add focus management in Phase 5
+  Ok(())
+}
+
+/// rat-salsa render function - render the UI
+pub fn render(
+  area: Rect,
+  buf: &mut tui::buffer::Buffer,
+  state: &mut AppState,
+  _ctx: &mut Global,
+) -> Result<(), Error> {
+  // For now, just render the terminal
+  // TODO: Add scrollback handling, AI overlay in later phases
+
+  // Render shell terminal
+  if let Ok(vt) = state.shell.vt.read() {
+    let screen = vt.screen();
+    let widget = TerminalWidget::new(screen);
+    widget.render(area, buf);
+  }
+
+  Ok(())
+}
+
+/// rat-salsa event function - handle events
+pub fn event(
+  event: &AppEvent,
+  state: &mut AppState,
+  _ctx: &mut Global,
+) -> Result<Control<AppEvent>, Error> {
+  // Poll shell events (temporary until we properly use PollShell)
+  while let Ok(shell_event) = state.shell.event_rx.try_recv() {
+    match shell_event {
+      ShellEvent::Output => {
+        // Shell produced output, will trigger render
+      }
+      ShellEvent::TermReply(reply) => {
+        state.shell.writer.write_all(reply.as_bytes())?;
+        state.shell.writer.flush()?;
+      }
+      ShellEvent::Exited(code) => {
+        log::info!("Shell exited with code: {}", code);
+        return Ok(Control::Quit);
+      }
+    }
+  }
+
+  // Poll crossterm events manually (Phase 1 workaround for version conflicts)
+  // TODO: Phase 2+: Use PollCrossterm properly
+  while event::poll(Duration::from_millis(0))? {
+    match event::read()? {
+      Event::Key(KeyEvent {
+        code,
+        modifiers,
+        kind: crossterm::event::KeyEventKind::Press,
+        ..
+      }) => {
+        // For Phase 1, just pass all keys to shell
+        // TODO: Phase 2+: Add Ctrl-Space for AI modal, handle AI input
+        let key = Key::new(code, modifiers);
+        state.shell.send_key(key)?;
+      }
+      Event::Resize(cols, rows) => {
+        state.shell.resize(rows, cols)?;
+        return Ok(Control::Changed);
+      }
+      _ => {}
+    }
+  }
+
+  match event {
+    AppEvent::Rendered => {
+      // TODO: Rebuild focus after render (Phase 5)
+      Ok(Control::Continue)
+    }
+    // Shell events are handled inline above
+    AppEvent::ShellOutput
+    | AppEvent::ShellTermReply(_)
+    | AppEvent::ShellExited(_) => Ok(Control::Continue),
+  }
+}
+
+/// rat-salsa error function - handle errors
+pub fn error(
+  error: Error,
+  _state: &mut AppState,
+  _ctx: &mut Global,
+) -> Result<Control<AppEvent>, Error> {
+  log::error!("Error: {:?}", error);
+  Ok(Control::Quit)
 }
 
 impl<'a> Drop for AppState<'a> {
