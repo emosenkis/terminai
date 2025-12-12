@@ -516,14 +516,38 @@ pub fn render(
   state: &mut AppState,
   _ctx: &mut Global,
 ) -> Result<(), Error> {
-  // For now, just render the terminal
-  // TODO: Add scrollback handling, AI overlay in later phases
-
-  // Render shell terminal
+  // Render shell terminal (always visible as background)
   if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
     let widget = TerminalWidget::new(screen);
     widget.render(area, buf);
+  }
+
+  // Render AI overlay if visible (Phase 2)
+  if state.ai_visible {
+    // Calculate overlay area (80% x 70%, centered)
+    let overlay_area = centered_rect(80, 70, area);
+
+    if let Some(ref ai_process) = state.ai_process {
+      // Render AI chat interface
+      state.ai_ui.render(ai_process, overlay_area, buf);
+    } else {
+      // Show "not configured" message
+      let message = Paragraph::new(
+        "AI Assistant not configured.\n\n\
+         Set ANTHROPIC_API_KEY environment variable to enable AI features.\n\n\
+         Press ESC or Ctrl-Space to close this overlay.",
+      )
+      .block(
+        Block::default()
+          .borders(Borders::ALL)
+          .title(" AI Assistant ")
+          .style(Style::default().fg(Color::Yellow)),
+      )
+      .style(Style::default().fg(Color::White));
+
+      message.render(overlay_area, buf);
+    }
   }
 
   Ok(())
@@ -552,8 +576,8 @@ pub fn event(
     }
   }
 
-  // Poll crossterm events manually (Phase 1 workaround for version conflicts)
-  // TODO: Phase 2+: Use PollCrossterm properly
+  // Poll crossterm events manually (Phase 1-2 workaround for version conflicts)
+  // TODO: Phase 3+: Use PollCrossterm properly
   while event::poll(Duration::from_millis(0))? {
     match event::read()? {
       Event::Key(KeyEvent {
@@ -562,10 +586,30 @@ pub fn event(
         kind: crossterm::event::KeyEventKind::Press,
         ..
       }) => {
-        // For Phase 1, just pass all keys to shell
-        // TODO: Phase 2+: Add Ctrl-Space for AI modal, handle AI input
-        let key = Key::new(code, modifiers);
-        state.shell.send_key(key)?;
+        // Check for hotkeys
+        if matches!(
+          (code, modifiers),
+          (KeyCode::Char(' '), KeyModifiers::CONTROL)
+        ) {
+          // Ctrl-Space: toggle AI overlay
+          state.ai_visible = !state.ai_visible;
+          log::info!("AI overlay toggled: {}", state.ai_visible);
+          return Ok(Control::Changed);
+        } else if matches!(code, KeyCode::Esc) && state.ai_visible {
+          // ESC: close AI overlay
+          state.ai_visible = false;
+          return Ok(Control::Changed);
+        } else if !state.ai_visible {
+          // Route to shell when AI overlay not visible
+          let key = Key::new(code, modifiers);
+          state.shell.send_key(key)?;
+        } else {
+          // Route to AI overlay when visible
+          // TODO: Phase 3 will replace this with rat-widget TextArea
+          let key = Key::new(code, modifiers);
+          state.ai_ui.input_event(key);
+          return Ok(Control::Changed);
+        }
       }
       Event::Resize(cols, rows) => {
         state.shell.resize(rows, cols)?;
