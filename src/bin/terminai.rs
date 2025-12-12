@@ -18,6 +18,7 @@ use tui::{
 };
 
 // rat-salsa imports
+use rat_focus::{FocusBuilder, FocusFlag, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
   poll::{PollEvents, PollRendered},
@@ -394,6 +395,8 @@ async fn main() -> Result<()> {
     ai_ui: AIChatUI::new(),
     ai_visible: false,
     last_total_rows: rows as usize,
+    focus_conversation: FocusFlag::default(),
+    focus_input: FocusFlag::default(),
   };
 
   // Run rat-salsa event loop
@@ -421,6 +424,9 @@ struct AppState<'a> {
   ai_visible: bool,
   /// Track the total row count to detect when content scrolls off screen
   last_total_rows: usize,
+  /// Focus flags for AI modal components (Phase 5)
+  focus_conversation: FocusFlag,
+  focus_input: FocusFlag,
 }
 
 impl<'a> AppState<'a> {
@@ -504,8 +510,17 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// rat-salsa init function - initialize focus and state
-pub fn init(_state: &mut AppState, _ctx: &mut Global) -> Result<(), Error> {
-  // TODO: Initialize focus when we add focus management in Phase 5
+pub fn init(state: &mut AppState, _ctx: &mut Global) -> Result<(), Error> {
+  // Initialize focus (Phase 5)
+  // Focus is only active when AI modal is visible
+  if state.ai_visible {
+    let mut builder = FocusBuilder::default();
+    builder.widget(&state.focus_conversation);
+    builder.widget(&state.focus_input);
+    let focus = builder.build();
+    // Focus on input by default when modal opens
+    focus.focus(&state.focus_input);
+  }
   Ok(())
 }
 
@@ -529,8 +544,14 @@ pub fn render(
     let overlay_area = centered_rect(80, 70, area);
 
     if let Some(ref ai_process) = state.ai_process {
-      // Render AI chat interface
-      state.ai_ui.render(ai_process, overlay_area, buf);
+      // Render AI chat interface with focus flags (Phase 5)
+      state.ai_ui.render(
+        ai_process,
+        overlay_area,
+        buf,
+        &state.focus_conversation,
+        &state.focus_input,
+      );
     } else {
       // Show "not configured" message
       let message = Paragraph::new(
@@ -604,23 +625,43 @@ pub fn event(
           let key = Key::new(code, modifiers);
           state.shell.send_key(key)?;
         } else {
-          // AI overlay is visible - handle scrolling and input
-          // Check for scroll keys first (Up/Down for conversation scrolling)
-          if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
-            // Scroll conversation up
-            if let Some(ref mut ai_process) = state.ai_process {
-              ai_process.scroll_up(1);
+          // AI overlay is visible - handle focus navigation and input
+          // Handle Tab/Shift-Tab for focus cycling (Phase 5)
+          if matches!(code, KeyCode::Tab) {
+            if modifiers.contains(KeyModifiers::SHIFT) {
+              // Shift-Tab: previous focus
+              match_focus!(
+                state.focus_input => { state.focus_conversation.focus(); },
+                state.focus_conversation => { state.focus_input.focus(); }
+              );
+            } else {
+              // Tab: next focus
+              match_focus!(
+                state.focus_conversation => { state.focus_input.focus(); },
+                state.focus_input => { state.focus_conversation.focus(); }
+              );
             }
             return Ok(Control::Changed);
-          } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
-          {
-            // Scroll conversation down
-            if let Some(ref mut ai_process) = state.ai_process {
-              ai_process.scroll_down(1);
+          }
+
+          // Route events based on focus
+          if state.focus_conversation.get() {
+            // Conversation is focused - handle scrolling
+            if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
+              if let Some(ref mut ai_process) = state.ai_process {
+                ai_process.scroll_up(1);
+              }
+              return Ok(Control::Changed);
+            } else if matches!(code, KeyCode::Down)
+              && state.ai_process.is_some()
+            {
+              if let Some(ref mut ai_process) = state.ai_process {
+                ai_process.scroll_down(1);
+              }
+              return Ok(Control::Changed);
             }
-            return Ok(Control::Changed);
-          } else {
-            // Route to AI input widget
+          } else if state.focus_input.get() {
+            // Input is focused - route to input widget
             let key = Key::new(code, modifiers);
             state.ai_ui.input_event(key);
             return Ok(Control::Changed);
@@ -637,7 +678,13 @@ pub fn event(
 
   match event {
     AppEvent::Rendered => {
-      // TODO: Rebuild focus after render (Phase 5)
+      // Rebuild focus after render (Phase 5)
+      if state.ai_visible {
+        let mut builder = FocusBuilder::default();
+        builder.widget(&state.focus_conversation);
+        builder.widget(&state.focus_input);
+        builder.build();
+      }
       Ok(Control::Continue)
     }
     // Shell events are handled inline above

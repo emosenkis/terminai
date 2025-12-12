@@ -1,4 +1,5 @@
 use rat_event::{HandleEvent, Regular};
+use rat_focus::FocusFlag;
 use rat_text::text_area::{TextArea, TextAreaState};
 use tui::{
   buffer::Buffer,
@@ -35,6 +36,8 @@ impl<'a> AIChatUI<'a> {
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
+    focus_conversation: &FocusFlag,
+    focus_input: &FocusFlag,
   ) {
     // Clear the entire area first to set background
     Clear.render(area, buf);
@@ -62,10 +65,10 @@ impl<'a> AIChatUI<'a> {
     };
 
     // Render conversation history
-    self.render_conversation(process, chunks[0], buf);
+    self.render_conversation(process, chunks[0], buf, focus_conversation);
 
     // Render input area
-    self.render_input(process, chunks[1], buf);
+    self.render_input(process, chunks[1], buf, focus_input);
 
     // Render error message if present
     if has_error {
@@ -83,6 +86,7 @@ impl<'a> AIChatUI<'a> {
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
+    focus: &FocusFlag,
   ) {
     // Split area for content and scrollbar
     let chunks = Layout::default()
@@ -139,12 +143,19 @@ impl<'a> AIChatUI<'a> {
       })
       .collect();
 
+    // Use bright cyan border when focused, dim white when not
+    let border_color = if focus.get() {
+      Color::Cyan
+    } else {
+      Color::DarkGray
+    };
+
     let paragraph = Paragraph::new(messages.clone())
       .block(
         Block::default()
           .borders(Borders::ALL)
           .title(" AI Assistant (↑↓ to scroll) ")
-          .style(Style::default().bg(Color::Black)),
+          .style(Style::default().fg(border_color).bg(Color::Black)),
       )
       .wrap(Wrap { trim: false })
       .scroll((process.scroll_offset(), 0));
@@ -171,6 +182,7 @@ impl<'a> AIChatUI<'a> {
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
+    focus: &FocusFlag,
   ) {
     let title = if process.is_sending() {
       " Sending message... "
@@ -178,10 +190,17 @@ impl<'a> AIChatUI<'a> {
       " Your Message (Ctrl+Space to toggle, Enter to send) "
     };
 
+    // Use bright cyan border when focused, dim white when not
+    let border_color = if focus.get() {
+      Color::Cyan
+    } else {
+      Color::DarkGray
+    };
+
     let block = Block::default()
       .borders(Borders::ALL)
       .title(title)
-      .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+      .style(Style::default().fg(border_color).bg(Color::Black));
 
     let widget = TextArea::new().block(block);
     StatefulWidget::render(widget, area, buf, &mut self.input_state);
