@@ -604,11 +604,27 @@ pub fn event(
           let key = Key::new(code, modifiers);
           state.shell.send_key(key)?;
         } else {
-          // Route to AI overlay when visible
-          // TODO: Phase 3 will replace this with rat-widget TextArea
-          let key = Key::new(code, modifiers);
-          state.ai_ui.input_event(key);
-          return Ok(Control::Changed);
+          // AI overlay is visible - handle scrolling and input
+          // Check for scroll keys first (Up/Down for conversation scrolling)
+          if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
+            // Scroll conversation up
+            if let Some(ref mut ai_process) = state.ai_process {
+              ai_process.scroll_up(1);
+            }
+            return Ok(Control::Changed);
+          } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
+          {
+            // Scroll conversation down
+            if let Some(ref mut ai_process) = state.ai_process {
+              ai_process.scroll_down(1);
+            }
+            return Ok(Control::Changed);
+          } else {
+            // Route to AI input widget
+            let key = Key::new(code, modifiers);
+            state.ai_ui.input_event(key);
+            return Ok(Control::Changed);
+          }
         }
       }
       Event::Resize(cols, rows) => {

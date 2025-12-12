@@ -5,7 +5,10 @@ use tui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::{Line, Span},
-  widgets::{Block, Borders, Clear, Paragraph, StatefulWidget, Widget, Wrap},
+  widgets::{
+    Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, StatefulWidget, Widget, Wrap,
+  },
 };
 use tui_markdown::from_str;
 
@@ -81,6 +84,14 @@ impl<'a> AIChatUI<'a> {
     area: Rect,
     buf: &mut Buffer,
   ) {
+    // Split area for content and scrollbar
+    let chunks = Layout::default()
+      .direction(Direction::Horizontal)
+      .constraints([Constraint::Min(1), Constraint::Length(1)])
+      .split(area);
+    let content_area = chunks[0];
+    let scrollbar_area = chunks[1];
+
     let messages: Vec<Line> = process
       .conversation()
       .iter()
@@ -128,7 +139,7 @@ impl<'a> AIChatUI<'a> {
       })
       .collect();
 
-    let paragraph = Paragraph::new(messages)
+    let paragraph = Paragraph::new(messages.clone())
       .block(
         Block::default()
           .borders(Borders::ALL)
@@ -138,7 +149,21 @@ impl<'a> AIChatUI<'a> {
       .wrap(Wrap { trim: false })
       .scroll((process.scroll_offset(), 0));
 
-    paragraph.render(area, buf);
+    paragraph.render(content_area, buf);
+
+    // Render scrollbar
+    let content_height = messages.len();
+    let view_height = content_area.height.saturating_sub(2) as usize; // Subtract borders
+    let scroll_offset = process.scroll_offset() as usize;
+    let max_scroll = content_height.saturating_sub(view_height);
+
+    let mut scrollbar_state =
+      ScrollbarState::new(max_scroll).position(scroll_offset);
+    Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
+      scrollbar_area,
+      buf,
+      &mut scrollbar_state,
+    );
   }
 
   fn render_input(
