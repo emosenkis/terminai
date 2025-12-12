@@ -1,20 +1,31 @@
 // Termin.AI - Clean single-shell terminal with AI overlay
 // Uses only the minimal PTY/VT100 code from mprocs, no UI chrome
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use clap::Parser;
 use crossterm::{
   event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
   terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::io::{Write, stdout};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::sync::mpsc;
 use tui::{
   Terminal, TerminalOptions, Viewport,
   backend::CrosstermBackend,
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Style},
-  widgets::{Block, Borders, Paragraph, Widget},
+  widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
+
+// rat-salsa imports
+use rat_salsa::{
+  Control, RunConfig, SalsaAppContext, SalsaContext,
+  poll::{PollCrossterm, PollEvents, PollRendered},
+  run_tui,
+};
+use rat_theme4::{WidgetStyle, create_salsa_theme, theme::SalsaTheme};
 
 // Import only what we need from the crate
 use termin::ai_proc::{AIChatProcess, AIChatUI};
@@ -31,6 +42,121 @@ struct Args {
   /// Command to run (if not specified, uses $SHELL)
   #[arg(last = true)]
   command: Vec<String>,
+}
+
+/// Global state for rat-salsa (implements SalsaContext)
+pub struct Global {
+  ctx: SalsaAppContext<AppEvent, Error>,
+  theme: SalsaTheme,
+}
+
+impl SalsaContext<AppEvent, Error> for Global {
+  fn set_salsa_ctx(&mut self, app_ctx: SalsaAppContext<AppEvent, Error>) {
+    self.ctx = app_ctx;
+  }
+
+  fn salsa_ctx(&self) -> &SalsaAppContext<AppEvent, Error> {
+    &self.ctx
+  }
+}
+
+impl Global {
+  pub fn new(theme: SalsaTheme) -> Self {
+    Self {
+      ctx: Default::default(),
+      theme,
+    }
+  }
+}
+
+/// Application events
+#[derive(Debug)]
+pub enum AppEvent {
+  /// Crossterm event (keyboard, mouse, resize)
+  Event(crossterm::event::Event),
+
+  /// Post-render event (for focus rebuild)
+  Rendered,
+
+  /// Shell events
+  ShellOutput,
+  ShellTermReply(String),
+  ShellExited(i32),
+}
+
+impl From<rat_salsa::event::RenderedEvent> for AppEvent {
+  fn from(_: rat_salsa::event::RenderedEvent) -> Self {
+    Self::Rendered
+  }
+}
+
+impl From<crossterm::event::Event> for AppEvent {
+  fn from(value: crossterm::event::Event) -> Self {
+    Self::Event(value)
+  }
+}
+
+/// Custom event source for shell events
+pub struct PollShell {
+  receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>>,
+  cached_event: Arc<Mutex<Option<ShellEvent>>>,
+}
+
+impl PollShell {
+  pub fn new(receiver: mpsc::UnboundedReceiver<ShellEvent>) -> Self {
+    Self {
+      receiver: Arc::new(Mutex::new(Some(receiver))),
+      cached_event: Arc::new(Mutex::new(None)),
+    }
+  }
+}
+
+impl PollEvents<AppEvent, Error> for PollShell {
+  fn as_any(&self) -> &dyn std::any::Any {
+    self
+  }
+
+  fn poll(&mut self) -> Result<bool, Error> {
+    // Check if we have a cached event
+    if self.cached_event.lock().unwrap().is_some() {
+      return Ok(true);
+    }
+
+    // Try to receive a new event and cache it
+    if let Some(ref mut rx) = *self.receiver.lock().unwrap() {
+      match rx.try_recv() {
+        Ok(event) => {
+          *self.cached_event.lock().unwrap() = Some(event);
+          Ok(true)
+        }
+        Err(mpsc::error::TryRecvError::Empty) => Ok(false),
+        Err(mpsc::error::TryRecvError::Disconnected) => {
+          // Shell died - cache a synthetic exit event
+          *self.cached_event.lock().unwrap() = Some(ShellEvent::Exited(-1));
+          Ok(true)
+        }
+      }
+    } else {
+      Ok(false)
+    }
+  }
+
+  fn read(&mut self) -> Result<Control<AppEvent>, Error> {
+    // Read and consume the cached event
+    if let Some(event) = self.cached_event.lock().unwrap().take() {
+      match event {
+        ShellEvent::Output => Ok(Control::Event(AppEvent::ShellOutput)),
+        ShellEvent::TermReply(reply) => {
+          Ok(Control::Event(AppEvent::ShellTermReply(reply)))
+        }
+        ShellEvent::Exited(code) => {
+          Ok(Control::Event(AppEvent::ShellExited(code)))
+        }
+      }
+    } else {
+      Ok(Control::Continue)
+    }
+  }
 }
 
 // Terminal renderer widget (simplified from mprocs' UiTerm)
@@ -70,6 +196,145 @@ impl Widget for TerminalWidget<'_> {
       }
     }
   }
+}
+
+/// Helper to initialize shell and AI process asynchronously
+async fn initialize_app_components(
+  command: Vec<String>,
+) -> Result<(Shell, Option<AIChatProcess>)> {
+  // Get terminal size
+  let (cols, rows) = crossterm::terminal::size()?;
+
+  // Spawn shell or command
+  let shell = if command.is_empty() {
+    // No command specified, use $SHELL
+    let shell_cmd =
+      std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    log::info!("Spawning shell: {}", shell_cmd);
+    Shell::spawn(&shell_cmd, rows, cols)?
+  } else {
+    // Command specified, spawn it directly
+    let cmd = &command[0];
+    let args = &command[1..];
+    log::info!("Spawning command: {} {:?}", cmd, args);
+    Shell::spawn_command(cmd, &args.to_vec(), rows, cols)?
+  };
+
+  // Initialize AI (same logic as before)
+  let ai_process = initialize_ai().await;
+
+  Ok((shell, ai_process))
+}
+
+/// Initialize AI process (extracted from App::new)
+async fn initialize_ai() -> Option<AIChatProcess> {
+  match TerminAIConfig::load() {
+    Ok(config) => {
+      log::info!("Configuration loaded successfully");
+
+      match config.get_default_provider_and_model() {
+        Ok((provider_config, model_config)) => {
+          log::info!(
+            "Using configured provider: {} with model: {}",
+            provider_config.name,
+            model_config.name
+          );
+
+          let api_key_env = provider_config.effective_api_key_env();
+          if let Some(ref env_key) = api_key_env {
+            if std::env::var(env_key).is_ok() {
+              if let Ok(provider) =
+                std::str::FromStr::from_str(&provider_config.name)
+              {
+                let endpoint = if provider == Provider::OpenRouter {
+                  Some("https://openrouter.ai/api/v1".to_string())
+                } else {
+                  None
+                };
+
+                match AIChatProcess::new_with_endpoint(
+                  provider,
+                  Some(model_config.model.clone()),
+                  endpoint,
+                )
+                .await
+                {
+                  Ok(process) => {
+                    log::info!("AI assistant initialized successfully");
+                    return Some(process);
+                  }
+                  Err(e) => {
+                    log::error!(
+                      "Failed to initialize AI with configured provider: {:?}",
+                      e
+                    );
+                  }
+                }
+              } else {
+                log::error!(
+                  "Unknown provider in config: {}",
+                  provider_config.name
+                );
+              }
+            } else {
+              log::warn!("API key environment variable {} not set", env_key);
+            }
+          } else {
+            log::warn!("No API key environment variable configured");
+          }
+        }
+        Err(e) => {
+          log::error!(
+            "Failed to get default provider/model from config: {:?}",
+            e
+          );
+        }
+      }
+    }
+    Err(e) => {
+      log::info!("No config file found or failed to load: {:?}", e);
+      log::info!("Falling back to auto-detection of API keys");
+
+      // Fallback: Try multiple providers
+      let providers = [
+        (Provider::Anthropic, "ANTHROPIC_API_KEY"),
+        (Provider::OpenAI, "OPENAI_API_KEY"),
+        (Provider::Gemini, "GOOGLE_API_KEY"),
+        (Provider::Gemini, "GEMINI_API_KEY"),
+        (Provider::OpenRouter, "OPENROUTER_API_KEY"),
+      ];
+
+      for (provider, env_key) in &providers {
+        if std::env::var(env_key).is_ok() {
+          log::info!("Initializing AI assistant with provider: {}", provider);
+
+          let endpoint = if *provider == Provider::OpenRouter {
+            Some("https://openrouter.ai/api/v1".to_string())
+          } else {
+            None
+          };
+
+          match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
+            .await
+          {
+            Ok(process) => {
+              log::info!("AI assistant initialized successfully");
+              return Some(process);
+            }
+            Err(e) => {
+              log::warn!("Failed to initialize AI with {}: {:?}", provider, e);
+            }
+          }
+        }
+      }
+
+      log::info!(
+        "No API keys found - AI overlay will show config instructions"
+      );
+    }
+  }
+
+  None
 }
 
 #[tokio::main]
@@ -123,15 +388,59 @@ async fn main() -> Result<()> {
 
   log::info!("Termin.AI starting");
 
-  // Create and run the app
-  let mut app = App::new(args.command).await?;
-  app.run().await?;
+  // Initialize shell and AI asynchronously
+  let (shell, ai_process) = initialize_app_components(args.command).await?;
 
-  Ok(())
+  // Get terminal size for initial state
+  let (_, rows) = crossterm::terminal::size()?;
+
+  // Create theme
+  let theme = create_salsa_theme("Monochrome Dark");
+  let mut global = Global::new(theme);
+
+  // Create application state
+  let mut state = AppState {
+    shell,
+    ai_process,
+    ai_ui: AIChatUI::new(),
+    ai_visible: false,
+    last_total_rows: rows as usize,
+  };
+
+  // PROBLEM: We need to extract shell.event_rx for PollShell
+  // But state.shell is not accessible after moving into state
+  // Need to refactor Shell or use Arc<Mutex<>> approach
+  // For now, let's use a placeholder and come back to fix this
+
+  // TODO: Implement proper shell event polling
+  // let poll_shell = PollShell::new(event_rx);
+
+  // Run rat-salsa event loop
+  // NOTE: run_tui is currently commented out because we need to implement
+  // init, render, event, error functions first
+  // run_tui(
+  //   init,
+  //   render,
+  //   event,
+  //   error,
+  //   &mut global,
+  //   &mut state,
+  //   RunConfig::default()?
+  //     .poll(rat_salsa::poll::PollCrossterm)
+  //     .poll(rat_salsa::poll::PollRendered),
+  // )?;
+
+  // Temporary: Keep old code working
+  log::error!(
+    "MIGRATION IN PROGRESS - rat-salsa event loop not yet implemented"
+  );
+  std::process::exit(1);
+
+  // Ok(())
 }
 
-struct App<'a> {
-  terminal: Terminal<CrosstermBackend<std::io::Stdout>>,
+/// Application state (previously App)
+struct AppState<'a> {
   shell: Shell,
   ai_process: Option<AIChatProcess>,
   ai_ui: AIChatUI<'a>,
@@ -140,7 +449,7 @@ struct App<'a> {
   last_total_rows: usize,
 }
 
-impl<'a> App<'a> {
+impl<'a> AppState<'a> {
   /// Extract terminal context from shell for AI
   fn extract_context(&self) -> TerminalContext {
     use std::path::PathBuf;
@@ -739,7 +1048,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     .split(popup_layout[1])[1]
 }
 
-impl<'a> Drop for App<'a> {
+impl<'a> Drop for AppState<'a> {
   fn drop(&mut self) {
     // Cleanup terminal
     let _ = disable_raw_mode();
