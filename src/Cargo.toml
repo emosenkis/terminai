@@ -88,6 +88,14 @@ dotenvy = "0.15"
 tui-markdown = "0.3"
 tui-textarea = "0.7.0"
 
+# TERMIN.AI: rat-salsa dependencies for focus management
+rat-salsa = { path = "../rat-salsa/rat-salsa" }
+rat-focus = { path = "../rat-salsa/rat-focus" }
+rat-event = { path = "../rat-salsa/rat-event" }
+rat-widget = { path = "../rat-salsa/rat-widget" }
+rat-scrolled = { path = "../rat-salsa/rat-scrolled" }
+rat-theme4 = { path = "../rat-salsa/rat-theme4" }
+
 [target."cfg(unix)".dependencies]
 daemonize = "0.5.0"
 
