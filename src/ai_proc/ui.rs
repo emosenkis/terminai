@@ -1,24 +1,28 @@
+use rat_event::{HandleEvent, Regular};
+use rat_text::text_area::{TextArea, TextAreaState};
 use tui::{
   buffer::Buffer,
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Modifier, Style},
   text::{Line, Span},
-  widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
+  widgets::{Block, Borders, Clear, Paragraph, StatefulWidget, Widget, Wrap},
 };
 use tui_markdown::from_str;
-use tui_textarea::TextArea;
 
 use super::chat_process::{AIChatProcess, MessageRole};
+use crate::key::Key;
 
 /// Render the AI chat interface
 pub struct AIChatUI<'a> {
-  input: TextArea<'a>,
+  input_state: TextAreaState,
+  _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> AIChatUI<'a> {
   pub fn new() -> Self {
     Self {
-      input: TextArea::default(),
+      input_state: TextAreaState::default(),
+      _phantom: std::marker::PhantomData,
     }
   }
 
@@ -148,14 +152,14 @@ impl<'a> AIChatUI<'a> {
     } else {
       " Your Message (Ctrl+Space to toggle, Enter to send) "
     };
-    self.input.set_block(
-      Block::default()
-        .borders(Borders::ALL)
-        .title(title)
-        .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
-    );
 
-    self.input.render(area, buf);
+    let block = Block::default()
+      .borders(Borders::ALL)
+      .title(title)
+      .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+
+    let widget = TextArea::new().block(block);
+    StatefulWidget::render(widget, area, buf, &mut self.input_state);
   }
 
   fn render_error(
@@ -237,11 +241,21 @@ impl<'a> AIChatUI<'a> {
   }
 
   pub fn get_input_value(&self) -> String {
-    self.input.lines().join("\n").trim().to_string()
+    self.input_state.value().to_string()
   }
 
-  pub fn input_event(&mut self, event: impl Into<tui_textarea::Input>) {
-    self.input.input(event);
+  pub fn input_event(&mut self, key: Key) {
+    // Convert Key to tui::crossterm event for rat-text
+    // Note: Key uses crossterm 0.29, need to create tui::crossterm::event (which is ratatui::crossterm)
+    // This is a workaround for the crossterm version mismatch
+    use tui::crossterm::event as ct_event;
+    let event = ct_event::Event::Key(ct_event::KeyEvent::new(
+      // These conversions work because KeyCode/KeyModifiers have same values across versions
+      unsafe { std::mem::transmute(key.code()) },
+      unsafe { std::mem::transmute(key.mods()) },
+    ));
+    // Use HandleEvent trait from rat-event
+    let _ = self.input_state.handle(&event, Regular);
   }
 }
 

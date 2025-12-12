@@ -3564,6 +3564,7 @@ dependencies = [
  "rat-focus",
  "rat-salsa",
  "rat-scrolled",
+ "rat-text",
  "rat-theme4",
  "rat-widget",
  "ratatui",
