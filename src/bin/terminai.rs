@@ -532,33 +532,6 @@ impl<'a> AppState<'a> {
   // See init(), render(), event(), error() functions below
 }
 
-/// Helper function to create a centered rectangle
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-  let popup_layout = Layout::default()
-    .direction(Direction::Vertical)
-    .constraints(
-      [
-        Constraint::Percentage((100 - percent_y) / 2),
-        Constraint::Percentage(percent_y),
-        Constraint::Percentage((100 - percent_y) / 2),
-      ]
-      .as_ref(),
-    )
-    .split(r);
-
-  Layout::default()
-    .direction(Direction::Horizontal)
-    .constraints(
-      [
-        Constraint::Percentage((100 - percent_x) / 2),
-        Constraint::Percentage(percent_x),
-        Constraint::Percentage((100 - percent_x) / 2),
-      ]
-      .as_ref(),
-    )
-    .split(popup_layout[1])[1]
-}
-
 /// rat-salsa init function - initialize focus and state
 pub fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
   log::debug!("init() called, ai_visible={}", state.ai_visible);
@@ -622,8 +595,14 @@ pub fn render(
 
   // Render AI overlay if visible (Phase 2)
   if state.ai_visible {
-    // Calculate overlay area (80% x 70%, centered)
-    let overlay_area = centered_rect(80, 70, area);
+    // Calculate overlay area - full width, bottom 50% of screen
+    let overlay_height = (area.height / 2).max(10); // At least 10 lines
+    let overlay_area = Rect {
+      x: area.x,
+      y: area.y + area.height - overlay_height,
+      width: area.width,
+      height: overlay_height,
+    };
 
     if let Some(ref ai_process_arc) = state.ai_process {
       // Try to lock without blocking (non-blocking for render)
@@ -635,8 +614,16 @@ pub fn render(
           buf,
           &state.focus_conversation,
         );
+      } else {
+        // Lock is held (AI is processing) - render loading state
+        let message = Paragraph::new("Processing... (AI is thinking)").block(
+          Block::default()
+            .borders(Borders::ALL)
+            .title(" AI Assistant ")
+            .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
+        );
+        message.render(overlay_area, buf);
       }
-      // If lock fails, skip rendering this frame (AI is being updated)
     } else {
       // Show "not configured" message
       let message = Paragraph::new(
@@ -741,6 +728,33 @@ pub fn event(
           );
         }
         return Ok(Control::Changed);
+      }
+
+      // Handle approval dialog with highest priority (when pending command exists)
+      if let Some(ref ai_process_arc) = state.ai_process {
+        if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+          if ai_process.pending_command().is_some() {
+            // Approval dialog is active - handle 'y' or 'n'
+            if matches!(code, KeyCode::Char('y' | 'Y')) && modifiers.is_empty()
+            {
+              log::info!("Command approved by user");
+              if let Some(cmd) = ai_process.approve_command() {
+                // TODO: Execute the approved command
+                log::info!("Executing approved command: {}", cmd.command);
+                // For now, just clear it
+              }
+              return Ok(Control::Changed);
+            } else if matches!(code, KeyCode::Char('n' | 'N'))
+              && modifiers.is_empty()
+            {
+              log::info!("Command rejected by user");
+              ai_process.reject_command();
+              return Ok(Control::Changed);
+            }
+            // Any other key while approval dialog is active is ignored
+            return Ok(Control::Continue);
+          }
+        }
       }
 
       // Route events based on focus
