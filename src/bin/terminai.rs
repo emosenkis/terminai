@@ -345,8 +345,7 @@ async fn initialize_ai() -> Option<AIChatProcess> {
   None
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
   // Setup logging (enable debug for HTTP/LLM debugging)
   // Get app cache directory
   let cache_dir = xdg::BaseDirectories::with_prefix("terminai")
@@ -396,9 +395,15 @@ async fn main() -> Result<()> {
 
   log::info!("Termin.AI starting");
 
+  // Create tokio runtime for async operations
+  // NOTE: PollTokio requires manual runtime initialization (cannot use #[tokio::main])
+  log::debug!("Creating tokio runtime");
+  let tokio_rt = tokio::runtime::Runtime::new()?;
+
   // Initialize shell and AI asynchronously
   log::debug!("Initializing shell and AI components");
-  let (shell, ai_process) = initialize_app_components(args.command).await?;
+  let (shell, ai_process) =
+    tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
     "Shell and AI components initialized, ai_present={}",
     ai_process.is_some()
@@ -438,7 +443,6 @@ async fn main() -> Result<()> {
   let terminal = CrosstermTerminal::inline(rows, false)?;
   let config = RunConfig::<AppEvent, Error>::new(terminal);
   log::debug!("Calling run_tui");
-  let tokio_rt = tokio::runtime::Runtime::new()?;
   match run_tui(
     init,
     render,
