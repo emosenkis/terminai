@@ -437,10 +437,24 @@ fn main() -> Result<()> {
   log::debug!("Creating RunConfig with inline terminal");
 
   // Create inline terminal (no alternate screen) for native scrollback support
-  // This matches the old code's Viewport::Inline behavior
-  use rat_salsa::terminal::CrosstermTerminal;
+  // IMPORTANT: Disable mouse capture to allow native terminal scrolling
+  // If the guest process requests mouse events, we'll pass them through
+  use rat_salsa::terminal::{CrosstermTerminal, SalsaOptions};
+  use tui::TerminalOptions;
+  use tui::Viewport;
+  use tui::backend::CrosstermBackend;
   let (_, rows) = crossterm::terminal::size()?;
-  let terminal = CrosstermTerminal::inline(rows, false)?;
+  let options = SalsaOptions {
+    alternate_screen: false,
+    mouse_capture: false, // Don't capture mouse - allow native scrolling
+    bracketed_paste: true,
+    shutdown_clear: false,
+    ratatui_options: TerminalOptions {
+      viewport: Viewport::Inline(rows),
+    },
+    non_exhaustive: Default::default(),
+  };
+  let terminal = CrosstermTerminal::with_options(options)?;
   let config = RunConfig::<AppEvent, Error>::new(terminal);
   log::debug!("Calling run_tui");
   match run_tui(
