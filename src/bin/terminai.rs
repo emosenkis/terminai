@@ -756,7 +756,39 @@ pub fn event(
         // Conversation is read-only, ignore other keys
         return Ok(Control::Continue);
       } else if state.ai_ui.input_focus().get() {
-        // Input is focused - route to input widget
+        // Input is focused
+        // Handle Enter key to send message
+        if matches!(code, KeyCode::Enter) && modifiers.is_empty() {
+          log::debug!("Enter pressed - sending message");
+          let input = state.ai_ui.get_input_value();
+
+          if !input.is_empty() {
+            log::info!("Sending message to AI: {}", input);
+
+            // Extract terminal context before borrowing ai_process
+            let context = state.extract_context();
+
+            // Send message to AI
+            if let Some(ref mut ai_process) = state.ai_process {
+              // Send message using tokio runtime
+              // Note: This blocks the event loop briefly, but it's just queuing the message
+              let send_result =
+                tokio::runtime::Handle::current().block_on(async {
+                  ai_process.send_input_with_context(&input, context).await
+                });
+
+              if let Err(e) = send_result {
+                log::error!("Failed to send message: {:?}", e);
+              }
+            }
+
+            // Clear input after sending
+            state.ai_ui.clear_input();
+          }
+          return Ok(Control::Changed);
+        }
+
+        // Route other keys to input widget
         log::debug!("Routing key to input widget");
         let key = Key::new(*code, *modifiers);
         state.ai_ui.input_event(key);
@@ -870,7 +902,38 @@ pub fn event(
             return Ok(Control::Changed);
           }
         } else if state.ai_ui.input_focus().get() {
-          // Input is focused - route to input widget
+          // Input is focused
+          // Handle Enter key to send message
+          if matches!(code, KeyCode::Enter) && modifiers.is_empty() {
+            log::debug!("Enter pressed - sending message");
+            let input = state.ai_ui.get_input_value();
+
+            if !input.is_empty() {
+              log::info!("Sending message to AI: {}", input);
+
+              // Extract terminal context before borrowing ai_process
+              let context = state.extract_context();
+
+              // Send message to AI
+              if let Some(ref mut ai_process) = state.ai_process {
+                // Send message using tokio runtime
+                let send_result =
+                  tokio::runtime::Handle::current().block_on(async {
+                    ai_process.send_input_with_context(&input, context).await
+                  });
+
+                if let Err(e) = send_result {
+                  log::error!("Failed to send message: {:?}", e);
+                }
+              }
+
+              // Clear input after sending
+              state.ai_ui.clear_input();
+            }
+            return Ok(Control::Changed);
+          }
+
+          // Route other keys to input widget
           let key = Key::new(*code, *modifiers);
           state.ai_ui.input_event(key);
           return Ok(Control::Changed);

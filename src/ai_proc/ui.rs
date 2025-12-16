@@ -296,6 +296,10 @@ impl<'a> AIChatUI<'a> {
     self.input_state.value().to_string()
   }
 
+  pub fn clear_input(&mut self) {
+    self.input_state.clear();
+  }
+
   pub fn input_event(&mut self, key: Key) {
     // Convert Key to tui::crossterm event for rat-text
     // Note: Key uses crossterm 0.29, need to create tui::crossterm::event (which is ratatui::crossterm)
