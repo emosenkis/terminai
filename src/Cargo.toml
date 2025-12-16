@@ -89,7 +89,7 @@ tui-markdown = "0.3"
 tui-textarea = "0.7.0"
 
 # TERMIN.AI: rat-salsa dependencies for focus management
-rat-salsa = { path = "../rat-salsa/rat-salsa" }
+rat-salsa = { path = "../rat-salsa/rat-salsa", features = ["async"] }
 rat-focus = { path = "../rat-salsa/rat-focus" }
 rat-event = { path = "../rat-salsa/rat-event" }
 rat-widget = { path = "../rat-salsa/rat-widget" }

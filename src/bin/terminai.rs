@@ -6,8 +6,9 @@ use clap::Parser;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{Mutex, mpsc};
+
 use tui::{
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Style},
@@ -18,7 +19,7 @@ use tui::{
 use rat_focus::{FocusBuilder, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
-  poll::{PollCrossterm, PollEvents, PollRendered, PollTimers},
+  poll::{PollCrossterm, PollEvents, PollRendered, PollTimers, PollTokio},
   run_tui,
   timer::{TimeOut, TimerDef},
 };
@@ -105,15 +106,15 @@ impl From<Event> for AppEvent {
 
 /// Custom event source for shell events
 pub struct PollShell {
-  receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>>,
-  cached_event: Arc<Mutex<Option<ShellEvent>>>,
+  receiver: Arc<std::sync::Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>>,
+  cached_event: Arc<std::sync::Mutex<Option<ShellEvent>>>,
 }
 
 impl PollShell {
   pub fn new(receiver: mpsc::UnboundedReceiver<ShellEvent>) -> Self {
     Self {
-      receiver: Arc::new(Mutex::new(Some(receiver))),
-      cached_event: Arc::new(Mutex::new(None)),
+      receiver: Arc::new(std::sync::Mutex::new(Some(receiver))),
+      cached_event: Arc::new(std::sync::Mutex::new(None)),
     }
   }
 }
@@ -416,7 +417,7 @@ async fn main() -> Result<()> {
   log::debug!("Creating application state");
   let mut state = AppState {
     shell,
-    ai_process,
+    ai_process: ai_process.map(|p| Arc::new(Mutex::new(p))),
     ai_ui: AIChatUI::new(),
     ai_visible: false,
     last_total_rows: rows as usize,
@@ -437,6 +438,7 @@ async fn main() -> Result<()> {
   let terminal = CrosstermTerminal::inline(rows, false)?;
   let config = RunConfig::<AppEvent, Error>::new(terminal);
   log::debug!("Calling run_tui");
+  let tokio_rt = tokio::runtime::Runtime::new()?;
   match run_tui(
     init,
     render,
@@ -447,7 +449,8 @@ async fn main() -> Result<()> {
     config
       .poll(PollTimers::default())
       .poll(PollCrossterm)
-      .poll(PollRendered),
+      .poll(PollRendered)
+      .poll(PollTokio::new(tokio_rt)),
   ) {
     Ok(_) => log::info!("rat-salsa event loop exited normally"),
     Err(e) => {
@@ -463,7 +466,7 @@ async fn main() -> Result<()> {
 /// Application state (previously App)
 struct AppState<'a> {
   shell: Shell,
-  ai_process: Option<AIChatProcess>,
+  ai_process: Option<Arc<Mutex<AIChatProcess>>>,
   ai_ui: AIChatUI<'a>,
   ai_visible: bool,
   /// Track the total row count to detect when content scrolls off screen
@@ -618,10 +621,12 @@ pub fn render(
     // Calculate overlay area (80% x 70%, centered)
     let overlay_area = centered_rect(80, 70, area);
 
-    if let Some(ref ai_process) = state.ai_process {
+    if let Some(ref ai_process_arc) = state.ai_process {
+      // Lock the mutex to access AI process for rendering
+      let ai_process = ai_process_arc.blocking_lock();
       // Render AI chat interface with focus flags (Phase 5)
       state.ai_ui.render(
-        ai_process,
+        &*ai_process,
         overlay_area,
         buf,
         &state.focus_conversation,
@@ -743,12 +748,14 @@ pub fn event(
       if state.focus_conversation.get() {
         // Conversation is focused - handle scrolling
         if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
-          if let Some(ref mut ai_process) = state.ai_process {
+          if let Some(ref ai_process_arc) = state.ai_process {
+            let mut ai_process = ai_process_arc.blocking_lock();
             ai_process.scroll_up(1);
           }
           return Ok(Control::Changed);
         } else if matches!(code, KeyCode::Down) && state.ai_process.is_some() {
-          if let Some(ref mut ai_process) = state.ai_process {
+          if let Some(ref ai_process_arc) = state.ai_process {
+            let mut ai_process = ai_process_arc.blocking_lock();
             ai_process.scroll_down(1);
           }
           return Ok(Control::Changed);
@@ -765,24 +772,27 @@ pub fn event(
           if !input.is_empty() {
             log::info!("Sending message to AI: {}", input);
 
-            // Extract terminal context before borrowing ai_process
+            // Extract terminal context before spawning task
             let context = state.extract_context();
 
-            // Send message to AI
-            if let Some(ref mut ai_process) = state.ai_process {
-              // Send message using tokio runtime
-              // Note: This blocks the event loop briefly, but it's just queuing the message
-              let send_result =
-                tokio::runtime::Handle::current().block_on(async {
-                  ai_process.send_input_with_context(&input, context).await
-                });
+            // Spawn async task to send message
+            if let Some(ref ai_process_arc) = state.ai_process {
+              let ai_process_clone = Arc::clone(ai_process_arc);
+              let input_clone = input.clone();
 
-              if let Err(e) = send_result {
-                log::error!("Failed to send message: {:?}", e);
-              }
+              ctx.spawn_async(async move {
+                let mut ai_process = ai_process_clone.lock().await;
+                if let Err(e) = ai_process
+                  .send_input_with_context(&input_clone, context)
+                  .await
+                {
+                  log::error!("Failed to send message: {:?}", e);
+                }
+                Ok(Control::Changed)
+              });
             }
 
-            // Clear input after sending
+            // Clear input after queuing send
             state.ai_ui.clear_input();
           }
           return Ok(Control::Changed);
@@ -890,13 +900,15 @@ pub fn event(
         if state.focus_conversation.get() {
           // Conversation is focused - handle scrolling
           if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
-            if let Some(ref mut ai_process) = state.ai_process {
+            if let Some(ref ai_process_arc) = state.ai_process {
+              let mut ai_process = ai_process_arc.blocking_lock();
               ai_process.scroll_up(1);
             }
             return Ok(Control::Changed);
           } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
           {
-            if let Some(ref mut ai_process) = state.ai_process {
+            if let Some(ref ai_process_arc) = state.ai_process {
+              let mut ai_process = ai_process_arc.blocking_lock();
               ai_process.scroll_down(1);
             }
             return Ok(Control::Changed);
@@ -911,23 +923,27 @@ pub fn event(
             if !input.is_empty() {
               log::info!("Sending message to AI: {}", input);
 
-              // Extract terminal context before borrowing ai_process
+              // Extract terminal context before spawning task
               let context = state.extract_context();
 
-              // Send message to AI
-              if let Some(ref mut ai_process) = state.ai_process {
-                // Send message using tokio runtime
-                let send_result =
-                  tokio::runtime::Handle::current().block_on(async {
-                    ai_process.send_input_with_context(&input, context).await
-                  });
+              // Spawn async task to send message
+              if let Some(ref ai_process_arc) = state.ai_process {
+                let ai_process_clone = Arc::clone(ai_process_arc);
+                let input_clone = input.clone();
 
-                if let Err(e) = send_result {
-                  log::error!("Failed to send message: {:?}", e);
-                }
+                ctx.spawn_async(async move {
+                  let mut ai_process = ai_process_clone.lock().await;
+                  if let Err(e) = ai_process
+                    .send_input_with_context(&input_clone, context)
+                    .await
+                  {
+                    log::error!("Failed to send message: {:?}", e);
+                  }
+                  Ok(Control::Changed)
+                });
               }
 
-              // Clear input after sending
+              // Clear input after queuing send
               state.ai_ui.clear_input();
             }
             return Ok(Control::Changed);
