@@ -3,22 +3,19 @@
 
 use anyhow::{Error, Result};
 use clap::Parser;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::io::{Write, stdout};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::terminal::disable_raw_mode;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::mpsc;
 use tui::{
-  Terminal, TerminalOptions, Viewport,
-  backend::CrosstermBackend,
   layout::{Constraint, Direction, Layout, Rect},
   style::{Color, Style},
-  widgets::{Block, Borders, Clear, Paragraph, Widget},
+  widgets::{Block, Borders, Paragraph, Widget},
 };
 
 // rat-salsa imports
-use rat_focus::{FocusBuilder, HasFocus};
+use rat_focus::{FocusBuilder, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
   poll::{PollCrossterm, PollEvents, PollRendered, PollTimers},
