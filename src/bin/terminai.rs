@@ -622,15 +622,17 @@ pub fn render(
     let overlay_area = centered_rect(80, 70, area);
 
     if let Some(ref ai_process_arc) = state.ai_process {
-      // Lock the mutex to access AI process for rendering
-      let ai_process = ai_process_arc.blocking_lock();
-      // Render AI chat interface with focus flags (Phase 5)
-      state.ai_ui.render(
-        &*ai_process,
-        overlay_area,
-        buf,
-        &state.focus_conversation,
-      );
+      // Try to lock without blocking (non-blocking for render)
+      if let Ok(ai_process) = ai_process_arc.try_lock() {
+        // Render AI chat interface with focus flags (Phase 5)
+        state.ai_ui.render(
+          &*ai_process,
+          overlay_area,
+          buf,
+          &state.focus_conversation,
+        );
+      }
+      // If lock fails, skip rendering this frame (AI is being updated)
     } else {
       // Show "not configured" message
       let message = Paragraph::new(
@@ -749,14 +751,16 @@ pub fn event(
         // Conversation is focused - handle scrolling
         if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
           if let Some(ref ai_process_arc) = state.ai_process {
-            let mut ai_process = ai_process_arc.blocking_lock();
-            ai_process.scroll_up(1);
+            if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+              ai_process.scroll_up(1);
+            }
           }
           return Ok(Control::Changed);
         } else if matches!(code, KeyCode::Down) && state.ai_process.is_some() {
           if let Some(ref ai_process_arc) = state.ai_process {
-            let mut ai_process = ai_process_arc.blocking_lock();
-            ai_process.scroll_down(1);
+            if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+              ai_process.scroll_down(1);
+            }
           }
           return Ok(Control::Changed);
         }
@@ -781,6 +785,7 @@ pub fn event(
               let input_clone = input.clone();
 
               ctx.spawn_async(async move {
+                // Async lock (safe to hold across await in async context)
                 let mut ai_process = ai_process_clone.lock().await;
                 if let Err(e) = ai_process
                   .send_input_with_context(&input_clone, context)
@@ -901,15 +906,17 @@ pub fn event(
           // Conversation is focused - handle scrolling
           if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
             if let Some(ref ai_process_arc) = state.ai_process {
-              let mut ai_process = ai_process_arc.blocking_lock();
-              ai_process.scroll_up(1);
+              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+                ai_process.scroll_up(1);
+              }
             }
             return Ok(Control::Changed);
           } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
           {
             if let Some(ref ai_process_arc) = state.ai_process {
-              let mut ai_process = ai_process_arc.blocking_lock();
-              ai_process.scroll_down(1);
+              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+                ai_process.scroll_down(1);
+              }
             }
             return Ok(Control::Changed);
           }
@@ -932,6 +939,7 @@ pub fn event(
                 let input_clone = input.clone();
 
                 ctx.spawn_async(async move {
+                  // Async lock (safe to hold across await in async context)
                   let mut ai_process = ai_process_clone.lock().await;
                   if let Err(e) = ai_process
                     .send_input_with_context(&input_clone, context)

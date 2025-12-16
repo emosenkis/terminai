@@ -3614,6 +3614,7 @@ dependencies = [
  "log",
  "log-panics",
  "mlua",
+ "parking_lot",
  "phf 0.12.1",
  "portable-pty",
  "rat-event",
