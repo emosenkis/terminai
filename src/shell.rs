@@ -163,6 +163,16 @@ impl Shell {
     Ok(())
   }
 
+  /// Send a command string to the shell (with newline)
+  pub fn send_command(&mut self, command: &str) -> Result<()> {
+    // Write the command text
+    self.writer.write_all(command.as_bytes())?;
+    // Send Enter key to execute
+    self.writer.write_all(b"\r")?;
+    self.writer.flush()?;
+    Ok(())
+  }
+
   pub fn send_mouse(&mut self, event: MouseEvent) -> Result<()> {
     // Check if the terminal has enabled mouse reporting
     if let Ok(vt) = self.vt.read() {

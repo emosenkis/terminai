@@ -739,9 +739,11 @@ pub fn event(
             {
               log::info!("Command approved by user");
               if let Some(cmd) = ai_process.approve_command() {
-                // TODO: Execute the approved command
                 log::info!("Executing approved command: {}", cmd.command);
-                // For now, just clear it
+                // Send the command to the shell
+                if let Err(e) = state.shell.send_command(&cmd.command) {
+                  log::error!("Failed to send command to shell: {:?}", e);
+                }
               }
               return Ok(Control::Changed);
             } else if matches!(code, KeyCode::Char('n' | 'N'))
