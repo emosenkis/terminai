@@ -1,0 +1,15 @@
+[package]
+name = "crossterm"
+version = "0.28.1"
+edition = "2021"
+
+[dependencies]
+crossterm-real = { package = "crossterm", version = "0.29" }
+
+[features]
+default = []
+event-stream = ["crossterm-real/event-stream"]
+serde = ["crossterm-real/serde"]
+filedescriptor = ["crossterm-real/filedescriptor"]
+use-dev-tty = ["crossterm-real/use-dev-tty"]
+bracketed-paste = ["crossterm-real/bracketed-paste"]

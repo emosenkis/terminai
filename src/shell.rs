@@ -4,8 +4,9 @@ use std::io::Write;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::encode_term::{KeyCodeEncodeModes, encode_key};
+use crate::encode_term::{KeyCodeEncodeModes, encode_key, encode_mouse_event};
 use crate::key::Key;
+use crate::mouse::MouseEvent;
 use crate::vt100;
 
 // Shell events
@@ -159,6 +160,28 @@ impl Shell {
     let encoded = encode_key(&key, KeyCodeEncodeModes::default())?;
     self.writer.write_all(encoded.as_bytes())?;
     self.writer.flush()?;
+    Ok(())
+  }
+
+  pub fn send_mouse(&mut self, event: MouseEvent) -> Result<()> {
+    // Check if the terminal has enabled mouse reporting
+    if let Ok(vt) = self.vt.read() {
+      let mouse_mode = vt.screen().mouse_protocol_mode();
+      match mouse_mode {
+        vt100::MouseProtocolMode::None => {
+          // Mouse reporting not enabled, don't send anything
+        }
+        vt100::MouseProtocolMode::Press
+        | vt100::MouseProtocolMode::PressRelease
+        | vt100::MouseProtocolMode::ButtonMotion
+        | vt100::MouseProtocolMode::AnyMotion => {
+          // Encode and send mouse event to PTY
+          let encoded = encode_mouse_event(event);
+          self.writer.write_all(encoded.as_bytes())?;
+          self.writer.flush()?;
+        }
+      }
+    }
     Ok(())
   }
 

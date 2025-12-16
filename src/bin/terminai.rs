@@ -18,11 +18,12 @@ use tui::{
 };
 
 // rat-salsa imports
-use rat_focus::{FocusBuilder, FocusFlag, match_focus};
+use rat_focus::{FocusBuilder, HasFocus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
-  poll::{PollEvents, PollRendered},
+  poll::{PollCrossterm, PollEvents, PollRendered, PollTimers},
   run_tui,
+  timer::{TimeOut, TimerDef},
 };
 use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 
@@ -30,6 +31,7 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
 use termin::llm::{Provider, TerminalContext};
+use termin::mouse::MouseEvent;
 use termin::terminai_config::TerminAIConfig;
 use termin::vt100;
 
@@ -74,6 +76,12 @@ pub enum AppEvent {
   /// Post-render event (for focus rebuild)
   Rendered,
 
+  /// Timer event (for periodic rendering)
+  Timer(TimeOut),
+
+  /// Crossterm event (keyboard, mouse, resize, etc.)
+  Crossterm(Event),
+
   /// Shell events
   ShellOutput,
   ShellTermReply(String),
@@ -83,6 +91,18 @@ pub enum AppEvent {
 impl From<rat_salsa::event::RenderedEvent> for AppEvent {
   fn from(_: rat_salsa::event::RenderedEvent) -> Self {
     Self::Rendered
+  }
+}
+
+impl From<TimeOut> for AppEvent {
+  fn from(timeout: TimeOut) -> Self {
+    Self::Timer(timeout)
+  }
+}
+
+impl From<Event> for AppEvent {
+  fn from(event: Event) -> Self {
+    Self::Crossterm(event)
   }
 }
 
@@ -379,40 +399,67 @@ async fn main() -> Result<()> {
   log::info!("Termin.AI starting");
 
   // Initialize shell and AI asynchronously
+  log::debug!("Initializing shell and AI components");
   let (shell, ai_process) = initialize_app_components(args.command).await?;
+  log::info!(
+    "Shell and AI components initialized, ai_present={}",
+    ai_process.is_some()
+  );
 
   // Get terminal size for initial state
   let (_, rows) = crossterm::terminal::size()?;
+  log::debug!("Terminal size: rows={}", rows);
 
   // Create theme
+  log::debug!("Creating rat-salsa theme");
   let theme = create_salsa_theme("Monochrome Dark");
   let mut global = Global::new(theme);
 
   // Create application state
+  log::debug!("Creating application state");
   let mut state = AppState {
     shell,
     ai_process,
     ai_ui: AIChatUI::new(),
     ai_visible: false,
     last_total_rows: rows as usize,
-    focus_conversation: FocusFlag::default(),
-    focus_input: FocusFlag::default(),
+    focus_conversation: rat_focus::FocusFlag::default(),
   };
 
   // Run rat-salsa event loop
   // NOTE: For Phase 1, we poll crossterm events manually to avoid version conflicts
   // NOTE: Shell events are also polled inline in the event() function
   // TODO: Phase 2+: Use PollCrossterm and PollShell properly
-  run_tui(
+  log::info!("Starting rat-salsa event loop");
+  log::debug!("Creating RunConfig with inline terminal");
+
+  // Create inline terminal (no alternate screen) for native scrollback support
+  // This matches the old code's Viewport::Inline behavior
+  use rat_salsa::terminal::CrosstermTerminal;
+  let (_, rows) = crossterm::terminal::size()?;
+  let terminal = CrosstermTerminal::inline(rows, false)?;
+  let config = RunConfig::<AppEvent, Error>::new(terminal);
+  log::debug!("Calling run_tui");
+  match run_tui(
     init,
     render,
     event,
     error,
     &mut global,
     &mut state,
-    RunConfig::default()?.poll(PollRendered),
-  )?;
+    config
+      .poll(PollTimers::default())
+      .poll(PollCrossterm)
+      .poll(PollRendered),
+  ) {
+    Ok(_) => log::info!("rat-salsa event loop exited normally"),
+    Err(e) => {
+      log::error!("rat-salsa event loop failed: {:?}", e);
+      return Err(e.into());
+    }
+  }
 
+  log::info!("terminai exiting");
   Ok(())
 }
 
@@ -424,9 +471,8 @@ struct AppState<'a> {
   ai_visible: bool,
   /// Track the total row count to detect when content scrolls off screen
   last_total_rows: usize,
-  /// Focus flags for AI modal components (Phase 5)
-  focus_conversation: FocusFlag,
-  focus_input: FocusFlag,
+  /// Focus for conversation area (no widget for this, so we manage it separately)
+  focus_conversation: rat_focus::FocusFlag,
 }
 
 impl<'a> AppState<'a> {
@@ -510,17 +556,29 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// rat-salsa init function - initialize focus and state
-pub fn init(state: &mut AppState, _ctx: &mut Global) -> Result<(), Error> {
+pub fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
+  log::debug!("init() called, ai_visible={}", state.ai_visible);
+
+  // Start 60fps timer for periodic rendering (like the old code)
+  ctx.add_timer(
+    TimerDef::new()
+      .timer(std::time::Duration::from_millis(16)) // 60fps
+      .repeat_forever(),
+  );
+  log::debug!("Started 60fps render timer");
+
   // Initialize focus (Phase 5)
-  // Focus is only active when AI modal is visible
-  if state.ai_visible {
-    let mut builder = FocusBuilder::default();
-    builder.widget(&state.focus_conversation);
-    builder.widget(&state.focus_input);
-    let focus = builder.build();
-    // Focus on input by default when modal opens
-    focus.focus(&state.focus_input);
-  }
+  // Always build focus, but it's only active when AI modal is visible
+  log::debug!("Building focus for AI modal");
+  let mut builder = FocusBuilder::default();
+  builder.widget(&state.focus_conversation);
+  builder.widget(state.ai_ui.input_state()); // Use widget's built-in focus
+  let focus = builder.build();
+  // Focus on input by default
+  focus.focus(state.ai_ui.input_focus());
+  ctx.set_focus(focus);
+  log::debug!("Focus initialized and set in context, input focused");
+  log::debug!("init() completed");
   Ok(())
 }
 
@@ -529,13 +587,33 @@ pub fn render(
   area: Rect,
   buf: &mut tui::buffer::Buffer,
   state: &mut AppState,
-  _ctx: &mut Global,
+  ctx: &mut Global,
 ) -> Result<(), Error> {
+  log::debug!(
+    "render() called, area={:?}, ai_visible={}",
+    area,
+    state.ai_visible
+  );
   // Render shell terminal (always visible as background)
   if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
     let widget = TerminalWidget::new(screen);
     widget.render(area, buf);
+    log::trace!("Shell terminal rendered");
+
+    // Set cursor position if AI not visible and cursor should be shown
+    // This matches the old code's cursor handling
+    if !state.ai_visible && !screen.hide_cursor() {
+      let cursor = screen.cursor_position();
+      let cursor_pos = (area.x + cursor.1, area.y + cursor.0);
+      log::trace!("Setting cursor position: {:?}", cursor_pos);
+      ctx.set_screen_cursor(Some(cursor_pos));
+    } else {
+      // Hide cursor when AI overlay is visible
+      ctx.set_screen_cursor(None);
+    }
+  } else {
+    log::warn!("Failed to acquire shell vt read lock");
   }
 
   // Render AI overlay if visible (Phase 2)
@@ -550,7 +628,6 @@ pub fn render(
         overlay_area,
         buf,
         &state.focus_conversation,
-        &state.focus_input,
       );
     } else {
       // Show "not configured" message
@@ -578,112 +655,257 @@ pub fn render(
 pub fn event(
   event: &AppEvent,
   state: &mut AppState,
-  _ctx: &mut Global,
+  ctx: &mut Global,
 ) -> Result<Control<AppEvent>, Error> {
-  // Poll shell events (temporary until we properly use PollShell)
-  while let Ok(shell_event) = state.shell.event_rx.try_recv() {
-    match shell_event {
-      ShellEvent::Output => {
-        // Shell produced output, will trigger render
-      }
-      ShellEvent::TermReply(reply) => {
-        state.shell.writer.write_all(reply.as_bytes())?;
-        state.shell.writer.flush()?;
-      }
-      ShellEvent::Exited(code) => {
-        log::info!("Shell exited with code: {}", code);
-        return Ok(Control::Quit);
-      }
-    }
-  }
-
-  // Poll crossterm events manually (Phase 1-2 workaround for version conflicts)
-  // TODO: Phase 3+: Use PollCrossterm properly
-  while event::poll(Duration::from_millis(0))? {
-    match event::read()? {
-      Event::Key(KeyEvent {
-        code,
-        modifiers,
-        kind: crossterm::event::KeyEventKind::Press,
-        ..
-      }) => {
-        // Check for hotkeys
-        if matches!(
-          (code, modifiers),
-          (KeyCode::Char(' '), KeyModifiers::CONTROL)
-        ) {
-          // Ctrl-Space: toggle AI overlay
-          state.ai_visible = !state.ai_visible;
-          log::info!("AI overlay toggled: {}", state.ai_visible);
-          return Ok(Control::Changed);
-        } else if matches!(code, KeyCode::Esc) && state.ai_visible {
-          // ESC: close AI overlay
-          state.ai_visible = false;
-          return Ok(Control::Changed);
-        } else if !state.ai_visible {
-          // Route to shell when AI overlay not visible
-          let key = Key::new(code, modifiers);
-          state.shell.send_key(key)?;
-        } else {
-          // AI overlay is visible - handle focus navigation and input
-          // Handle Tab/Shift-Tab for focus cycling (Phase 5)
-          if matches!(code, KeyCode::Tab) {
-            if modifiers.contains(KeyModifiers::SHIFT) {
-              // Shift-Tab: previous focus
-              match_focus!(
-                state.focus_input => { state.focus_conversation.focus(); },
-                state.focus_conversation => { state.focus_input.focus(); }
-              );
-            } else {
-              // Tab: next focus
-              match_focus!(
-                state.focus_conversation => { state.focus_input.focus(); },
-                state.focus_input => { state.focus_conversation.focus(); }
-              );
-            }
-            return Ok(Control::Changed);
+  // Process shell events FIRST (on every event handler call)
+  // This ensures shell output is processed even when we return early for keyboard events
+  // Limit to 5 events per iteration to stay responsive
+  let mut shell_changed = false;
+  for _ in 0..5 {
+    match state.shell.event_rx.try_recv() {
+      Ok(shell_event) => {
+        match shell_event {
+          ShellEvent::Output => {
+            // Shell produced output, need to re-render
+            shell_changed = true;
           }
-
-          // Route events based on focus
-          if state.focus_conversation.get() {
-            // Conversation is focused - handle scrolling
-            if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
-              if let Some(ref mut ai_process) = state.ai_process {
-                ai_process.scroll_up(1);
-              }
-              return Ok(Control::Changed);
-            } else if matches!(code, KeyCode::Down)
-              && state.ai_process.is_some()
-            {
-              if let Some(ref mut ai_process) = state.ai_process {
-                ai_process.scroll_down(1);
-              }
-              return Ok(Control::Changed);
-            }
-          } else if state.focus_input.get() {
-            // Input is focused - route to input widget
-            let key = Key::new(code, modifiers);
-            state.ai_ui.input_event(key);
-            return Ok(Control::Changed);
+          ShellEvent::TermReply(reply) => {
+            state.shell.writer.write_all(reply.as_bytes())?;
+            state.shell.writer.flush()?;
+          }
+          ShellEvent::Exited(code) => {
+            log::info!("Shell exited with code: {}", code);
+            return Ok(Control::Quit);
           }
         }
       }
-      Event::Resize(cols, rows) => {
-        state.shell.resize(rows, cols)?;
-        return Ok(Control::Changed);
-      }
-      _ => {}
+      Err(_) => break, // No more events
     }
   }
 
+  // Now process keyboard events (high priority)
+  if let AppEvent::Crossterm(Event::Key(KeyEvent {
+    code,
+    modifiers,
+    kind: crossterm::event::KeyEventKind::Press,
+    ..
+  })) = event
+  {
+    // Check for hotkeys
+    if matches!(
+      (*code, *modifiers),
+      (KeyCode::Char(' '), KeyModifiers::CONTROL)
+    ) {
+      // Ctrl-Space: toggle AI overlay
+      state.ai_visible = !state.ai_visible;
+      log::info!("AI overlay toggled: {}", state.ai_visible);
+      return Ok(Control::Changed);
+    } else if matches!(code, KeyCode::Esc) && state.ai_visible {
+      // ESC: close AI overlay
+      state.ai_visible = false;
+      return Ok(Control::Changed);
+    } else if !state.ai_visible {
+      // Route to shell when AI overlay not visible
+      let key = Key::new(*code, *modifiers);
+      state.shell.send_key(key)?;
+      // Return Changed if shell output was pending, otherwise Continue
+      // This triggers render for the shell output
+      return Ok(if shell_changed {
+        Control::Changed
+      } else {
+        Control::Continue
+      });
+    } else {
+      // AI overlay is visible - handle focus navigation and input
+      // Handle Tab/Shift-Tab for focus cycling (Phase 5)
+      if matches!(code, KeyCode::Tab) {
+        if modifiers.contains(KeyModifiers::SHIFT) {
+          // Shift-Tab: previous focus
+          match_focus!(
+            state.ai_ui.input_focus() => { state.focus_conversation.focus(); },
+            state.focus_conversation => { state.ai_ui.input_focus().focus(); }
+          );
+        } else {
+          // Tab: next focus
+          match_focus!(
+            state.focus_conversation => { state.ai_ui.input_focus().focus(); },
+            state.ai_ui.input_focus() => { state.focus_conversation.focus(); }
+          );
+        }
+        return Ok(Control::Changed);
+      }
+
+      // Route events based on focus
+      log::debug!(
+        "Key event with AI visible - conversation focused: {}, input focused: {}, key: {:?}",
+        state.focus_conversation.get(),
+        state.ai_ui.input_focus().get(),
+        code
+      );
+
+      if state.focus_conversation.get() {
+        // Conversation is focused - handle scrolling
+        if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
+          if let Some(ref mut ai_process) = state.ai_process {
+            ai_process.scroll_up(1);
+          }
+          return Ok(Control::Changed);
+        } else if matches!(code, KeyCode::Down) && state.ai_process.is_some() {
+          if let Some(ref mut ai_process) = state.ai_process {
+            ai_process.scroll_down(1);
+          }
+          return Ok(Control::Changed);
+        }
+        // Conversation is read-only, ignore other keys
+        return Ok(Control::Continue);
+      } else if state.ai_ui.input_focus().get() {
+        // Input is focused - route to input widget
+        log::debug!("Routing key to input widget");
+        let key = Key::new(*code, *modifiers);
+        state.ai_ui.input_event(key);
+        return Ok(Control::Changed);
+      }
+
+      log::warn!("No widget has focus! Input should be focused by default");
+      return Ok(if shell_changed {
+        Control::Changed
+      } else {
+        Control::Continue
+      });
+    }
+  }
+
+  // If shell output changed, trigger a render
+  if shell_changed {
+    return Ok(Control::Changed);
+  }
+
   match event {
+    AppEvent::Crossterm(Event::Resize(cols, rows)) => {
+      state.shell.resize(*rows, *cols)?;
+      Ok(Control::Changed)
+    }
+    AppEvent::Crossterm(Event::Mouse(mouse)) => {
+      use crossterm::event::MouseEventKind;
+
+      // Filter out scroll events to allow native terminal scrollback
+      // This matches the old code's behavior
+      if matches!(
+        mouse.kind,
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+      ) {
+        // Don't consume scroll events - let the terminal handle them for native scrollback
+        log::trace!("Ignoring scroll event for native scrollback");
+        return Ok(Control::Continue);
+      }
+
+      // Convert crossterm mouse event to our MouseEvent type
+      let mouse_event = MouseEvent::from_crossterm(*mouse);
+
+      if state.ai_visible {
+        // AI overlay is visible - handle mouse for UI interaction
+        // TODO: Implement focus changes based on click position
+        // For now, just consume the event without action
+        Ok(Control::Continue)
+      } else {
+        // AI overlay not visible - pass through to shell
+        state.shell.send_mouse(mouse_event)?;
+        Ok(Control::Continue)
+      }
+    }
+    // Ignore other key events (already handled above)
+    AppEvent::Crossterm(Event::Key(KeyEvent {
+      code,
+      modifiers,
+      kind: crossterm::event::KeyEventKind::Press,
+      ..
+    })) => {
+      // Check for hotkeys
+      if matches!(
+        (*code, *modifiers),
+        (KeyCode::Char(' '), KeyModifiers::CONTROL)
+      ) {
+        // Ctrl-Space: toggle AI overlay
+        state.ai_visible = !state.ai_visible;
+        log::info!("AI overlay toggled: {}", state.ai_visible);
+        return Ok(Control::Changed);
+      } else if matches!(code, KeyCode::Esc) && state.ai_visible {
+        // ESC: close AI overlay
+        state.ai_visible = false;
+        return Ok(Control::Changed);
+      } else if !state.ai_visible {
+        // Route to shell when AI overlay not visible
+        let key = Key::new(*code, *modifiers);
+        state.shell.send_key(key)?;
+      } else {
+        // AI overlay is visible - handle focus navigation and input
+        // Handle Tab/Shift-Tab for focus cycling (Phase 5)
+        if matches!(code, KeyCode::Tab) {
+          if modifiers.contains(KeyModifiers::SHIFT) {
+            // Shift-Tab: previous focus
+            match_focus!(
+              state.ai_ui.input_focus() => { state.focus_conversation.focus(); },
+              state.focus_conversation => { state.ai_ui.input_focus().focus(); }
+            );
+          } else {
+            // Tab: next focus
+            match_focus!(
+              state.focus_conversation => { state.ai_ui.input_focus().focus(); },
+              state.ai_ui.input_focus() => { state.focus_conversation.focus(); }
+            );
+          }
+          return Ok(Control::Changed);
+        }
+
+        // Route events based on focus
+        if state.focus_conversation.get() {
+          // Conversation is focused - handle scrolling
+          if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
+            if let Some(ref mut ai_process) = state.ai_process {
+              ai_process.scroll_up(1);
+            }
+            return Ok(Control::Changed);
+          } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
+          {
+            if let Some(ref mut ai_process) = state.ai_process {
+              ai_process.scroll_down(1);
+            }
+            return Ok(Control::Changed);
+          }
+        } else if state.ai_ui.input_focus().get() {
+          // Input is focused - route to input widget
+          let key = Key::new(*code, *modifiers);
+          state.ai_ui.input_event(key);
+          return Ok(Control::Changed);
+        }
+      }
+      Ok(Control::Continue)
+    }
+    AppEvent::Crossterm(Event::Resize(cols, rows)) => {
+      state.shell.resize(*rows, *cols)?;
+      Ok(Control::Changed)
+    }
+    AppEvent::Crossterm(_) => {
+      // Ignore other crossterm events (mouse, focus, paste, etc.) for now
+      Ok(Control::Continue)
+    }
+    AppEvent::Timer(_) => {
+      // Periodic timer (60fps) - trigger render if shell has changed
+      // This ensures we render at 60fps like the old code did
+      if shell_changed {
+        Ok(Control::Changed)
+      } else {
+        Ok(Control::Continue)
+      }
+    }
     AppEvent::Rendered => {
-      // Rebuild focus after render (Phase 5)
+      // Rebuild focus after render to track widget positions
       if state.ai_visible {
         let mut builder = FocusBuilder::default();
         builder.widget(&state.focus_conversation);
-        builder.widget(&state.focus_input);
-        builder.build();
+        builder.widget(state.ai_ui.input_state()); // Use widget's built-in focus
+        let focus = builder.build();
+        ctx.set_focus(focus);
       }
       Ok(Control::Continue)
     }

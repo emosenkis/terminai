@@ -30,6 +30,16 @@ impl<'a> AIChatUI<'a> {
     }
   }
 
+  /// Get the input widget's focus flag
+  pub fn input_focus(&self) -> &FocusFlag {
+    &self.input_state.focus
+  }
+
+  /// Get the input state for focus building
+  pub fn input_state(&self) -> &TextAreaState {
+    &self.input_state
+  }
+
   /// Render the full chat UI
   pub fn render(
     &mut self,
@@ -37,7 +47,6 @@ impl<'a> AIChatUI<'a> {
     area: Rect,
     buf: &mut Buffer,
     focus_conversation: &FocusFlag,
-    focus_input: &FocusFlag,
   ) {
     // Clear the entire area first to set background
     Clear.render(area, buf);
@@ -68,7 +77,7 @@ impl<'a> AIChatUI<'a> {
     self.render_conversation(process, chunks[0], buf, focus_conversation);
 
     // Render input area
-    self.render_input(process, chunks[1], buf, focus_input);
+    self.render_input(process, chunks[1], buf);
 
     // Render error message if present
     if has_error {
@@ -182,7 +191,6 @@ impl<'a> AIChatUI<'a> {
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
-    focus: &FocusFlag,
   ) {
     let title = if process.is_sending() {
       " Sending message... "
@@ -191,7 +199,7 @@ impl<'a> AIChatUI<'a> {
     };
 
     // Use bright cyan border when focused, dim white when not
-    let border_color = if focus.get() {
+    let border_color = if self.input_state.focus.get() {
       Color::Cyan
     } else {
       Color::DarkGray
