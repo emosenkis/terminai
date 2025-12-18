@@ -252,46 +252,63 @@ async fn initialize_ai() -> Option<AIChatProcess> {
           );
 
           let api_key_env = provider_config.effective_api_key_env();
-          if let Some(ref env_key) = api_key_env {
-            if std::env::var(env_key).is_ok() {
-              if let Ok(provider) =
-                std::str::FromStr::from_str(&provider_config.name)
-              {
-                let endpoint = if provider == Provider::OpenRouter {
-                  Some("https://openrouter.ai/api/v1".to_string())
-                } else {
-                  None
-                };
 
-                match AIChatProcess::new_with_endpoint(
-                  provider,
-                  Some(model_config.model.clone()),
-                  endpoint,
-                )
-                .await
-                {
-                  Ok(process) => {
-                    log::info!("AI assistant initialized successfully");
-                    return Some(process);
-                  }
-                  Err(e) => {
-                    log::error!(
-                      "Failed to initialize AI with configured provider: {:?}",
-                      e
-                    );
-                  }
-                }
+          // Check if API key is required and available
+          let can_initialize = match api_key_env {
+            None => {
+              // No API key needed (e.g., Ollama running locally)
+              log::info!(
+                "Provider {} does not require an API key",
+                provider_config.name
+              );
+              true
+            }
+            Some(ref env_key) => {
+              // API key required - check if it's set
+              if std::env::var(env_key).is_ok() {
+                log::info!("API key {} found in environment", env_key);
+                true
               } else {
-                log::error!(
-                  "Unknown provider in config: {}",
-                  provider_config.name
-                );
+                log::warn!("API key environment variable {} not set", env_key);
+                false
+              }
+            }
+          };
+
+          if can_initialize {
+            if let Ok(provider) =
+              std::str::FromStr::from_str(&provider_config.name)
+            {
+              let endpoint = if provider == Provider::OpenRouter {
+                Some("https://openrouter.ai/api/v1".to_string())
+              } else {
+                None
+              };
+
+              match AIChatProcess::new_with_endpoint(
+                provider,
+                Some(model_config.model.clone()),
+                endpoint,
+              )
+              .await
+              {
+                Ok(process) => {
+                  log::info!("AI assistant initialized successfully");
+                  return Some(process);
+                }
+                Err(e) => {
+                  log::error!(
+                    "Failed to initialize AI with configured provider: {:?}",
+                    e
+                  );
+                }
               }
             } else {
-              log::warn!("API key environment variable {} not set", env_key);
+              log::error!(
+                "Unknown provider in config: {}",
+                provider_config.name
+              );
             }
-          } else {
-            log::warn!("No API key environment variable configured");
           }
         }
         Err(e) => {
@@ -905,11 +922,11 @@ fn event(
             match_focus!(
               state.ai_ui.input_focus() => {
                 log::debug!("Shift-Tab: switching from input to conversation");
-                state.focus_conversation.focus();
+                ctx.focus().focus(&state.focus_conversation);
               },
               state.focus_conversation => {
                 log::debug!("Shift-Tab: switching from conversation to input");
-                state.ai_ui.input_focus().focus();
+                ctx.focus().focus(state.ai_ui.input_state());
               }
             );
           } else {
@@ -917,11 +934,11 @@ fn event(
             match_focus!(
               state.focus_conversation => {
                 log::debug!("Tab: switching from conversation to input");
-                state.ai_ui.input_focus().focus();
+                ctx.focus().focus(state.ai_ui.input_state());
               },
               state.ai_ui.input_focus() => {
                 log::debug!("Tab: switching from input to conversation");
-                state.focus_conversation.focus();
+                ctx.focus().focus(&state.focus_conversation);
               }
             );
           }
