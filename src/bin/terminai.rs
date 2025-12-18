@@ -868,6 +868,23 @@ fn event(
               // Any other key while approval dialog is active is ignored
               break 'm Control::Continue;
             }
+
+            // Handle error dialog (second priority after approval dialog)
+            if ai_process.error_message().is_some() {
+              if matches!(code, KeyCode::Esc) && modifiers.is_empty() {
+                log::info!("Error dialog dismissed by user");
+                ai_process.clear_error();
+                break 'm Control::Changed;
+              } else if matches!(code, KeyCode::Up) && modifiers.is_empty() {
+                ai_process.error_scroll_up(1);
+                break 'm Control::Changed;
+              } else if matches!(code, KeyCode::Down) && modifiers.is_empty() {
+                ai_process.error_scroll_down(1);
+                break 'm Control::Changed;
+              }
+              // Any other key while error dialog is active is ignored
+              break 'm Control::Continue;
+            }
           }
         }
 
@@ -928,7 +945,9 @@ fn event(
                     .send_input_with_context(&input_clone, context)
                     .await
                   {
-                    log::error!("Failed to send message: {:?}", e);
+                    let error_msg = format!("{:#}", e);
+                    log::error!("Failed to send message: {}", error_msg);
+                    ai_process.set_error(error_msg);
                   }
                   Ok(Control::Changed)
                 });

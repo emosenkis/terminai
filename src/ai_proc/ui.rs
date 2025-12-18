@@ -51,27 +51,11 @@ impl<'a> AIChatUI<'a> {
     // Clear the entire area first to set background
     Clear.render(area, buf);
 
-    // Determine if we need space for an error message
-    let has_error = process.error_message().is_some();
-
-    let chunks = if has_error {
-      Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-          [
-            Constraint::Min(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-          ]
-          .as_ref(),
-        )
-        .split(area)
-    } else {
-      Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
-        .split(area)
-    };
+    // Layout without error bar - errors now shown as popup
+    let chunks = Layout::default()
+      .direction(Direction::Vertical)
+      .constraints([Constraint::Min(3), Constraint::Length(3)].as_ref())
+      .split(area);
 
     // Render conversation history
     self.render_conversation(process, chunks[0], buf, focus_conversation);
@@ -79,12 +63,12 @@ impl<'a> AIChatUI<'a> {
     // Render input area
     self.render_input(process, chunks[1], buf);
 
-    // Render error message if present
-    if has_error {
-      self.render_error(process, chunks[2], buf);
+    // Render error dialog popup if present (rendered over everything else)
+    if process.error_message().is_some() {
+      self.render_error_dialog(process, area, buf);
     }
 
-    // Render pending command approval if any
+    // Render pending command approval if any (rendered over everything including error)
     if let Some(pending) = process.pending_command() {
       self.render_approval_prompt(area, buf, pending);
     }
@@ -214,25 +198,112 @@ impl<'a> AIChatUI<'a> {
     StatefulWidget::render(widget, area, buf, &mut self.input_state);
   }
 
-  fn render_error(
+  fn render_error_dialog(
     &self,
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
   ) {
     if let Some(error_msg) = process.error_message() {
-      let error_text = format!("⚠ Error: {}", error_msg);
+      // Create a larger centered popup for error display (70% width, 60% height)
+      let popup_area = centered_rect(70, 60, area);
 
-      let paragraph = Paragraph::new(error_text)
-        .block(
-          Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::Red).bg(Color::Black)),
-        )
+      // Clear the popup area first
+      Clear.render(popup_area, buf);
+
+      // Render the popup border with title
+      let border_block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Error ")
+        .style(Style::default().fg(Color::Red).bg(Color::Black));
+
+      // Get inner area before rendering (Block doesn't implement Copy)
+      let inner = border_block.inner(popup_area);
+      border_block.render(popup_area, buf);
+      let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+      let content_area = chunks[0];
+      let scrollbar_area = chunks[1];
+
+      // Split error message into lines and wrap
+      let error_text = format!("⚠  {}", error_msg);
+      let lines: Vec<Line> = error_text
+        .lines()
+        .flat_map(|line| {
+          // Simple word wrapping
+          let max_width = content_area.width.saturating_sub(2) as usize;
+          if line.len() <= max_width {
+            vec![Line::from(line.to_string())]
+          } else {
+            let mut wrapped_lines = Vec::new();
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let mut current_line = String::new();
+            for word in words {
+              if current_line.len() + word.len() + 1 > max_width {
+                if !current_line.is_empty() {
+                  wrapped_lines.push(Line::from(current_line.clone()));
+                  current_line.clear();
+                }
+              }
+              if !current_line.is_empty() {
+                current_line.push(' ');
+              }
+              current_line.push_str(word);
+            }
+            if !current_line.is_empty() {
+              wrapped_lines.push(Line::from(current_line));
+            }
+            wrapped_lines
+          }
+        })
+        .collect();
+
+      // Render the error text with scrolling
+      let paragraph = Paragraph::new(lines.clone())
         .style(Style::default().fg(Color::Red))
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((process.error_scroll_offset(), 0));
 
-      paragraph.render(area, buf);
+      paragraph.render(content_area, buf);
+
+      // Render scrollbar
+      let content_height = lines.len();
+      let view_height = content_area.height as usize;
+      let scroll_offset = process.error_scroll_offset() as usize;
+      let max_scroll = content_height.saturating_sub(view_height);
+
+      let mut scrollbar_state =
+        ScrollbarState::new(max_scroll).position(scroll_offset);
+      Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
+        scrollbar_area,
+        buf,
+        &mut scrollbar_state,
+      );
+
+      // Render instructions at bottom
+      let instructions_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.bottom().saturating_sub(1),
+        width: popup_area.width.saturating_sub(4),
+        height: 1,
+      };
+      let instructions = Line::from(vec![
+        Span::styled(
+          "↑↓ scroll  ",
+          Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+          "Esc dismiss",
+          Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+        ),
+      ]);
+      Paragraph::new(instructions).render(instructions_area, buf);
     }
   }
 

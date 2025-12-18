@@ -169,8 +169,15 @@ impl LLMClient {
         use rig::client::Nothing;
         use rig::providers::ollama;
         // Ollama runs locally without API key - use Nothing as API key
-        let client: ollama::Client =
-          ollama::Client::builder().api_key(Nothing).build()?;
+        // Default to localhost:11434 if no custom endpoint provided
+        let endpoint = self
+          .custom_endpoint
+          .as_deref()
+          .unwrap_or("http://localhost:11434");
+        let client: ollama::Client = ollama::Client::builder()
+          .api_key(Nothing)
+          .base_url(endpoint)
+          .build()?;
         let agent = client.agent(&self.model_name).preamble(&preamble).build();
         agent
           .prompt(&full_message)
@@ -299,8 +306,15 @@ impl LLMClient {
           use rig::client::Nothing;
           use rig::providers::ollama;
           use rig::streaming::StreamedAssistantContent;
-          let client: ollama::Client =
-            ollama::Client::builder().api_key(Nothing).build()?;
+          // Default to localhost:11434 if no custom endpoint provided
+          let endpoint = self
+            .custom_endpoint
+            .as_deref()
+            .unwrap_or("http://localhost:11434");
+          let client: ollama::Client = ollama::Client::builder()
+            .api_key(Nothing)
+            .base_url(endpoint)
+            .build()?;
           let agent =
             client.agent(&self.model_name).preamble(&preamble).build();
           let stream = agent.stream_prompt(&full_message).await;

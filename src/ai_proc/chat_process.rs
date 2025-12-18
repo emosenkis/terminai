@@ -29,6 +29,7 @@ pub struct AIChatProcess {
   active: bool,
   awaiting_approval: Option<PendingCommand>,
   error_message: Option<String>,
+  error_scroll_offset: u16,
   is_sending: bool,
   scroll_offset: u16,
 }
@@ -64,6 +65,7 @@ impl AIChatProcess {
       active: false,
       awaiting_approval: None,
       error_message: None,
+      error_scroll_offset: 0,
       is_sending: false,
       scroll_offset: 0,
     })
@@ -205,16 +207,33 @@ impl AIChatProcess {
   /// Set an error message to display to the user
   pub fn set_error(&mut self, message: String) {
     self.error_message = Some(message);
+    self.error_scroll_offset = 0; // Reset scroll when new error is set
   }
 
   /// Clear the current error message
   pub fn clear_error(&mut self) {
     self.error_message = None;
+    self.error_scroll_offset = 0; // Reset scroll when error is cleared
   }
 
   /// Check if a message is currently being sent
   pub fn is_sending(&self) -> bool {
     self.is_sending
+  }
+
+  /// Get the error scroll offset
+  pub fn error_scroll_offset(&self) -> u16 {
+    self.error_scroll_offset
+  }
+
+  /// Scroll up in the error dialog
+  pub fn error_scroll_up(&mut self, amount: u16) {
+    self.error_scroll_offset = self.error_scroll_offset.saturating_add(amount);
+  }
+
+  /// Scroll down in the error dialog
+  pub fn error_scroll_down(&mut self, amount: u16) {
+    self.error_scroll_offset = self.error_scroll_offset.saturating_sub(amount);
   }
 
   /// Get the current scroll offset
@@ -257,6 +276,7 @@ mod tests {
       active: false,
       awaiting_approval: None,
       error_message: None,
+      error_scroll_offset: 0,
       is_sending: false,
       scroll_offset: 0,
     };
