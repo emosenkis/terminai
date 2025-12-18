@@ -89,19 +89,24 @@ impl AIChatProcess {
     self.active
   }
 
-  /// Send the current input with pre-extracted context
-  pub async fn send_input_with_context(
+  /// Start streaming response (returns stream for processing outside lock)
+  pub async fn start_streaming(
     &mut self,
     user_message: &str,
     context: crate::llm::TerminalContext,
-  ) -> Result<()> {
+  ) -> Result<
+    std::pin::Pin<
+      Box<dyn futures::stream::Stream<Item = Result<String>> + Send>,
+    >,
+  > {
     if user_message.is_empty() {
-      return Ok(());
+      return Err(anyhow::anyhow!("Empty message"));
     }
 
     // Clear any previous error message and set sending state
     self.error_message = None;
     self.is_sending = true;
+    self.streaming_response = Some(String::new());
 
     // Add user message to conversation
     self.conversation.push(Message {
@@ -130,58 +135,38 @@ impl AIChatProcess {
       .collect();
 
     // Send to LLM with streaming
-    let stream_result = self
+    self
       .llm_client
       .send_message_stream(&user_message, &filtered_context, &history)
-      .await;
+      .await
+  }
 
-    match stream_result {
-      Ok(mut stream) => {
-        use futures::stream::StreamExt;
-
-        // Initialize streaming response
-        self.streaming_response = Some(String::new());
-        let mut full_response = String::new();
-
-        // Process stream tokens
-        while let Some(token_result) = stream.next().await {
-          match token_result {
-            Ok(token) => {
-              full_response.push_str(&token);
-              // Update streaming response for UI
-              self.streaming_response = Some(full_response.clone());
-            }
-            Err(e) => {
-              // Stream error - clear states and return error
-              self.is_sending = false;
-              self.streaming_response = None;
-              return Err(e);
-            }
-          }
-        }
-
-        // Stream complete - clear streaming state and add to conversation
-        self.streaming_response = None;
-        self.is_sending = false;
-
-        // Add assistant response to conversation
-        self.conversation.push(Message {
-          role: MessageRole::Assistant,
-          content: full_response.clone(),
-        });
-
-        // Check for commands in response
-        self.check_for_commands(&full_response, None);
-
-        Ok(())
-      }
-      Err(e) => {
-        // Connection/setup error - clear sending state and return error
-        self.is_sending = false;
-        self.streaming_response = None;
-        Err(e)
-      }
+  /// Append a token to the streaming response
+  pub fn append_streaming_token(&mut self, token: String) {
+    if let Some(ref mut response) = self.streaming_response {
+      response.push_str(&token);
     }
+  }
+
+  /// Complete the streaming response and add to conversation
+  pub fn complete_streaming(&mut self, full_response: String) {
+    self.streaming_response = None;
+    self.is_sending = false;
+
+    // Add assistant response to conversation
+    self.conversation.push(Message {
+      role: MessageRole::Assistant,
+      content: full_response.clone(),
+    });
+
+    // Check for commands in response
+    self.check_for_commands(&full_response, None);
+  }
+
+  /// Abort streaming due to error
+  pub fn abort_streaming(&mut self) {
+    self.is_sending = false;
+    self.streaming_response = None;
   }
 
   /// Check the response for commands and set up approval if needed

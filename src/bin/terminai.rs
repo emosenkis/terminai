@@ -1005,17 +1005,60 @@ fn event(
                 let ai_process_clone = Arc::clone(ai_process_arc);
                 let input_clone = input.clone();
 
-                ctx.spawn_async(async move {
-                  // Async lock (safe to hold across await in async context)
-                  let mut ai_process = ai_process_clone.lock().await;
-                  if let Err(e) = ai_process
-                    .send_input_with_context(&input_clone, context)
-                    .await
-                  {
-                    let error_msg = format!("{:#}", e);
-                    log::error!("Failed to send message: {}", error_msg);
-                    ai_process.set_error(error_msg);
+                // Use spawn_async_ext to get a sender for intermediate render triggers
+                ctx.spawn_async_ext(|sender| async move {
+                  use futures::stream::StreamExt;
+
+                  // Start streaming (lock only for setup)
+                  let stream = {
+                    let mut ai_process = ai_process_clone.lock().await;
+                    ai_process.start_streaming(&input_clone, context).await
+                  };
+
+                  match stream {
+                    Ok(mut stream) => {
+                      let mut full_response = String::new();
+
+                      // Process stream tokens with lock/unlock cycles
+                      while let Some(token_result) = stream.next().await {
+                        match token_result {
+                          Ok(token) => {
+                            full_response.push_str(&token);
+                            // Lock only to update state
+                            {
+                              let mut ai_process =
+                                ai_process_clone.lock().await;
+                              ai_process.append_streaming_token(token);
+                            }
+                            // Trigger UI re-render after appending token
+                            let _ = sender.send(Ok(Control::Changed)).await;
+                          }
+                          Err(e) => {
+                            let error_msg = format!("{:#}", e);
+                            log::error!("Stream error: {}", error_msg);
+                            let mut ai_process = ai_process_clone.lock().await;
+                            ai_process.abort_streaming();
+                            ai_process.set_error(error_msg);
+                            return Ok(Control::Changed);
+                          }
+                        }
+                      }
+
+                      // Complete streaming
+                      {
+                        let mut ai_process = ai_process_clone.lock().await;
+                        ai_process.complete_streaming(full_response);
+                      }
+                    }
+                    Err(e) => {
+                      let error_msg = format!("{:#}", e);
+                      log::error!("Failed to start streaming: {}", error_msg);
+                      let mut ai_process = ai_process_clone.lock().await;
+                      ai_process.abort_streaming();
+                      ai_process.set_error(error_msg);
+                    }
                   }
+
                   Ok(Control::Changed)
                 });
               }
