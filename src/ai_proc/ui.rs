@@ -190,9 +190,10 @@ impl<'a> AIChatUI<'a> {
 
     paragraph.render(content_area, buf);
 
-    // Render scrollbar
+    // Render scrollbar (also inverted to match our coordinate system)
+    let scrollbar_position = max_scroll.saturating_sub(scroll_offset);
     let mut scrollbar_state =
-      ScrollbarState::new(max_scroll).position(scroll_offset);
+      ScrollbarState::new(max_scroll).position(scrollbar_position);
     Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
       scrollbar_area,
       buf,
