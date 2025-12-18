@@ -1,6 +1,9 @@
 use rat_event::{HandleEvent, Regular};
 use rat_focus::FocusFlag;
 use rat_text::text_area::{TextArea, TextAreaState};
+use rat_widget::clipper::{Clipper, ClipperState};
+use rat_widget::layout::GenericLayout;
+use rat_widget::scrolled::{SCROLLBAR_VERTICAL, Scroll};
 use tui::{
   buffer::Buffer,
   layout::{Constraint, Direction, Layout, Rect},
@@ -19,6 +22,7 @@ use crate::key::Key;
 /// Render the AI chat interface
 pub struct AIChatUI<'a> {
   input_state: TextAreaState,
+  conversation_state: ClipperState<usize>, // One widget per message, indexed by message number
   _phantom: std::marker::PhantomData<&'a ()>,
 }
 
@@ -26,6 +30,7 @@ impl<'a> AIChatUI<'a> {
   pub fn new() -> Self {
     Self {
       input_state: TextAreaState::default(),
+      conversation_state: ClipperState::new(),
       _phantom: std::marker::PhantomData,
     }
   }
@@ -35,9 +40,19 @@ impl<'a> AIChatUI<'a> {
     &self.input_state.focus
   }
 
+  /// Get the conversation widget's focus flag
+  pub fn conversation_focus(&self) -> &FocusFlag {
+    &self.conversation_state.container
+  }
+
   /// Get the input state for focus building
   pub fn input_state(&self) -> &TextAreaState {
     &self.input_state
+  }
+
+  /// Get the conversation state for focus building and event handling
+  pub fn conversation_state(&mut self) -> &mut ClipperState<usize> {
+    &mut self.conversation_state
   }
 
   /// Render the full chat UI
@@ -46,7 +61,6 @@ impl<'a> AIChatUI<'a> {
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
-    focus_conversation: &FocusFlag,
   ) {
     // Clear the entire area first to set background
     Clear.render(area, buf);
@@ -58,7 +72,7 @@ impl<'a> AIChatUI<'a> {
       .split(area);
 
     // Render conversation history
-    self.render_conversation(process, chunks[0], buf, focus_conversation);
+    self.render_conversation(process, chunks[0], buf);
 
     // Render input area
     self.render_input(process, chunks[1], buf);
@@ -75,24 +89,28 @@ impl<'a> AIChatUI<'a> {
   }
 
   fn render_conversation(
-    &self,
+    &mut self,
     process: &AIChatProcess,
     area: Rect,
     buf: &mut Buffer,
-    focus: &FocusFlag,
   ) {
-    // Split area for content and scrollbar
-    let chunks = Layout::default()
-      .direction(Direction::Horizontal)
-      .constraints([Constraint::Min(1), Constraint::Length(1)])
-      .split(area);
-    let content_area = chunks[0];
-    let scrollbar_area = chunks[1];
+    // Build layout for clipper if needed
+    let messages = process.conversation();
+    let has_streaming = process.streaming_response().is_some();
+    let total_widgets = messages.len() + if has_streaming { 1 } else { 0 };
 
-    let mut messages: Vec<Line> = process
-      .conversation()
-      .iter()
-      .flat_map(|msg| {
+    // Check if layout needs rebuild (message count changed)
+    let needs_rebuild = {
+      let layout = self.conversation_state.layout();
+      layout.widget_len() != total_widgets
+    };
+
+    if needs_rebuild {
+      let mut layout = GenericLayout::new();
+      let mut y_offset = 0u16;
+
+      // Add each message as a widget
+      for (idx, msg) in messages.iter().enumerate() {
         let (prefix, style) = match msg.role {
           MessageRole::User => (
             "You: ",
@@ -114,91 +132,147 @@ impl<'a> AIChatUI<'a> {
           ),
         };
 
-        let mut lines = Vec::new();
-
-        // Add prefix line
-        lines.push(Line::from(Span::styled(prefix, style)));
-
-        // For assistant messages, render markdown; for others, use plain text
-        if matches!(msg.role, MessageRole::Assistant) {
-          // Use tui-markdown to parse and render markdown
+        // Calculate height needed for this message
+        let width = area.width.saturating_sub(4) as usize; // Account for borders and scrollbar
+        let prefix_lines = 1;
+        let content_lines = if matches!(msg.role, MessageRole::Assistant) {
+          // Markdown rendering
           let md_text = from_str(&msg.content);
-          lines.extend(md_text.lines.into_iter().map(Line::from));
+          md_text.lines.len()
         } else {
-          // For user and system messages, use plain text
-          lines.push(Line::from(Span::raw(&msg.content)));
-        }
+          // Plain text, count wrapped lines
+          msg.content.lines().count()
+        };
+        let separator_lines = 1;
+        let height = (prefix_lines + content_lines + separator_lines) as u16;
 
-        // Add empty line between messages
-        lines.push(Line::from(""));
+        // Add widget to layout
+        layout.add(
+          idx,                                        // widget ID
+          Rect::new(0, y_offset, area.width, height), // widget area
+          None,                                       // no label
+          Rect::default(),                            // no label area
+        );
 
-        lines
-      })
-      .collect();
+        y_offset += height;
+      }
 
-    // Add streaming response if in progress
-    if let Some(streaming) = process.streaming_response() {
-      let prefix = "AI: ";
-      let style = Style::default()
-        .fg(Color::Green)
-        .add_modifier(Modifier::BOLD);
+      // Add streaming response widget if present
+      if has_streaming {
+        let idx = messages.len();
+        // Estimate height (will be approximate for streaming content)
+        let height = 10; // Default height for streaming widget
+        layout.add(
+          idx,
+          Rect::new(0, y_offset, area.width, height),
+          None,
+          Rect::default(),
+        );
+      }
 
-      messages.push(Line::from(Span::styled(prefix, style)));
-
-      // Render streaming response as markdown
-      let md_text = from_str(streaming);
-      messages.extend(md_text.lines.into_iter().map(Line::from));
-
-      // Add empty line
-      messages.push(Line::from(""));
-
-      // Add typing indicator
-      messages.push(Line::from(Span::styled(
-        "▌",
-        Style::default()
-          .fg(Color::Green)
-          .add_modifier(Modifier::BOLD),
-      )));
+      self.conversation_state.set_layout(layout);
     }
 
     // Use bright cyan border when focused, dim white when not
-    let border_color = if focus.get() {
+    let border_color = if self.conversation_state.container.get() {
       Color::Cyan
     } else {
       Color::DarkGray
     };
 
-    // Calculate scroll position
-    // Note: process.scroll_offset() = 0 means "at bottom" (most recent)
-    // But Paragraph's scroll parameter works opposite: 0 = top, max = bottom
-    // So we need to invert: paragraph_scroll = max_scroll - scroll_offset
-    let content_height = messages.len();
-    let view_height = content_area.height.saturating_sub(2) as usize; // Subtract borders
-    let max_scroll = content_height.saturating_sub(view_height);
-    let scroll_offset = process.scroll_offset() as usize;
-    let paragraph_scroll = max_scroll.saturating_sub(scroll_offset);
+    let block = Block::default()
+      .borders(Borders::ALL)
+      .title(" AI Assistant ")
+      .style(Style::default().fg(border_color).bg(Color::Black));
 
-    let paragraph = Paragraph::new(messages.clone())
-      .block(
-        Block::default()
-          .borders(Borders::ALL)
-          .title(" AI Assistant (↑↓ to scroll) ")
-          .style(Style::default().fg(border_color).bg(Color::Black)),
-      )
-      .wrap(Wrap { trim: false })
-      .scroll((paragraph_scroll as u16, 0));
+    let scroll = Scroll::new()
+      .symbols(&SCROLLBAR_VERTICAL)
+      .style(Style::default().fg(Color::DarkGray));
 
-    paragraph.render(content_area, buf);
+    let clipper = Clipper::new().block(block).vscroll(scroll);
 
-    // Render scrollbar (also inverted to match our coordinate system)
-    let scrollbar_position = max_scroll.saturating_sub(scroll_offset);
-    let mut scrollbar_state =
-      ScrollbarState::new(max_scroll).position(scrollbar_position);
-    Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
-      scrollbar_area,
-      buf,
-      &mut scrollbar_state,
-    );
+    let mut clip_buf = clipper.into_buffer(area, &mut self.conversation_state);
+
+    // Render each message widget (using render_widget for stateless widgets)
+    for (idx, msg) in messages.iter().enumerate() {
+      clip_buf.render_widget(idx, || {
+        let (prefix, style) = match msg.role {
+          MessageRole::User => (
+            "You: ",
+            Style::default()
+              .fg(Color::Cyan)
+              .add_modifier(Modifier::BOLD),
+          ),
+          MessageRole::Assistant => (
+            "AI: ",
+            Style::default()
+              .fg(Color::Green)
+              .add_modifier(Modifier::BOLD),
+          ),
+          MessageRole::System => (
+            "System: ",
+            Style::default()
+              .fg(Color::Yellow)
+              .add_modifier(Modifier::BOLD),
+          ),
+        };
+
+        let mut lines = vec![Line::from(Span::styled(prefix, style))];
+
+        if matches!(msg.role, MessageRole::Assistant) {
+          let md_text = from_str(&msg.content);
+          lines.extend(md_text.lines.into_iter().map(Line::from));
+        } else {
+          lines.push(Line::from(Span::raw(&msg.content)));
+        }
+
+        lines.push(Line::from("")); // Separator
+
+        Paragraph::new(lines).wrap(Wrap { trim: false })
+      });
+    }
+
+    // Render streaming response if present
+    if let Some(streaming) = process.streaming_response() {
+      let idx = messages.len();
+      clip_buf.render_widget(idx, || {
+        let prefix = "AI: ";
+        let style = Style::default()
+          .fg(Color::Green)
+          .add_modifier(Modifier::BOLD);
+
+        let mut lines = vec![Line::from(Span::styled(prefix, style))];
+
+        let md_text = from_str(streaming);
+        lines.extend(md_text.lines.into_iter().map(Line::from));
+
+        lines.push(Line::from("")); // Separator
+        lines.push(Line::from(Span::styled(
+          "▌",
+          Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD),
+        )));
+
+        Paragraph::new(lines).wrap(Wrap { trim: false })
+      });
+    }
+
+    // Finish rendering and copy to buffer
+    clip_buf.finish(buf, &mut self.conversation_state);
+
+    // Auto-scroll to bottom when at bottom (scroll_offset == 0)
+    // Clipper uses standard scrolling where offset 0 = top
+    // We want to be at the bottom by default
+    if messages.len() > 0 || has_streaming {
+      let max_offset = self.conversation_state.vscroll.max_offset();
+      if self.conversation_state.vscroll.offset() < max_offset {
+        // Not at bottom, keep current position
+      } else {
+        // At bottom, stay at bottom
+        self.conversation_state.set_vertical_offset(max_offset);
+      }
+    }
   }
 
   fn render_input(

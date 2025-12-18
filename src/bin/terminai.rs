@@ -19,6 +19,7 @@ use tui::{
 
 // rat-salsa imports
 use rat_cursor::HasScreenCursor;
+use rat_event::{HandleEvent, MouseOnly, Outcome, Regular};
 use rat_focus::{FocusBuilder, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
@@ -447,7 +448,6 @@ fn main() -> Result<()> {
     ai_visible: false,
     last_total_rows: rows as usize,
     has_pending_scrollback: false,
-    focus_conversation: rat_focus::FocusFlag::default(),
   };
 
   // Run rat-salsa event loop
@@ -519,8 +519,6 @@ struct AppState<'a> {
   last_total_rows: usize,
   /// Has pending scrollback lines:
   has_pending_scrollback: bool,
-  /// Focus for conversation area (no widget for this, so we manage it separately)
-  focus_conversation: rat_focus::FocusFlag,
 }
 
 impl<'a> AppState<'a> {
@@ -639,7 +637,7 @@ fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
   // Always build focus, but it's only active when AI modal is visible
   log::debug!("Building focus for AI modal");
   let mut builder = FocusBuilder::default();
-  builder.widget(&state.focus_conversation);
+  builder.widget(state.ai_ui.conversation_state()); // Clipper state has built-in container focus
   builder.widget(state.ai_ui.input_state()); // Use widget's built-in focus
   let focus = builder.build();
   // Focus on input by default
@@ -774,13 +772,8 @@ fn render(
     if let Some(ref ai_process_arc) = state.ai_process {
       // Try to lock without blocking (non-blocking for render)
       if let Ok(ai_process) = ai_process_arc.try_lock() {
-        // Render AI chat interface with focus flags (Phase 5)
-        state.ai_ui.render(
-          &*ai_process,
-          overlay_area,
-          buf,
-          &state.focus_conversation,
-        );
+        // Render AI chat interface with Clipper's built-in focus
+        state.ai_ui.render(&*ai_process, overlay_area, buf);
 
         // Show cursor in input area when it has focus
         if let Some((cx, cy)) = state.ai_ui.input_state().screen_cursor() {
@@ -913,7 +906,7 @@ fn event(
         if matches!(code, KeyCode::Tab) {
           log::debug!(
             "Tab pressed - conversation focused: {}, input focused: {}, shift: {}",
-            state.focus_conversation.get(),
+            state.ai_ui.conversation_focus().get(),
             state.ai_ui.input_focus().get(),
             modifiers.contains(KeyModifiers::SHIFT)
           );
@@ -922,9 +915,9 @@ fn event(
             match_focus!(
               state.ai_ui.input_focus() => {
                 log::debug!("Shift-Tab: switching from input to conversation");
-                ctx.focus().focus(&state.focus_conversation);
+                ctx.focus().focus(state.ai_ui.conversation_focus());
               },
-              state.focus_conversation => {
+              state.ai_ui.conversation_focus() => {
                 log::debug!("Shift-Tab: switching from conversation to input");
                 ctx.focus().focus(state.ai_ui.input_state());
               }
@@ -932,19 +925,19 @@ fn event(
           } else {
             // Tab: next focus
             match_focus!(
-              state.focus_conversation => {
+              state.ai_ui.conversation_focus() => {
                 log::debug!("Tab: switching from conversation to input");
                 ctx.focus().focus(state.ai_ui.input_state());
               },
               state.ai_ui.input_focus() => {
                 log::debug!("Tab: switching from input to conversation");
-                ctx.focus().focus(&state.focus_conversation);
+                ctx.focus().focus(state.ai_ui.conversation_focus());
               }
             );
           }
           log::debug!(
             "After Tab - conversation focused: {}, input focused: {}",
-            state.focus_conversation.get(),
+            state.ai_ui.conversation_focus().get(),
             state.ai_ui.input_focus().get()
           );
           break 'm Control::Changed;
@@ -998,38 +991,32 @@ fn event(
         // Route events based on focus
         log::debug!(
           "Key event with AI visible - conversation focused: {}, input focused: {}, key: {:?}",
-          state.focus_conversation.get(),
+          state.ai_ui.conversation_focus().get(),
           state.ai_ui.input_focus().get(),
           code
         );
 
-        if state.focus_conversation.get() {
-          // Conversation is focused - handle scrolling
-          log::debug!("Conversation is focused, handling key: {:?}", code);
-          if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
-            log::debug!("Up arrow pressed in conversation - scrolling up");
-            if let Some(ref ai_process_arc) = state.ai_process {
-              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-                ai_process.scroll_up(1);
+        if state.ai_ui.conversation_focus().get() {
+          // Conversation is focused - use Clipper's built-in event handler
+          log::debug!(
+            "Conversation is focused, dispatching to Clipper event handler: {:?}",
+            code
+          );
+          let outcome = HandleEvent::handle(
+            state.ai_ui.conversation_state(),
+            &Event::Key(KeyEvent::new(*code, *modifiers)),
+            Regular,
+          );
+
+          return Ok(match outcome {
+            Outcome::Changed => Control::Changed,
+            _ => {
+              if shell_changed {
+                Control::Changed
+              } else {
+                Control::Continue
               }
             }
-            return Ok(Control::Changed);
-          } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
-          {
-            log::debug!("Down arrow pressed in conversation - scrolling down");
-            if let Some(ref ai_process_arc) = state.ai_process {
-              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-                ai_process.scroll_down(1);
-              }
-            }
-            return Ok(Control::Changed);
-          }
-          // Conversation is read-only, ignore other keys
-          log::debug!("Ignoring key in focused conversation");
-          return Ok(if shell_changed {
-            Control::Changed
-          } else {
-            Control::Continue
           });
         } else if state.ai_ui.input_focus().get() {
           // Input is focused
@@ -1136,47 +1123,17 @@ fn event(
       use crossterm::event::MouseEventKind;
 
       if state.ai_visible {
-        // AI modal is visible - handle scroll and click events
-        match mouse.kind {
-          MouseEventKind::ScrollUp => {
-            // Scroll up in conversation or error dialog
-            if let Some(ref ai_process_arc) = state.ai_process {
-              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-                if ai_process.error_message().is_some() {
-                  // Error dialog is shown - scroll it
-                  ai_process.error_scroll_up(3);
-                } else {
-                  // No error dialog - scroll conversation
-                  ai_process.scroll_up(3);
-                }
-              }
-            }
-            Control::Changed
-          }
-          MouseEventKind::ScrollDown => {
-            // Scroll down in conversation or error dialog
-            if let Some(ref ai_process_arc) = state.ai_process {
-              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-                if ai_process.error_message().is_some() {
-                  // Error dialog is shown - scroll it
-                  ai_process.error_scroll_down(3);
-                } else {
-                  // No error dialog - scroll conversation
-                  ai_process.scroll_down(3);
-                }
-              }
-            }
-            Control::Changed
-          }
-          MouseEventKind::Down(_button) => {
-            // Mouse click - could implement focus changes based on position
-            // For now, just consume the event
-            Control::Continue
-          }
-          _ => {
-            // Other mouse events - consume them
-            Control::Continue
-          }
+        // AI modal is visible - use Clipper's built-in mouse handler
+        // Clipper handles scroll events, dragging, etc. automatically
+        let outcome = HandleEvent::handle(
+          state.ai_ui.conversation_state(),
+          &Event::Mouse(*mouse),
+          rat_event::MouseOnly,
+        );
+
+        match outcome {
+          Outcome::Changed => Control::Changed,
+          _ => Control::Continue,
         }
       } else {
         // AI modal not visible
@@ -1316,7 +1273,7 @@ fn event(
       // Rebuild focus after render to track widget positions
       if state.ai_visible {
         let mut builder = FocusBuilder::default();
-        builder.widget(&state.focus_conversation);
+        builder.widget(state.ai_ui.conversation_state());
         builder.widget(state.ai_ui.input_state()); // Use widget's built-in focus
         let focus = builder.build();
         ctx.set_focus(focus);
