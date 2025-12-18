@@ -14,3 +14,6 @@ terminai_*.log
 
 # Environment variables
 .env
+
+# Vim
+.*.swp
