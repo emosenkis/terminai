@@ -1091,25 +1091,60 @@ fn event(
     AppEvent::Crossterm(Event::Mouse(mouse)) => {
       use crossterm::event::MouseEventKind;
 
-      // Filter out scroll events to allow native terminal scrollback
-      // This matches the old code's behavior
-      if matches!(
-        mouse.kind,
-        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-      ) {
-        // Don't consume scroll events - let the terminal handle them for native scrollback
-        log::trace!("Ignoring scroll event for native scrollback");
-        Control::Continue
+      if state.ai_visible {
+        // AI modal is visible - handle scroll and click events
+        match mouse.kind {
+          MouseEventKind::ScrollUp => {
+            // Scroll up in conversation or error dialog
+            if let Some(ref ai_process_arc) = state.ai_process {
+              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+                if ai_process.error_message().is_some() {
+                  // Error dialog is shown - scroll it
+                  ai_process.error_scroll_up(3);
+                } else {
+                  // No error dialog - scroll conversation
+                  ai_process.scroll_up(3);
+                }
+              }
+            }
+            Control::Changed
+          }
+          MouseEventKind::ScrollDown => {
+            // Scroll down in conversation or error dialog
+            if let Some(ref ai_process_arc) = state.ai_process {
+              if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+                if ai_process.error_message().is_some() {
+                  // Error dialog is shown - scroll it
+                  ai_process.error_scroll_down(3);
+                } else {
+                  // No error dialog - scroll conversation
+                  ai_process.scroll_down(3);
+                }
+              }
+            }
+            Control::Changed
+          }
+          MouseEventKind::Down(_button) => {
+            // Mouse click - could implement focus changes based on position
+            // For now, just consume the event
+            Control::Continue
+          }
+          _ => {
+            // Other mouse events - consume them
+            Control::Continue
+          }
+        }
       } else {
-        // Convert crossterm mouse event to our MouseEvent type
-
-        if state.ai_visible {
-          // AI overlay is visible - handle mouse for UI interaction
-          // TODO: Implement focus changes based on click position
-          // For now, just consume the event without action
+        // AI modal not visible
+        if matches!(
+          mouse.kind,
+          MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        ) {
+          // Allow native terminal scrollback
+          log::trace!("Passing scroll event to native terminal scrollback");
           Control::Continue
         } else {
-          // AI overlay not visible - pass through to shell
+          // Pass other mouse events to shell
           let mouse_event = MouseEvent::from_crossterm(*mouse);
           state.shell.send_mouse(mouse_event)?;
           Control::Continue

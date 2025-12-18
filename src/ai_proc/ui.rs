@@ -168,6 +168,16 @@ impl<'a> AIChatUI<'a> {
       Color::DarkGray
     };
 
+    // Calculate scroll position
+    // Note: process.scroll_offset() = 0 means "at bottom" (most recent)
+    // But Paragraph's scroll parameter works opposite: 0 = top, max = bottom
+    // So we need to invert: paragraph_scroll = max_scroll - scroll_offset
+    let content_height = messages.len();
+    let view_height = content_area.height.saturating_sub(2) as usize; // Subtract borders
+    let max_scroll = content_height.saturating_sub(view_height);
+    let scroll_offset = process.scroll_offset() as usize;
+    let paragraph_scroll = max_scroll.saturating_sub(scroll_offset);
+
     let paragraph = Paragraph::new(messages.clone())
       .block(
         Block::default()
@@ -176,16 +186,11 @@ impl<'a> AIChatUI<'a> {
           .style(Style::default().fg(border_color).bg(Color::Black)),
       )
       .wrap(Wrap { trim: false })
-      .scroll((process.scroll_offset(), 0));
+      .scroll((paragraph_scroll as u16, 0));
 
     paragraph.render(content_area, buf);
 
     // Render scrollbar
-    let content_height = messages.len();
-    let view_height = content_area.height.saturating_sub(2) as usize; // Subtract borders
-    let scroll_offset = process.scroll_offset() as usize;
-    let max_scroll = content_height.saturating_sub(view_height);
-
     let mut scrollbar_state =
       ScrollbarState::new(max_scroll).position(scroll_offset);
     Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
