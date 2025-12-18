@@ -431,6 +431,7 @@ fn main() -> Result<()> {
     last_total_rows: rows as usize,
     has_pending_scrollback: false,
     focus_conversation: rat_focus::FocusFlag::default(),
+    we_enabled_mouse: false,
   };
 
   // Run rat-salsa event loop
@@ -500,13 +501,66 @@ struct AppState<'a> {
   ai_visible: bool,
   /// Track the total row count to detect when content scrolls off screen
   last_total_rows: usize,
-  //// Has pending scrollback lines:
+  /// Has pending scrollback lines:
   has_pending_scrollback: bool,
   /// Focus for conversation area (no widget for this, so we manage it separately)
   focus_conversation: rat_focus::FocusFlag,
+  /// Track if we (not the guest terminal) enabled mouse tracking
+  we_enabled_mouse: bool,
 }
 
 impl<'a> AppState<'a> {
+  /// Show the AI modal and enable mouse tracking if needed
+  fn show_ai_modal(&mut self) -> std::io::Result<()> {
+    if !self.ai_visible {
+      // Check if guest terminal has mouse tracking enabled
+      let guest_has_mouse = if let Ok(parser) = self.shell.vt.read() {
+        let screen = parser.screen();
+        !matches!(
+          screen.mouse_protocol_mode(),
+          crate::vt100::MouseProtocolMode::None
+        )
+      } else {
+        false
+      };
+
+      // Enable mouse tracking if guest doesn't have it
+      if !guest_has_mouse {
+        use crossterm::ExecutableCommand;
+        use crossterm::event::EnableMouseCapture;
+        use std::io::stdout;
+        stdout().execute(EnableMouseCapture)?;
+        self.we_enabled_mouse = true;
+        log::debug!("Enabled mouse tracking for AI modal");
+      } else {
+        log::debug!("Guest terminal has mouse tracking, not enabling");
+      }
+
+      self.ai_visible = true;
+    }
+    Ok(())
+  }
+
+  /// Hide the AI modal and disable mouse tracking if we enabled it
+  fn hide_ai_modal(&mut self) -> std::io::Result<()> {
+    if self.ai_visible {
+      self.ai_visible = false;
+
+      // Only disable mouse tracking if we enabled it (not the guest)
+      if self.we_enabled_mouse {
+        use crossterm::ExecutableCommand;
+        use crossterm::event::DisableMouseCapture;
+        use std::io::stdout;
+        stdout().execute(DisableMouseCapture)?;
+        self.we_enabled_mouse = false;
+        log::debug!("Disabled mouse tracking after hiding AI modal");
+      } else {
+        log::debug!("Not disabling mouse tracking (guest has it enabled)");
+      }
+    }
+    Ok(())
+  }
+
   /// Extract terminal context from shell for AI
   fn extract_context(&self) -> TerminalContext {
     use std::path::PathBuf;
@@ -811,12 +865,18 @@ fn event(
         (KeyCode::Char(' '), KeyModifiers::CONTROL)
       ) {
         // Ctrl-Space: toggle AI overlay
-        state.ai_visible = !state.ai_visible;
-        log::info!("AI overlay toggled: {}", state.ai_visible);
+        if state.ai_visible {
+          state.hide_ai_modal()?;
+          log::info!("AI overlay hidden");
+        } else {
+          state.show_ai_modal()?;
+          log::info!("AI overlay shown");
+        }
         Control::Changed
       } else if matches!(code, KeyCode::Esc) && state.ai_visible {
         // ESC: close AI overlay
-        state.ai_visible = false;
+        state.hide_ai_modal()?;
+        log::info!("AI overlay closed with Esc");
         Control::Changed
       } else if !state.ai_visible {
         // Route to shell when AI overlay not visible
