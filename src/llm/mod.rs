@@ -4,5 +4,5 @@ pub mod client;
 pub mod prompts;
 pub mod providers;
 
-pub use client::{LLMClient, TerminalContext};
+pub use client::{ChatMessage, LLMClient, TerminalContext};
 pub use providers::Provider;

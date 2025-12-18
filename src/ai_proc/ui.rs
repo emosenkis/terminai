@@ -193,7 +193,7 @@ impl<'a> AIChatUI<'a> {
     buf: &mut Buffer,
   ) {
     let title = if process.is_sending() {
-      " Sending message... "
+      " Sending message... (please wait) "
     } else {
       " Your Message (Ctrl+Space to toggle, Enter to send) "
     };

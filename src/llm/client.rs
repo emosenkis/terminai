@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use genai::Client;
-use genai::chat::{ChatMessage, ChatRequest};
+use futures::stream::{Stream, StreamExt};
 use std::path::PathBuf;
+use std::pin::Pin;
 
 use super::prompts;
 use super::providers::Provider;
@@ -36,11 +36,40 @@ impl TerminalContext {
   }
 }
 
+/// Simple message structure for conversation history
+#[derive(Debug, Clone)]
+pub struct ChatMessage {
+  pub role: String,
+  pub content: String,
+}
+
+impl ChatMessage {
+  pub fn system(content: impl Into<String>) -> Self {
+    Self {
+      role: "system".to_string(),
+      content: content.into(),
+    }
+  }
+
+  pub fn user(content: impl Into<String>) -> Self {
+    Self {
+      role: "user".to_string(),
+      content: content.into(),
+    }
+  }
+
+  pub fn assistant(content: impl Into<String>) -> Self {
+    Self {
+      role: "assistant".to_string(),
+      content: content.into(),
+    }
+  }
+}
+
 /// LLM client for interacting with various AI providers
 pub struct LLMClient {
-  client: Client,
   provider: Provider,
-  model: String,
+  model_name: String,
   custom_endpoint: Option<String>,
 }
 
@@ -56,91 +85,17 @@ impl LLMClient {
     model: Option<String>,
     custom_endpoint: Option<String>,
   ) -> Result<Self> {
-    let model = model.unwrap_or_else(|| provider.default_model().to_string());
-
-    // Initialize genai client with custom endpoint if needed
-    let client = if let Some(ref endpoint) = custom_endpoint {
-      // For OpenRouter or custom endpoints, use a ServiceTargetResolver
-      use genai::adapter::AdapterKind;
-      use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-      use genai::{ModelIden, ServiceTarget};
-
-      let endpoint_url = endpoint.clone();
-      let provider_copy = provider;
-
-      let target_resolver = ServiceTargetResolver::from_resolver_fn(
-        move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-          let ServiceTarget { model, auth: original_auth, .. } = service_target;
-          let endpoint = Endpoint::from_owned(endpoint_url.clone());
-
-          // For OpenRouter, use OpenAI adapter kind but OPENROUTER_API_KEY
-          let (adapter_kind, auth) = match provider_copy {
-            Provider::OpenRouter => (
-              AdapterKind::OpenAI,
-              AuthData::from_env("OPENROUTER_API_KEY"),
-            ),
-            Provider::Anthropic => (
-              AdapterKind::Anthropic,
-              AuthData::from_env("ANTHROPIC_API_KEY"),
-            ),
-            Provider::OpenAI => (
-              AdapterKind::OpenAI,
-              AuthData::from_env("OPENAI_API_KEY"),
-            ),
-            Provider::Gemini => (
-              AdapterKind::Gemini,
-              AuthData::from_env("GOOGLE_API_KEY"),
-            ),
-            Provider::Ollama => {
-              // Ollama doesn't need an API key
-              (AdapterKind::Ollama, original_auth)
-            }
-          };
-
-          let model = ModelIden::new(adapter_kind, model.model_name);
-          Ok(ServiceTarget { endpoint, auth, model })
-        },
-      );
-
-      let mut builder =
-        Client::builder().with_service_target_resolver(target_resolver);
-
-      // OpenRouter requires specific headers
-      if provider == Provider::OpenRouter {
-        use genai::WebConfig;
-        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-
-        let mut headers = HeaderMap::new();
-        // OpenRouter requires Referer header (note: intentionally misspelled in HTTP spec)
-        headers.insert(
-          reqwest::header::REFERER,
-          HeaderValue::from_static("https://github.com/emosenkis/termin.ai"),
-        );
-        // Optional: X-Title for display in OpenRouter dashboard
-        headers.insert(
-          HeaderName::from_static("x-title"),
-          HeaderValue::from_static("Termin.AI"),
-        );
-
-        log::info!("Adding OpenRouter headers: Referer, X-Title");
-        let web_config = WebConfig::default().with_default_headers(headers);
-        builder = builder.with_web_config(web_config);
-      }
-
-      builder.build()
-    } else {
-      Client::default()
-    };
+    let model_name =
+      model.unwrap_or_else(|| provider.default_model().to_string());
 
     Ok(Self {
-      client,
       provider,
-      model,
+      model_name,
       custom_endpoint,
     })
   }
 
-  /// Send a chat message with terminal context
+  /// Send a chat message with terminal context (non-streaming)
   pub async fn send_message(
     &self,
     user_message: &str,
@@ -156,56 +111,86 @@ impl LLMClient {
 
     let full_message = format!("{}\n\n{}", context_str, user_message);
 
-    // Build chat request
-    let mut messages = Vec::new();
+    // Build preamble from system messages and history
+    let mut preamble_parts = vec![prompts::system_prompt().to_string()];
 
-    // Add system prompt
-    messages.push(ChatMessage::system(prompts::system_prompt()));
+    // Add conversation history to preamble
+    for msg in conversation_history {
+      match msg.role.as_str() {
+        "user" => preamble_parts.push(format!("User: {}", msg.content)),
+        "assistant" => {
+          preamble_parts.push(format!("Assistant: {}", msg.content))
+        }
+        _ => {}
+      }
+    }
 
-    // Add conversation history
-    messages.extend_from_slice(conversation_history);
+    let preamble = preamble_parts.join("\n\n");
 
-    // Add current message
-    messages.push(ChatMessage::user(full_message));
+    // Use provider-specific client
+    use rig::client::CompletionClient;
+    use rig::completion::Prompt;
 
-    let chat_req = ChatRequest::new(messages);
-
-    // Send request based on provider
     let response = match self.provider {
-      Provider::Anthropic => self
-        .client
-        .exec_chat(&self.model, chat_req, None)
-        .await
-        .context("Failed to send message to Anthropic")?,
-      Provider::OpenAI => self
-        .client
-        .exec_chat(&self.model, chat_req, None)
-        .await
-        .context("Failed to send message to OpenAI")?,
-      Provider::Gemini => self
-        .client
-        .exec_chat(&self.model, chat_req, None)
-        .await
-        .context("Failed to send message to Gemini")?,
-      Provider::Ollama => self
-        .client
-        .exec_chat(&self.model, chat_req, None)
-        .await
-        .context("Failed to send message to Ollama")?,
-      Provider::OpenRouter => self
-        .client
-        .exec_chat(&self.model, chat_req, None)
-        .await
-        .context("Failed to send message to OpenRouter")?,
+      Provider::Anthropic => {
+        use rig::providers::anthropic;
+        let api_key = std::env::var("ANTHROPIC_API_KEY")
+          .context("ANTHROPIC_API_KEY environment variable not set")?;
+        let client: anthropic::Client = anthropic::Client::new(&api_key)?;
+        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        agent
+          .prompt(&full_message)
+          .await
+          .context("Failed to send message to Anthropic")?
+      }
+      Provider::OpenAI => {
+        use rig::providers::openai;
+        let api_key = std::env::var("OPENAI_API_KEY")
+          .context("OPENAI_API_KEY environment variable not set")?;
+        let client: openai::Client = openai::Client::new(&api_key)?;
+        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        agent
+          .prompt(&full_message)
+          .await
+          .context("Failed to send message to OpenAI")?
+      }
+      Provider::Gemini => {
+        use rig::providers::gemini;
+        let api_key = std::env::var("GOOGLE_API_KEY")
+          .context("GOOGLE_API_KEY environment variable not set")?;
+        let client: gemini::Client = gemini::Client::new(&api_key)?;
+        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        agent
+          .prompt(&full_message)
+          .await
+          .context("Failed to send message to Gemini")?
+      }
+      Provider::Ollama => {
+        use rig::client::Nothing;
+        use rig::providers::ollama;
+        // Ollama runs locally without API key - use Nothing as API key
+        let client: ollama::Client =
+          ollama::Client::builder().api_key(Nothing).build()?;
+        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        agent
+          .prompt(&full_message)
+          .await
+          .context("Failed to send message to Ollama")?
+      }
+      Provider::OpenRouter => {
+        use rig::providers::openrouter;
+        let api_key = std::env::var("OPENROUTER_API_KEY")
+          .context("OPENROUTER_API_KEY environment variable not set")?;
+        let client: openrouter::Client = openrouter::Client::new(&api_key)?;
+        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        agent
+          .prompt(&full_message)
+          .await
+          .context("Failed to send message to OpenRouter")?
+      }
     };
 
-    // Extract text from response
-    let text = response
-      .first_text()
-      .context("No text in response")?
-      .to_string();
-
-    Ok(text)
+    Ok(response)
   }
 
   /// Send a message and stream the response
@@ -214,9 +199,7 @@ impl LLMClient {
     user_message: &str,
     context: &TerminalContext,
     conversation_history: &[ChatMessage],
-  ) -> Result<impl futures::Stream<Item = Result<String>>> {
-    use futures::stream::StreamExt;
-
+  ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
     // Build the full prompt with context
     let context_str = prompts::format_context(
       &context.history_lines,
@@ -226,63 +209,137 @@ impl LLMClient {
 
     let full_message = format!("{}\n\n{}", context_str, user_message);
 
-    // Build chat request
-    let mut messages = Vec::new();
+    // Build preamble from system messages and history
+    let mut preamble_parts = vec![prompts::system_prompt().to_string()];
 
-    // Add system prompt
-    messages.push(ChatMessage::system(prompts::system_prompt()));
+    // Add conversation history to preamble
+    for msg in conversation_history {
+      match msg.role.as_str() {
+        "user" => preamble_parts.push(format!("User: {}", msg.content)),
+        "assistant" => {
+          preamble_parts.push(format!("Assistant: {}", msg.content))
+        }
+        _ => {}
+      }
+    }
 
-    // Add conversation history
-    messages.extend_from_slice(conversation_history);
+    let preamble = preamble_parts.join("\n\n");
 
-    // Add current message
-    messages.push(ChatMessage::user(full_message));
+    // Use provider-specific client and convert each to common stream type
+    use rig::client::CompletionClient;
+    use rig::streaming::StreamingPrompt;
 
-    let chat_req = ChatRequest::new(messages);
+    // Create the streaming agent based on provider and convert to common type
+    let text_stream: Pin<Box<dyn Stream<Item = Result<String>> + Send>> =
+      match self.provider {
+        Provider::Anthropic => {
+          use rig::providers::anthropic;
+          use rig::streaming::StreamedAssistantContent;
+          let api_key = std::env::var("ANTHROPIC_API_KEY")
+            .context("ANTHROPIC_API_KEY environment variable not set")?;
+          let client: anthropic::Client = anthropic::Client::new(&api_key)?;
+          let agent =
+            client.agent(&self.model_name).preamble(&preamble).build();
+          let stream = agent.stream_prompt(&full_message).await;
+          Box::pin(stream.map(|result| {
+            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
+              use rig::agent::MultiTurnStreamItem;
+              match item {
+                MultiTurnStreamItem::StreamAssistantItem(
+                  StreamedAssistantContent::Text(text),
+                ) => Ok(text.text),
+                _ => Ok(String::new()),
+              }
+            })
+          }))
+        }
+        Provider::OpenAI => {
+          use rig::providers::openai;
+          use rig::streaming::StreamedAssistantContent;
+          let api_key = std::env::var("OPENAI_API_KEY")
+            .context("OPENAI_API_KEY environment variable not set")?;
+          let client: openai::Client = openai::Client::new(&api_key)?;
+          let agent =
+            client.agent(&self.model_name).preamble(&preamble).build();
+          let stream = agent.stream_prompt(&full_message).await;
+          Box::pin(stream.map(|result| {
+            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
+              use rig::agent::MultiTurnStreamItem;
+              match item {
+                MultiTurnStreamItem::StreamAssistantItem(
+                  StreamedAssistantContent::Text(text),
+                ) => Ok(text.text),
+                _ => Ok(String::new()),
+              }
+            })
+          }))
+        }
+        Provider::Gemini => {
+          use rig::providers::gemini;
+          use rig::streaming::StreamedAssistantContent;
+          let api_key = std::env::var("GOOGLE_API_KEY")
+            .context("GOOGLE_API_KEY environment variable not set")?;
+          let client: gemini::Client = gemini::Client::new(&api_key)?;
+          let agent =
+            client.agent(&self.model_name).preamble(&preamble).build();
+          let stream = agent.stream_prompt(&full_message).await;
+          Box::pin(stream.map(|result| {
+            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
+              use rig::agent::MultiTurnStreamItem;
+              match item {
+                MultiTurnStreamItem::StreamAssistantItem(
+                  StreamedAssistantContent::Text(text),
+                ) => Ok(text.text),
+                _ => Ok(String::new()),
+              }
+            })
+          }))
+        }
+        Provider::Ollama => {
+          use rig::client::Nothing;
+          use rig::providers::ollama;
+          use rig::streaming::StreamedAssistantContent;
+          let client: ollama::Client =
+            ollama::Client::builder().api_key(Nothing).build()?;
+          let agent =
+            client.agent(&self.model_name).preamble(&preamble).build();
+          let stream = agent.stream_prompt(&full_message).await;
+          Box::pin(stream.map(|result| {
+            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
+              use rig::agent::MultiTurnStreamItem;
+              match item {
+                MultiTurnStreamItem::StreamAssistantItem(
+                  StreamedAssistantContent::Text(text),
+                ) => Ok(text.text),
+                _ => Ok(String::new()),
+              }
+            })
+          }))
+        }
+        Provider::OpenRouter => {
+          use rig::providers::openrouter;
+          use rig::streaming::StreamedAssistantContent;
+          let api_key = std::env::var("OPENROUTER_API_KEY")
+            .context("OPENROUTER_API_KEY environment variable not set")?;
+          let client: openrouter::Client = openrouter::Client::new(&api_key)?;
+          let agent =
+            client.agent(&self.model_name).preamble(&preamble).build();
+          let stream = agent.stream_prompt(&full_message).await;
+          Box::pin(stream.map(|result| {
+            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
+              use rig::agent::MultiTurnStreamItem;
+              match item {
+                MultiTurnStreamItem::StreamAssistantItem(
+                  StreamedAssistantContent::Text(text),
+                ) => Ok(text.text),
+                _ => Ok(String::new()),
+              }
+            })
+          }))
+        }
+      };
 
-    // Send streaming request based on provider
-    let stream_response = match self.provider {
-      Provider::Anthropic => self
-        .client
-        .exec_chat_stream(&self.model, chat_req, None)
-        .await
-        .context("Failed to stream message from Anthropic")?,
-      Provider::OpenAI => self
-        .client
-        .exec_chat_stream(&self.model, chat_req, None)
-        .await
-        .context("Failed to stream message from OpenAI")?,
-      Provider::Gemini => self
-        .client
-        .exec_chat_stream(&self.model, chat_req, None)
-        .await
-        .context("Failed to stream message from Gemini")?,
-      Provider::Ollama => self
-        .client
-        .exec_chat_stream(&self.model, chat_req, None)
-        .await
-        .context("Failed to stream message from Ollama")?,
-      Provider::OpenRouter => self
-        .client
-        .exec_chat_stream(&self.model, chat_req, None)
-        .await
-        .context("Failed to stream message from OpenRouter")?,
-    };
-
-    // Convert the ChatStream to a stream of strings
-    use genai::chat::ChatStreamEvent;
-
-    Ok(stream_response.stream.map(|result| {
-      result
-        .map(|event| match event {
-          ChatStreamEvent::Chunk(chunk) => chunk.content,
-          ChatStreamEvent::ReasoningChunk(chunk) => chunk.content,
-          ChatStreamEvent::ToolCallChunk(_) => String::new(), // Ignore tool call chunks for now
-          ChatStreamEvent::Start => String::new(),
-          ChatStreamEvent::End(_) => String::new(),
-        })
-        .map_err(|e| anyhow::Error::from(e))
-    }))
+    Ok(text_stream)
   }
 
   pub fn provider(&self) -> Provider {
@@ -290,7 +347,7 @@ impl LLMClient {
   }
 
   pub fn model(&self) -> &str {
-    &self.model
+    &self.model_name
   }
 }
 
@@ -316,5 +373,20 @@ mod tests {
     let ctx = TerminalContext::empty(PathBuf::from("/home"));
     assert!(ctx.history_lines.is_empty());
     assert!(ctx.last_exit_code.is_none());
+  }
+
+  #[test]
+  fn test_chat_message_creation() {
+    let msg = ChatMessage::user("Hello");
+    assert_eq!(msg.role, "user");
+    assert_eq!(msg.content, "Hello");
+
+    let msg = ChatMessage::assistant("Hi there");
+    assert_eq!(msg.role, "assistant");
+    assert_eq!(msg.content, "Hi there");
+
+    let msg = ChatMessage::system("You are a helpful assistant");
+    assert_eq!(msg.role, "system");
+    assert_eq!(msg.content, "You are a helpful assistant");
   }
 }

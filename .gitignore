@@ -17,3 +17,6 @@ terminai_*.log
 
 # Vim
 .*.swp
+
+# Dependencies for reference
+/deps

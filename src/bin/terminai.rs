@@ -686,10 +686,11 @@ fn render(
       let cursor_pos = (area.x + cursor.1, area.y + cursor.0);
       log::trace!("Setting cursor position: {:?}", cursor_pos);
       ctx.set_screen_cursor(Some(cursor_pos));
-    } else {
-      // Hide cursor when AI overlay is visible
+    } else if !state.ai_visible {
+      // Hide cursor when AI overlay is not visible but cursor should be hidden
       ctx.set_screen_cursor(None);
     }
+    // If AI is visible, cursor will be set after rendering the AI UI (see below)
   } else {
     log::warn!("Failed to acquire shell vt read lock");
   }
@@ -715,6 +716,13 @@ fn render(
           buf,
           &state.focus_conversation,
         );
+
+        // Show cursor in input area when it has focus
+        if let Some((cx, cy)) = state.ai_ui.input_state().screen_cursor() {
+          ctx.set_screen_cursor(Some((cx, cy)));
+        } else {
+          ctx.set_screen_cursor(None);
+        }
       } else {
         // Lock is held (AI is processing) - render loading state
         let message = Paragraph::new("Processing... (AI is thinking)").block(
@@ -724,6 +732,7 @@ fn render(
             .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
         );
         message.render(overlay_area, buf);
+        ctx.set_screen_cursor(None);
       }
     } else {
       // Show "not configured" message
@@ -741,6 +750,7 @@ fn render(
       .style(Style::default().fg(Color::White));
 
       message.render(overlay_area, buf);
+      ctx.set_screen_cursor(None);
     }
   }
 

@@ -82,9 +82,8 @@ rustix = { version = "1", features = ["all-apis"] }
 signal-hook = "0.3"
 
 # TERMIN.AI: LLM client dependencies
-genai = "0.4.4"
 regex = "1.10"
-reqwest = { version = "0.12", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 dotenvy = "0.15"
 tui-markdown = "0.3"
 tui-textarea = "0.7.0"
@@ -98,6 +97,7 @@ rat-scrolled = { path = "../rat-salsa/rat-scrolled" }
 rat-theme4 = { path = "../rat-salsa/rat-theme4" }
 rat-text = { path = "../rat-salsa/rat-text" }
 rig-core = "0.27.0"
+async-stream = "0.3"
 
 [target."cfg(unix)".dependencies]
 daemonize = "0.5.0"

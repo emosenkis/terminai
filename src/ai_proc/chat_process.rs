@@ -1,9 +1,8 @@
 use anyhow::Result;
-use genai::chat::ChatMessage;
 use std::sync::Arc;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
-use crate::llm::{LLMClient, Provider};
+use crate::llm::{ChatMessage, LLMClient, Provider};
 use crate::privacy::PrivacyFilter;
 
 /// Message in the chat conversation
@@ -112,7 +111,7 @@ impl AIChatProcess {
       last_exit_code: context.last_exit_code,
     };
 
-    // Convert conversation to genai format
+    // Convert conversation to ChatMessage format
     let history: Vec<ChatMessage> = self
       .conversation
       .iter()

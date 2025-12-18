@@ -24,6 +24,17 @@ impl Provider {
     }
   }
 
+  /// Get the provider name for use with rig's DynClient
+  pub fn provider_name(&self) -> &str {
+    match self {
+      Provider::Anthropic => "anthropic",
+      Provider::OpenAI => "openai",
+      Provider::Gemini => "gemini",
+      Provider::Ollama => "ollama",
+      Provider::OpenRouter => "openrouter",
+    }
+  }
+
   /// Get the environment variable name for the API key
   pub fn api_key_env(&self) -> Option<&str> {
     match self {
