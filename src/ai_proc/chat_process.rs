@@ -32,6 +32,8 @@ pub struct AIChatProcess {
   error_scroll_offset: u16,
   is_sending: bool,
   scroll_offset: u16,
+  /// Streaming response in progress (not yet in conversation history)
+  streaming_response: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +70,7 @@ impl AIChatProcess {
       error_scroll_offset: 0,
       is_sending: false,
       scroll_offset: 0,
+      streaming_response: None,
     })
   }
 
@@ -126,30 +129,58 @@ impl AIChatProcess {
       })
       .collect();
 
-    // Send to LLM
-    let result = self
+    // Send to LLM with streaming
+    let stream_result = self
       .llm_client
-      .send_message(&user_message, &filtered_context, &history)
+      .send_message_stream(&user_message, &filtered_context, &history)
       .await;
 
-    // Always clear sending state, whether success or error
-    self.is_sending = false;
+    match stream_result {
+      Ok(mut stream) => {
+        use futures::stream::StreamExt;
 
-    // Handle the result
-    match result {
-      Ok(response) => {
+        // Initialize streaming response
+        self.streaming_response = Some(String::new());
+        let mut full_response = String::new();
+
+        // Process stream tokens
+        while let Some(token_result) = stream.next().await {
+          match token_result {
+            Ok(token) => {
+              full_response.push_str(&token);
+              // Update streaming response for UI
+              self.streaming_response = Some(full_response.clone());
+            }
+            Err(e) => {
+              // Stream error - clear states and return error
+              self.is_sending = false;
+              self.streaming_response = None;
+              return Err(e);
+            }
+          }
+        }
+
+        // Stream complete - clear streaming state and add to conversation
+        self.streaming_response = None;
+        self.is_sending = false;
+
         // Add assistant response to conversation
         self.conversation.push(Message {
           role: MessageRole::Assistant,
-          content: response.clone(),
+          content: full_response.clone(),
         });
 
         // Check for commands in response
-        self.check_for_commands(&response, None);
+        self.check_for_commands(&full_response, None);
 
         Ok(())
       }
-      Err(e) => Err(e),
+      Err(e) => {
+        // Connection/setup error - clear sending state and return error
+        self.is_sending = false;
+        self.streaming_response = None;
+        Err(e)
+      }
     }
   }
 
@@ -241,6 +272,11 @@ impl AIChatProcess {
     self.scroll_offset
   }
 
+  /// Get the streaming response in progress (if any)
+  pub fn streaming_response(&self) -> Option<&str> {
+    self.streaming_response.as_deref()
+  }
+
   /// Scroll up in the conversation
   pub fn scroll_up(&mut self, amount: u16) {
     self.scroll_offset = self.scroll_offset.saturating_add(amount);
@@ -279,6 +315,7 @@ mod tests {
       error_scroll_offset: 0,
       is_sending: false,
       scroll_offset: 0,
+      streaming_response: None,
     };
 
     assert!(!process.is_active());

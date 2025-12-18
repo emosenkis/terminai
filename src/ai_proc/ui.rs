@@ -89,7 +89,7 @@ impl<'a> AIChatUI<'a> {
     let content_area = chunks[0];
     let scrollbar_area = chunks[1];
 
-    let messages: Vec<Line> = process
+    let mut messages: Vec<Line> = process
       .conversation()
       .iter()
       .flat_map(|msg| {
@@ -135,6 +135,31 @@ impl<'a> AIChatUI<'a> {
         lines
       })
       .collect();
+
+    // Add streaming response if in progress
+    if let Some(streaming) = process.streaming_response() {
+      let prefix = "AI: ";
+      let style = Style::default()
+        .fg(Color::Green)
+        .add_modifier(Modifier::BOLD);
+
+      messages.push(Line::from(Span::styled(prefix, style)));
+
+      // Render streaming response as markdown
+      let md_text = from_str(streaming);
+      messages.extend(md_text.lines.into_iter().map(Line::from));
+
+      // Add empty line
+      messages.push(Line::from(""));
+
+      // Add typing indicator
+      messages.push(Line::from(Span::styled(
+        "▌",
+        Style::default()
+          .fg(Color::Green)
+          .add_modifier(Modifier::BOLD),
+      )));
+    }
 
     // Use bright cyan border when focused, dim white when not
     let border_color = if focus.get() {
