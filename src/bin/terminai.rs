@@ -894,19 +894,42 @@ fn event(
         // AI overlay is visible - handle focus navigation and input
         // Handle Tab/Shift-Tab for focus cycling (Phase 5)
         if matches!(code, KeyCode::Tab) {
+          log::debug!(
+            "Tab pressed - conversation focused: {}, input focused: {}, shift: {}",
+            state.focus_conversation.get(),
+            state.ai_ui.input_focus().get(),
+            modifiers.contains(KeyModifiers::SHIFT)
+          );
           if modifiers.contains(KeyModifiers::SHIFT) {
             // Shift-Tab: previous focus
             match_focus!(
-              state.ai_ui.input_focus() => { state.focus_conversation.focus(); },
-              state.focus_conversation => { state.ai_ui.input_focus().focus(); }
+              state.ai_ui.input_focus() => {
+                log::debug!("Shift-Tab: switching from input to conversation");
+                state.focus_conversation.focus();
+              },
+              state.focus_conversation => {
+                log::debug!("Shift-Tab: switching from conversation to input");
+                state.ai_ui.input_focus().focus();
+              }
             );
           } else {
             // Tab: next focus
             match_focus!(
-              state.focus_conversation => { state.ai_ui.input_focus().focus(); },
-              state.ai_ui.input_focus() => { state.focus_conversation.focus(); }
+              state.focus_conversation => {
+                log::debug!("Tab: switching from conversation to input");
+                state.ai_ui.input_focus().focus();
+              },
+              state.ai_ui.input_focus() => {
+                log::debug!("Tab: switching from input to conversation");
+                state.focus_conversation.focus();
+              }
             );
           }
+          log::debug!(
+            "After Tab - conversation focused: {}, input focused: {}",
+            state.focus_conversation.get(),
+            state.ai_ui.input_focus().get()
+          );
           break 'm Control::Changed;
         } else if let Some(ref ai_process_arc) = state.ai_process {
           // Handle approval dialog with highest priority (when pending command exists)
@@ -965,7 +988,9 @@ fn event(
 
         if state.focus_conversation.get() {
           // Conversation is focused - handle scrolling
+          log::debug!("Conversation is focused, handling key: {:?}", code);
           if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
+            log::debug!("Up arrow pressed in conversation - scrolling up");
             if let Some(ref ai_process_arc) = state.ai_process {
               if let Ok(mut ai_process) = ai_process_arc.try_lock() {
                 ai_process.scroll_up(1);
@@ -974,6 +999,7 @@ fn event(
             return Ok(Control::Changed);
           } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
           {
+            log::debug!("Down arrow pressed in conversation - scrolling down");
             if let Some(ref ai_process_arc) = state.ai_process {
               if let Ok(mut ai_process) = ai_process_arc.try_lock() {
                 ai_process.scroll_down(1);
@@ -982,6 +1008,7 @@ fn event(
             return Ok(Control::Changed);
           }
           // Conversation is read-only, ignore other keys
+          log::debug!("Ignoring key in focused conversation");
           return Ok(if shell_changed {
             Control::Changed
           } else {
