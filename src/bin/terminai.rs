@@ -18,6 +18,7 @@ use tui::{
 };
 
 // rat-salsa imports
+use rat_cursor::HasScreenCursor;
 use rat_focus::{FocusBuilder, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,

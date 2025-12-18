@@ -96,6 +96,7 @@ rat-widget = { path = "../rat-salsa/rat-widget" }
 rat-scrolled = { path = "../rat-salsa/rat-scrolled" }
 rat-theme4 = { path = "../rat-salsa/rat-theme4" }
 rat-text = { path = "../rat-salsa/rat-text" }
+rat-cursor = { path = "../rat-salsa/rat-cursor" }
 rig-core = "0.27.0"
 async-stream = "0.3"
 
