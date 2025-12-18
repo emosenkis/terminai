@@ -1,0 +1,6 @@
+[submodule "ratatui"]
+	path = ratatui
+	url = https://github.com/emosenkis/ratatui.git
+[submodule "rat-salsa"]
+	path = rat-salsa
+	url = https://github.com/emosenkis/rat-salsa.git

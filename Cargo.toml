@@ -14,15 +14,8 @@ members = ["helpers/print-key", "src"]
 all = "allow"
 
 [patch.crates-io]
-ratatui = { git = "https://github.com/emosenkis/ratatui", branch = "backport/scroll-up-v0.29.0" }
-# Use forked rat-salsa with chrono-conflicting modules disabled
-rat-salsa = { git = "https://github.com/emosenkis/rat-salsa.git" }
-rat-focus = { git = "https://github.com/emosenkis/rat-salsa.git" }
-rat-event = { git = "https://github.com/emosenkis/rat-salsa.git" }
-rat-widget = { git = "https://github.com/emosenkis/rat-salsa.git" }
-rat-scrolled = { git = "https://github.com/emosenkis/rat-salsa.git" }
-rat-theme4 = { git = "https://github.com/emosenkis/rat-salsa.git" }
-rat-text = { git = "https://github.com/emosenkis/rat-salsa.git" }
+ratatui = { path = "ratatui" }
+rat-salsa = { path = "rat-salsa/rat-salsa" }
 # Use facade that re-exports crossterm 0.29 for all crossterm dependencies
 # This unifies crossterm 0.28.1 (used by ratatui) and 0.29.0 (our direct dep)
 crossterm = { path = "crossterm-0.28-facade" }
