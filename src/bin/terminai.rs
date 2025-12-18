@@ -867,9 +867,23 @@ fn event(
         }
         Control::Changed
       } else if matches!(code, KeyCode::Esc) && state.ai_visible {
-        // ESC: close AI overlay
-        state.hide_ai_modal()?;
-        log::info!("AI overlay closed with Esc");
+        // ESC: close AI overlay (but only if no error/approval dialog is shown)
+        // Check if error or approval dialog is active first
+        let has_dialog = if let Some(ref ai_process_arc) = state.ai_process {
+          if let Ok(ai_process) = ai_process_arc.try_lock() {
+            ai_process.error_message().is_some()
+              || ai_process.pending_command().is_some()
+          } else {
+            false
+          }
+        } else {
+          false
+        };
+
+        if !has_dialog {
+          state.hide_ai_modal()?;
+          log::info!("AI overlay closed with Esc");
+        }
         Control::Changed
       } else if !state.ai_visible {
         // Route to shell when AI overlay not visible

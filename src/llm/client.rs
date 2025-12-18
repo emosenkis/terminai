@@ -137,7 +137,11 @@ impl LLMClient {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
           .context("ANTHROPIC_API_KEY environment variable not set")?;
         let client: anthropic::Client = anthropic::Client::new(&api_key)?;
-        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        let agent = client
+          .agent(&self.model_name)
+          .preamble(&preamble)
+          .max_tokens(4096)
+          .build();
         agent
           .prompt(&full_message)
           .await
@@ -245,8 +249,11 @@ impl LLMClient {
           let api_key = std::env::var("ANTHROPIC_API_KEY")
             .context("ANTHROPIC_API_KEY environment variable not set")?;
           let client: anthropic::Client = anthropic::Client::new(&api_key)?;
-          let agent =
-            client.agent(&self.model_name).preamble(&preamble).build();
+          let agent = client
+            .agent(&self.model_name)
+            .preamble(&preamble)
+            .max_tokens(4096)
+            .build();
           let stream = agent.stream_prompt(&full_message).await;
           Box::pin(stream.map(|result| {
             result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
