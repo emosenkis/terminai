@@ -3,6 +3,7 @@
 pub mod client;
 pub mod prompts;
 pub mod providers;
+pub mod tools;
 
 pub use client::{ChatMessage, LLMClient, TerminalContext};
 pub use providers::Provider;

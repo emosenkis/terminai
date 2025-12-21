@@ -2,9 +2,19 @@ use anyhow::{Context, Result};
 use futures::stream::{Stream, StreamExt};
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex, RwLock};
 
 use super::prompts;
 use super::providers::Provider;
+use super::tools::{
+  GrepFilesTool, ReadFileTool, ReadScrollbackTool, SuggestCommandTool,
+  SuggestedCommand,
+};
+
+use rig::agent::MultiTurnStreamItem;
+use rig::client::CompletionClient;
+use rig::completion::Prompt;
+use rig::streaming::{StreamedAssistantContent, StreamingPrompt};
 
 /// Terminal context passed to the LLM
 #[derive(Debug, Clone)]
@@ -71,6 +81,10 @@ pub struct LLMClient {
   provider: Provider,
   model_name: String,
   custom_endpoint: Option<String>,
+  // Tool state
+  cwd: Arc<RwLock<PathBuf>>,
+  suggested_commands: Arc<Mutex<Vec<SuggestedCommand>>>,
+  scrollback_buffer: Arc<RwLock<Vec<String>>>,
 }
 
 impl LLMClient {
@@ -92,29 +106,58 @@ impl LLMClient {
       provider,
       model_name,
       custom_endpoint,
+      cwd: Arc::new(RwLock::new(PathBuf::from("."))),
+      suggested_commands: Arc::new(Mutex::new(Vec::new())),
+      scrollback_buffer: Arc::new(RwLock::new(Vec::new())),
     })
   }
 
-  /// Send a chat message with terminal context (non-streaming)
-  pub async fn send_message(
+  /// Set the current working directory for file operations
+  pub fn set_cwd(&self, cwd: PathBuf) -> Result<()> {
+    *self
+      .cwd
+      .write()
+      .map_err(|_| anyhow::anyhow!("Failed to acquire cwd lock"))? = cwd;
+    Ok(())
+  }
+
+  /// Update the scrollback buffer
+  pub fn update_scrollback(&self, lines: Vec<String>) -> Result<()> {
+    *self
+      .scrollback_buffer
+      .write()
+      .map_err(|_| anyhow::anyhow!("Failed to acquire scrollback lock"))? =
+      lines;
+    Ok(())
+  }
+
+  /// Get and clear suggested commands
+  pub fn take_suggested_commands(&self) -> Result<Vec<SuggestedCommand>> {
+    let mut commands = self
+      .suggested_commands
+      .lock()
+      .map_err(|_| anyhow::anyhow!("Failed to acquire commands lock"))?;
+    Ok(std::mem::take(&mut *commands))
+  }
+
+  /// Build the full message with context
+  fn build_full_message(
     &self,
     user_message: &str,
     context: &TerminalContext,
-    conversation_history: &[ChatMessage],
-  ) -> Result<String> {
-    // Build the full prompt with context
+  ) -> String {
     let context_str = prompts::format_context(
       &context.history_lines,
       &context.cwd,
       context.last_exit_code,
     );
+    format!("{}\n\n{}", context_str, user_message)
+  }
 
-    let full_message = format!("{}\n\n{}", context_str, user_message);
-
-    // Build preamble from system messages and history
+  /// Build preamble with conversation history
+  fn build_preamble(&self, conversation_history: &[ChatMessage]) -> String {
     let mut preamble_parts = vec![prompts::system_prompt().to_string()];
 
-    // Add conversation history to preamble
     for msg in conversation_history {
       match msg.role.as_str() {
         "user" => preamble_parts.push(format!("User: {}", msg.content)),
@@ -125,11 +168,35 @@ impl LLMClient {
       }
     }
 
-    let preamble = preamble_parts.join("\n\n");
+    preamble_parts.join("\n\n")
+  }
 
-    // Use provider-specific client
-    use rig::client::CompletionClient;
-    use rig::completion::Prompt;
+  /// Send a chat message with terminal context (non-streaming)
+  pub async fn send_message(
+    &self,
+    user_message: &str,
+    context: &TerminalContext,
+    conversation_history: &[ChatMessage],
+  ) -> Result<String> {
+    let full_message = self.build_full_message(user_message, context);
+    let preamble = self.build_preamble(conversation_history);
+
+    // Macro to build agent with tools for each provider
+    macro_rules! build_agent_with_tools {
+      ($client:expr) => {{
+        $client
+          .agent(&self.model_name)
+          .preamble(&preamble)
+          .max_tokens(4096)
+          .tool(ReadFileTool::new(Arc::clone(&self.cwd)))
+          .tool(SuggestCommandTool::new(Arc::clone(
+            &self.suggested_commands,
+          )))
+          .tool(ReadScrollbackTool::new(Arc::clone(&self.scrollback_buffer)))
+          .tool(GrepFilesTool::new(Arc::clone(&self.cwd)))
+          .build()
+      }};
+    }
 
     let response = match self.provider {
       Provider::Anthropic => {
@@ -137,11 +204,7 @@ impl LLMClient {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
           .context("ANTHROPIC_API_KEY environment variable not set")?;
         let client: anthropic::Client = anthropic::Client::new(&api_key)?;
-        let agent = client
-          .agent(&self.model_name)
-          .preamble(&preamble)
-          .max_tokens(4096)
-          .build();
+        let agent = build_agent_with_tools!(client);
         agent
           .prompt(&full_message)
           .await
@@ -152,7 +215,7 @@ impl LLMClient {
         let api_key = std::env::var("OPENAI_API_KEY")
           .context("OPENAI_API_KEY environment variable not set")?;
         let client: openai::Client = openai::Client::new(&api_key)?;
-        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        let agent = build_agent_with_tools!(client);
         agent
           .prompt(&full_message)
           .await
@@ -163,7 +226,7 @@ impl LLMClient {
         let api_key = std::env::var("GOOGLE_API_KEY")
           .context("GOOGLE_API_KEY environment variable not set")?;
         let client: gemini::Client = gemini::Client::new(&api_key)?;
-        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        let agent = build_agent_with_tools!(client);
         agent
           .prompt(&full_message)
           .await
@@ -172,8 +235,6 @@ impl LLMClient {
       Provider::Ollama => {
         use rig::client::Nothing;
         use rig::providers::ollama;
-        // Ollama runs locally without API key - use Nothing as API key
-        // Default to localhost:11434 if no custom endpoint provided
         let endpoint = self
           .custom_endpoint
           .as_deref()
@@ -182,7 +243,7 @@ impl LLMClient {
           .api_key(Nothing)
           .base_url(endpoint)
           .build()?;
-        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        let agent = build_agent_with_tools!(client);
         agent
           .prompt(&full_message)
           .await
@@ -193,7 +254,7 @@ impl LLMClient {
         let api_key = std::env::var("OPENROUTER_API_KEY")
           .context("OPENROUTER_API_KEY environment variable not set")?;
         let client: openrouter::Client = openrouter::Client::new(&api_key)?;
-        let agent = client.agent(&self.model_name).preamble(&preamble).build();
+        let agent = build_agent_with_tools!(client);
         agent
           .prompt(&full_message)
           .await
@@ -211,154 +272,80 @@ impl LLMClient {
     context: &TerminalContext,
     conversation_history: &[ChatMessage],
   ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-    // Build the full prompt with context
-    let context_str = prompts::format_context(
-      &context.history_lines,
-      &context.cwd,
-      context.last_exit_code,
-    );
+    let full_message = self.build_full_message(user_message, context);
+    let preamble = self.build_preamble(conversation_history);
 
-    let full_message = format!("{}\n\n{}", context_str, user_message);
-
-    // Build preamble from system messages and history
-    let mut preamble_parts = vec![prompts::system_prompt().to_string()];
-
-    // Add conversation history to preamble
-    for msg in conversation_history {
-      match msg.role.as_str() {
-        "user" => preamble_parts.push(format!("User: {}", msg.content)),
-        "assistant" => {
-          preamble_parts.push(format!("Assistant: {}", msg.content))
-        }
-        _ => {}
-      }
+    // Macro to build streaming agent with tools
+    macro_rules! build_streaming_agent {
+      ($client:expr) => {{
+        let agent = $client
+          .agent(&self.model_name)
+          .preamble(&preamble)
+          .max_tokens(4096)
+          .tool(ReadFileTool::new(Arc::clone(&self.cwd)))
+          .tool(SuggestCommandTool::new(Arc::clone(
+            &self.suggested_commands,
+          )))
+          .tool(ReadScrollbackTool::new(Arc::clone(&self.scrollback_buffer)))
+          .tool(GrepFilesTool::new(Arc::clone(&self.cwd)))
+          .build();
+        let stream = agent.stream_prompt(&full_message).await;
+        Box::pin(stream.map(|result| {
+          result
+            .map_err(|e| anyhow::Error::from(e))
+            .and_then(|item| match item {
+              MultiTurnStreamItem::StreamAssistantItem(
+                StreamedAssistantContent::Text(text),
+              ) => Ok(text.text),
+              _ => Ok(String::new()),
+            })
+        })) as Pin<Box<dyn Stream<Item = Result<String>> + Send>>
+      }};
     }
 
-    let preamble = preamble_parts.join("\n\n");
-
-    // Use provider-specific client and convert each to common stream type
-    use rig::client::CompletionClient;
-    use rig::streaming::StreamingPrompt;
-
-    // Create the streaming agent based on provider and convert to common type
-    let text_stream: Pin<Box<dyn Stream<Item = Result<String>> + Send>> =
-      match self.provider {
-        Provider::Anthropic => {
-          use rig::providers::anthropic;
-          use rig::streaming::StreamedAssistantContent;
-          let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .context("ANTHROPIC_API_KEY environment variable not set")?;
-          let client: anthropic::Client = anthropic::Client::new(&api_key)?;
-          let agent = client
-            .agent(&self.model_name)
-            .preamble(&preamble)
-            .max_tokens(4096)
-            .build();
-          let stream = agent.stream_prompt(&full_message).await;
-          Box::pin(stream.map(|result| {
-            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
-              use rig::agent::MultiTurnStreamItem;
-              match item {
-                MultiTurnStreamItem::StreamAssistantItem(
-                  StreamedAssistantContent::Text(text),
-                ) => Ok(text.text),
-                _ => Ok(String::new()),
-              }
-            })
-          }))
-        }
-        Provider::OpenAI => {
-          use rig::providers::openai;
-          use rig::streaming::StreamedAssistantContent;
-          let api_key = std::env::var("OPENAI_API_KEY")
-            .context("OPENAI_API_KEY environment variable not set")?;
-          let client: openai::Client = openai::Client::new(&api_key)?;
-          let agent =
-            client.agent(&self.model_name).preamble(&preamble).build();
-          let stream = agent.stream_prompt(&full_message).await;
-          Box::pin(stream.map(|result| {
-            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
-              use rig::agent::MultiTurnStreamItem;
-              match item {
-                MultiTurnStreamItem::StreamAssistantItem(
-                  StreamedAssistantContent::Text(text),
-                ) => Ok(text.text),
-                _ => Ok(String::new()),
-              }
-            })
-          }))
-        }
-        Provider::Gemini => {
-          use rig::providers::gemini;
-          use rig::streaming::StreamedAssistantContent;
-          let api_key = std::env::var("GOOGLE_API_KEY")
-            .context("GOOGLE_API_KEY environment variable not set")?;
-          let client: gemini::Client = gemini::Client::new(&api_key)?;
-          let agent =
-            client.agent(&self.model_name).preamble(&preamble).build();
-          let stream = agent.stream_prompt(&full_message).await;
-          Box::pin(stream.map(|result| {
-            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
-              use rig::agent::MultiTurnStreamItem;
-              match item {
-                MultiTurnStreamItem::StreamAssistantItem(
-                  StreamedAssistantContent::Text(text),
-                ) => Ok(text.text),
-                _ => Ok(String::new()),
-              }
-            })
-          }))
-        }
-        Provider::Ollama => {
-          use rig::client::Nothing;
-          use rig::providers::ollama;
-          use rig::streaming::StreamedAssistantContent;
-          // Default to localhost:11434 if no custom endpoint provided
-          let endpoint = self
-            .custom_endpoint
-            .as_deref()
-            .unwrap_or("http://localhost:11434");
-          let client: ollama::Client = ollama::Client::builder()
-            .api_key(Nothing)
-            .base_url(endpoint)
-            .build()?;
-          let agent =
-            client.agent(&self.model_name).preamble(&preamble).build();
-          let stream = agent.stream_prompt(&full_message).await;
-          Box::pin(stream.map(|result| {
-            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
-              use rig::agent::MultiTurnStreamItem;
-              match item {
-                MultiTurnStreamItem::StreamAssistantItem(
-                  StreamedAssistantContent::Text(text),
-                ) => Ok(text.text),
-                _ => Ok(String::new()),
-              }
-            })
-          }))
-        }
-        Provider::OpenRouter => {
-          use rig::providers::openrouter;
-          use rig::streaming::StreamedAssistantContent;
-          let api_key = std::env::var("OPENROUTER_API_KEY")
-            .context("OPENROUTER_API_KEY environment variable not set")?;
-          let client: openrouter::Client = openrouter::Client::new(&api_key)?;
-          let agent =
-            client.agent(&self.model_name).preamble(&preamble).build();
-          let stream = agent.stream_prompt(&full_message).await;
-          Box::pin(stream.map(|result| {
-            result.map_err(|e| anyhow::Error::from(e)).and_then(|item| {
-              use rig::agent::MultiTurnStreamItem;
-              match item {
-                MultiTurnStreamItem::StreamAssistantItem(
-                  StreamedAssistantContent::Text(text),
-                ) => Ok(text.text),
-                _ => Ok(String::new()),
-              }
-            })
-          }))
-        }
-      };
+    let text_stream = match self.provider {
+      Provider::Anthropic => {
+        use rig::providers::anthropic;
+        let api_key = std::env::var("ANTHROPIC_API_KEY")
+          .context("ANTHROPIC_API_KEY environment variable not set")?;
+        let client: anthropic::Client = anthropic::Client::new(&api_key)?;
+        build_streaming_agent!(client)
+      }
+      Provider::OpenAI => {
+        use rig::providers::openai;
+        let api_key = std::env::var("OPENAI_API_KEY")
+          .context("OPENAI_API_KEY environment variable not set")?;
+        let client: openai::Client = openai::Client::new(&api_key)?;
+        build_streaming_agent!(client)
+      }
+      Provider::Gemini => {
+        use rig::providers::gemini;
+        let api_key = std::env::var("GOOGLE_API_KEY")
+          .context("GOOGLE_API_KEY environment variable not set")?;
+        let client: gemini::Client = gemini::Client::new(&api_key)?;
+        build_streaming_agent!(client)
+      }
+      Provider::Ollama => {
+        use rig::client::Nothing;
+        use rig::providers::ollama;
+        let endpoint = self
+          .custom_endpoint
+          .as_deref()
+          .unwrap_or("http://localhost:11434");
+        let client: ollama::Client = ollama::Client::builder()
+          .api_key(Nothing)
+          .base_url(endpoint)
+          .build()?;
+        build_streaming_agent!(client)
+      }
+      Provider::OpenRouter => {
+        use rig::providers::openrouter;
+        let api_key = std::env::var("OPENROUTER_API_KEY")
+          .context("OPENROUTER_API_KEY environment variable not set")?;
+        let client: openrouter::Client = openrouter::Client::new(&api_key)?;
+        build_streaming_agent!(client)
+      }
+    };
 
     Ok(text_stream)
   }
