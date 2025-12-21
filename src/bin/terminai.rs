@@ -317,50 +317,51 @@ async fn initialize_ai() -> Option<AIChatProcess> {
             "Failed to get default provider/model from config: {:?}",
             e
           );
-          // Don't return here - fall through to env var fallback
         }
       }
-      // If config loaded but AI initialization failed, fall through to env var fallback
     }
     Err(e) => {
       log::info!("No config file found or failed to load: {:?}", e);
-    }
-  }
+      log::info!("Falling back to auto-detection of API keys");
 
-  // Fallback: Try auto-detection of API keys from environment
-  log::info!("Falling back to auto-detection of API keys from environment");
+      // Fallback: Try multiple providers
+      let providers = [
+        (Provider::Anthropic, "ANTHROPIC_API_KEY"),
+        (Provider::OpenAI, "OPENAI_API_KEY"),
+        (Provider::Gemini, "GOOGLE_API_KEY"),
+        (Provider::Gemini, "GEMINI_API_KEY"),
+        (Provider::OpenRouter, "OPENROUTER_API_KEY"),
+      ];
 
-  let providers = [
-    (Provider::Anthropic, "ANTHROPIC_API_KEY"),
-    (Provider::OpenAI, "OPENAI_API_KEY"),
-    (Provider::Gemini, "GOOGLE_API_KEY"),
-    (Provider::Gemini, "GEMINI_API_KEY"),
-    (Provider::OpenRouter, "OPENROUTER_API_KEY"),
-  ];
+      for (provider, env_key) in &providers {
+        if std::env::var(env_key).is_ok() {
+          log::info!("Initializing AI assistant with provider: {}", provider);
 
-  for (provider, env_key) in &providers {
-    if std::env::var(env_key).is_ok() {
-      log::info!("Initializing AI assistant with provider: {}", provider);
+          let endpoint = if *provider == Provider::OpenRouter {
+            Some("https://openrouter.ai/api/v1".to_string())
+          } else {
+            None
+          };
 
-      let endpoint = if *provider == Provider::OpenRouter {
-        Some("https://openrouter.ai/api/v1".to_string())
-      } else {
-        None
-      };
-
-      match AIChatProcess::new_with_endpoint(*provider, None, endpoint).await {
-        Ok(process) => {
-          log::info!("AI assistant initialized successfully");
-          return Some(process);
-        }
-        Err(e) => {
-          log::warn!("Failed to initialize AI with {}: {:?}", provider, e);
+          match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
+            .await
+          {
+            Ok(process) => {
+              log::info!("AI assistant initialized successfully");
+              return Some(process);
+            }
+            Err(e) => {
+              log::warn!("Failed to initialize AI with {}: {:?}", provider, e);
+            }
+          }
         }
       }
+
+      log::info!(
+        "No API keys found - AI overlay will show config instructions"
+      );
     }
   }
-
-  log::info!("No API keys found - AI overlay will show config instructions");
 
   None
 }
