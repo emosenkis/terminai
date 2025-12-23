@@ -174,11 +174,22 @@ impl PollEvents<AppEvent, Error> for PollShell {
 // Terminal renderer widget (simplified from mprocs' UiTerm)
 struct TerminalWidget<'a> {
   screen: &'a vt100::Screen<termin::shell::ReplySender>,
+  row_offset: u16,
 }
 
 impl<'a> TerminalWidget<'a> {
   fn new(screen: &'a vt100::Screen<termin::shell::ReplySender>) -> Self {
-    Self { screen }
+    Self {
+      screen,
+      row_offset: 0,
+    }
+  }
+
+  fn with_offset(
+    screen: &'a vt100::Screen<termin::shell::ReplySender>,
+    row_offset: u16,
+  ) -> Self {
+    Self { screen, row_offset }
   }
 }
 
@@ -194,14 +205,15 @@ impl Widget for TerminalWidget<'_> {
         };
 
         if let Some(to_cell) = buf.cell_mut(pos) {
-          if let Some(cell) = self.screen.cell(row, col) {
+          // Apply row offset to shift viewport (for AI overlay)
+          if let Some(cell) = self.screen.cell(row + self.row_offset, col) {
             // Convert VT100 cell to tui cell (using mprocs' conversion)
             *to_cell = cell.to_tui();
             if !cell.has_contents() {
               to_cell.set_char(' ');
             }
           } else {
-            // Out of bounds
+            // Out of bounds (offset pushed us past screen size)
             to_cell.set_char(' ');
           }
         }
@@ -735,12 +747,19 @@ fn render(
   }
   let buf = frame.buffer_mut();
 
+  // Calculate row offset for terminal viewport (shift up when AI overlay is visible)
+  let row_offset = if state.ai_visible {
+    (area.height / 2).max(10) // Same as overlay height
+  } else {
+    0
+  };
+
   // Render current shell terminal (always visible as background)
   if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
-    let widget = TerminalWidget::new(screen);
+    let widget = TerminalWidget::with_offset(screen, row_offset);
     widget.render(area, buf);
-    log::trace!("Shell terminal rendered");
+    log::trace!("Shell terminal rendered with row_offset={}", row_offset);
 
     // Set cursor position if AI not visible and cursor should be shown
     // This matches the old code's cursor handling
