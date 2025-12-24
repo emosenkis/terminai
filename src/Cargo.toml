@@ -21,6 +21,10 @@ include = ["*"]
 name = "termin"
 path = "lib.rs"
 
+[features]
+default = []
+python-llm = ["pyo3", "pyo3-async-runtimes"]
+
 [[bin]]
 name = "terminai"
 path = "bin/terminai.rs"
@@ -87,6 +91,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 dotenvy = "0.15"
 tui-markdown = "0.3"
 tui-textarea = "0.7.0"
+
+# TERMIN.AI: Python bridge dependencies (optional)
+pyo3 = { version = "0.23", features = ["auto-initialize"], optional = true }
+pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"], optional = true }
 
 # TERMIN.AI: rat-salsa dependencies for focus management
 rat-salsa = { path = "../rat-salsa/rat-salsa", features = ["async"] }

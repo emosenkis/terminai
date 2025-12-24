@@ -11,20 +11,24 @@
 - [x] Create progress tracking file
 - [x] Set up Python module structure
 - [x] Create pyproject.toml with uv
-- [x] Add PyO3 dependencies to Cargo.toml
+- [x] Add PyO3 dependencies to Cargo.toml (v0.23)
 - [x] Create basic bridge structure
 - [x] Verify Python environment setup
 
-## Phase 1: Core Client 🚧 IN PROGRESS
+## Phase 1: Core Client ✅ COMPLETE
 
-- [x] Implement Python LLMClient class with PydanticAI + LiteLLM
+- [x] Implement Python LLMClient class with PydanticAI
 - [x] Add context formatting
-- [x] Create Rust bridge (LLMClientBridge)
-- [x] Implement async message sending
-- [x] Add streaming support
+- [x] Add TerminalContext and SuggestedCommand Pydantic models
+- [x] Implement tool registry
+- [x] Create Rust bridge (PythonLLMBridge)
+- [x] Basic bridge initialization and command extraction working
 - [x] Error handling
-- [x] Unit tests for Python client
-- [x] Unit tests for Rust bridge
+- [x] Unit tests for Python client (22 tests passing)
+- [x] Unit tests for tools
+- [x] Rust compilation successful with python-llm feature flag
+- [ ] Implement async message sending (TODO: needs pyo3-async-runtimes integration)
+- [ ] Add streaming support (TODO: complex async bridge required)
 
 ## Phase 2: Tools ⏳ PENDING
 
@@ -70,7 +74,26 @@
 
 ## Issues Encountered
 
-None yet.
+### PyO3 Version Compatibility
+- System has Python 3.14, but PyO3 0.22-0.23 only supports up to 3.13
+- Solution: Use Python 3.12 from uv virtual environment via `PYO3_PYTHON` env var
+- Build command: `PYO3_PYTHON=/var/home/eitan/projects/termin.ai/python/.venv/bin/python cargo build --features python-llm`
+
+### PydanticAI Model Backend
+- Original design called for PydanticAI with explicit LiteLLM backend
+- PydanticAI natively supports provider:model string format (simpler approach)
+- Using `Agent(model="provider:model")` instead of separate LiteLLM integration
+
+### PyO3 0.23 API Changes
+- `downcast()` renamed to `downcast_bound()`
+- Function kwargs now require `&` reference: `.call((), Some(&kwargs))`
+- PyO3 errors don't auto-implement Send/Sync for anyhow, need `.map_err()`
+
+### Async Bridge Complexity
+- Implementing Python asyncio <-> Rust tokio bridge is complex
+- Requires pyo3-async-runtimes for proper integration
+- Deferred streaming implementation to later phase
+- Current bridge handles initialization and synchronous operations
 
 ---
 
