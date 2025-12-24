@@ -14,7 +14,7 @@ use tui::style::Modifier;
 use tui::{
   layout::Rect,
   style::{Color, Style},
-  widgets::{Block, Borders, Paragraph, Widget},
+  widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
 // rat-salsa imports
@@ -34,7 +34,7 @@ use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
 use termin::llm::{Provider, TerminalContext};
 use termin::mouse::MouseEvent;
-use termin::terminai_config::TerminAIConfig;
+use termin::terminai_config::{ChatPosition, TerminAIConfig};
 use termin::vt100;
 
 use termin::shell::{Shell, ShellEvent};
@@ -225,7 +225,7 @@ impl Widget for TerminalWidget<'_> {
 /// Helper to initialize shell and AI process asynchronously
 async fn initialize_app_components(
   command: Vec<String>,
-) -> Result<(Shell, Option<AIChatProcess>)> {
+) -> Result<(Shell, Option<AIChatProcess>, ChatPosition, Option<String>)> {
   // Get terminal size
   let (cols, rows) = crossterm::terminal::size()?;
 
@@ -244,17 +244,21 @@ async fn initialize_app_components(
     Shell::spawn_command(cmd, &args.to_vec(), rows, cols)?
   };
 
-  // Initialize AI (same logic as before)
-  let ai_process = initialize_ai().await;
+  // Initialize AI and get chat position from config
+  let (ai_process, chat_position, config_error) = initialize_ai().await;
 
-  Ok((shell, ai_process))
+  Ok((shell, ai_process, chat_position, config_error))
 }
 
 /// Initialize AI process (extracted from App::new)
-async fn initialize_ai() -> Option<AIChatProcess> {
+/// Returns (ai_process, chat_position, config_error)
+async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>)
+{
   match TerminAIConfig::load() {
     Ok(config) => {
       log::info!("Configuration loaded successfully");
+      log::debug!("Loaded config: {:?}", config);
+      let chat_position = config.interface.chat_position;
 
       match config.get_default_provider_and_model() {
         Ok((provider_config, model_config)) => {
@@ -307,7 +311,7 @@ async fn initialize_ai() -> Option<AIChatProcess> {
               {
                 Ok(process) => {
                   log::info!("AI assistant initialized successfully");
-                  return Some(process);
+                  return (Some(process), chat_position, None);
                 }
                 Err(e) => {
                   log::error!(
@@ -333,49 +337,16 @@ async fn initialize_ai() -> Option<AIChatProcess> {
       }
     }
     Err(e) => {
-      log::info!("No config file found or failed to load: {:?}", e);
-      log::info!("Falling back to auto-detection of API keys");
-
-      // Fallback: Try multiple providers
-      let providers = [
-        (Provider::Anthropic, "ANTHROPIC_API_KEY"),
-        (Provider::OpenAI, "OPENAI_API_KEY"),
-        (Provider::Gemini, "GOOGLE_API_KEY"),
-        (Provider::Gemini, "GEMINI_API_KEY"),
-        (Provider::OpenRouter, "OPENROUTER_API_KEY"),
-      ];
-
-      for (provider, env_key) in &providers {
-        if std::env::var(env_key).is_ok() {
-          log::info!("Initializing AI assistant with provider: {}", provider);
-
-          let endpoint = if *provider == Provider::OpenRouter {
-            Some("https://openrouter.ai/api/v1".to_string())
-          } else {
-            None
-          };
-
-          match AIChatProcess::new_with_endpoint(*provider, None, endpoint)
-            .await
-          {
-            Ok(process) => {
-              log::info!("AI assistant initialized successfully");
-              return Some(process);
-            }
-            Err(e) => {
-              log::warn!("Failed to initialize AI with {}: {:?}", provider, e);
-            }
-          }
-        }
-      }
-
-      log::info!(
-        "No API keys found - AI overlay will show config instructions"
+      let error_msg = format!("{:#}", e);
+      log::error!(
+        "Failed to load configuration file: {}. AI overlay will show config instructions",
+        error_msg
       );
+      return (None, ChatPosition::default(), Some(error_msg));
     }
   }
 
-  None
+  (None, ChatPosition::default(), None)
 }
 
 fn main() -> Result<()> {
@@ -435,11 +406,12 @@ fn main() -> Result<()> {
 
   // Initialize shell and AI asynchronously
   log::debug!("Initializing shell and AI components");
-  let (shell, ai_process) =
+  let (shell, ai_process, chat_position, config_error) =
     tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
-    "Shell and AI components initialized, ai_present={}",
-    ai_process.is_some()
+    "Shell and AI components initialized, ai_present={}, chat_position={:?}",
+    ai_process.is_some(),
+    chat_position
   );
 
   // Get terminal size for initial state
@@ -458,8 +430,10 @@ fn main() -> Result<()> {
     ai_process: ai_process.map(|p| Arc::new(Mutex::new(p))),
     ai_ui: AIChatUI::new(),
     ai_visible: false,
+    chat_position,
     last_total_rows: rows as usize,
     has_pending_scrollback: false,
+    config_error,
   };
 
   // Run rat-salsa event loop
@@ -527,10 +501,14 @@ struct AppState<'a> {
   ai_process: Option<Arc<Mutex<AIChatProcess>>>,
   ai_ui: AIChatUI<'a>,
   ai_visible: bool,
+  /// Position of AI chat overlay (top or bottom)
+  chat_position: ChatPosition,
   /// Track the total row count to detect when content scrolls off screen
   last_total_rows: usize,
   /// Has pending scrollback lines:
   has_pending_scrollback: bool,
+  /// Configuration error message (if config failed to load)
+  config_error: Option<String>,
 }
 
 impl<'a> AppState<'a> {
@@ -747,12 +725,14 @@ fn render(
   }
   let buf = frame.buffer_mut();
 
-  // Calculate row offset for terminal viewport (shift up when AI overlay is visible)
-  let row_offset = if state.ai_visible {
-    (area.height / 2).max(10) // Same as overlay height
-  } else {
-    0
-  };
+  // Calculate row offset for terminal viewport
+  // Only shift upwards when AI overlay is visible on the bottom
+  let row_offset =
+    if state.ai_visible && state.chat_position == ChatPosition::Bottom {
+      (area.height / 2).max(10) // Same as overlay height
+    } else {
+      0
+    };
 
   // Render current shell terminal (always visible as background)
   if let Ok(vt) = state.shell.vt.read() {
@@ -779,14 +759,21 @@ fn render(
 
   // Render AI overlay if visible (Phase 2)
   if state.ai_visible {
-    // Calculate overlay area - full width, bottom 50% of screen
+    // Calculate overlay area - full width, positioned based on config
     let overlay_height = (area.height / 2).max(10); // At least 10 lines
+    let overlay_y = match state.chat_position {
+      ChatPosition::Bottom => area.y + area.height - overlay_height,
+      ChatPosition::Top => area.y,
+    };
     let overlay_area = Rect {
       x: area.x,
-      y: area.y + area.height - overlay_height,
+      y: overlay_y,
       width: area.width,
       height: overlay_height,
     };
+
+    // Clear the overlay area to prevent terminal content from showing through
+    Clear.render(overlay_area, buf);
 
     if let Some(ref ai_process_arc) = state.ai_process {
       // Try to lock without blocking (non-blocking for render)
@@ -812,19 +799,29 @@ fn render(
         ctx.set_screen_cursor(None);
       }
     } else {
-      // Show "not configured" message
-      let message = Paragraph::new(
+      // Show "not configured" message with actual error if available
+      let error_text = if let Some(ref err) = state.config_error {
+        format!(
+          "AI Assistant not configured.\n\n\
+           Error: {}\n\n\
+           Press ESC or Ctrl-Space to close this overlay.",
+          err
+        )
+      } else {
         "AI Assistant not configured.\n\n\
-         Set ANTHROPIC_API_KEY environment variable to enable AI features.\n\n\
-         Press ESC or Ctrl-Space to close this overlay.",
-      )
-      .block(
-        Block::default()
-          .borders(Borders::ALL)
-          .title(" AI Assistant ")
-          .style(Style::default().fg(Color::Yellow)),
-      )
-      .style(Style::default().fg(Color::White));
+         Configuration error.\n\n\
+         Press ESC or Ctrl-Space to close this overlay."
+          .to_string()
+      };
+
+      let message = Paragraph::new(error_text)
+        .block(
+          Block::default()
+            .borders(Borders::ALL)
+            .title(" AI Assistant ")
+            .style(Style::default().fg(Color::Yellow)),
+        )
+        .style(Style::default().fg(Color::White));
 
       message.render(overlay_area, buf);
       ctx.set_screen_cursor(None);

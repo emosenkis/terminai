@@ -1,6 +1,36 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+/// Position of the AI chat overlay
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatPosition {
+  Bottom,
+  Top,
+}
+
+impl Default for ChatPosition {
+  fn default() -> Self {
+    Self::Bottom
+  }
+}
+
+/// Interface configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InterfaceConfig {
+  /// Position of the AI chat overlay (default: bottom)
+  #[serde(default, rename = "chat-position")]
+  pub chat_position: ChatPosition,
+}
+
+impl Default for InterfaceConfig {
+  fn default() -> Self {
+    Self {
+      chat_position: ChatPosition::Bottom,
+    }
+  }
+}
+
 /// Configuration for a specific AI model
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelConfig {
@@ -53,6 +83,9 @@ impl ProviderConfig {
 /// Top-level Termin.AI configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TerminAIConfig {
+  /// Interface configuration
+  #[serde(default)]
+  pub interface: InterfaceConfig,
   /// List of AI providers with their models
   pub providers: Vec<ProviderConfig>,
   /// Default model in format "provider/model" (e.g., "anthropic/claude-sonnet-4-5")
@@ -177,6 +210,39 @@ default_model: anthropic/claude-sonnet-4-5
     assert_eq!(config.providers[1].models.len(), 1);
 
     assert_eq!(config.default_model, "anthropic/claude-sonnet-4-5");
+    // Interface defaults to bottom when not specified
+    assert_eq!(config.interface.chat_position, ChatPosition::Bottom);
+  }
+
+  #[test]
+  fn test_terminai_config_with_interface() {
+    let yaml = r#"
+interface:
+  chat-position: top
+providers:
+  - name: anthropic
+    models:
+      - name: "Claude Sonnet"
+        model: claude-sonnet-4-5
+default_model: anthropic/claude-sonnet-4-5
+    "#;
+
+    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(config.interface.chat_position, ChatPosition::Top);
+
+    let yaml2 = r#"
+interface:
+  chat-position: bottom
+providers:
+  - name: anthropic
+    models:
+      - name: "Claude Sonnet"
+        model: claude-sonnet-4-5
+default_model: anthropic/claude-sonnet-4-5
+    "#;
+
+    let config2: TerminAIConfig = serde_yaml::from_str(yaml2).unwrap();
+    assert_eq!(config2.interface.chat_position, ChatPosition::Bottom);
   }
 
   #[test]
