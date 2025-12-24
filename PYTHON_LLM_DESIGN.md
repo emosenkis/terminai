@@ -129,39 +129,42 @@ This document proposes replacing the current Rust-based LLM integration (using t
 
 ### Python Libraries
 
-#### Option 1: PydanticAI (Recommended)
+#### PydanticAI with LiteLLM Backend
 
 **Overview:**
-PydanticAI is a GenAI agent framework built by the Pydantic team, designed to bring the "FastAPI feeling" to AI agent development. It provides type-safe, structured outputs with excellent async support.
+PydanticAI is a GenAI agent framework built by the Pydantic team, designed to bring the "FastAPI feeling" to AI agent development. It provides type-safe, structured outputs with excellent async support. We use LiteLLM as the model provider backend, giving us access to 100+ LLM providers through a unified interface.
 
-**Pros:**
+**Key Features:**
 - **Type Safety**: Full Pydantic validation for all inputs/outputs
 - **Structured Outputs**: Native support for returning validated Pydantic models
 - **Tool Calling**: First-class tool support with automatic schema extraction from docstrings
-- **Multi-Provider**: Supports OpenAI, Anthropic, Gemini, DeepSeek, Groq, Ollama, and many more
+- **Multi-Provider**: Supports 100+ providers via LiteLLM (OpenAI, Anthropic, Gemini, DeepSeek, Groq, Ollama, etc.)
 - **Async-First**: Built for async/await with streaming support
 - **Agent Framework**: Built-in support for multi-turn conversations and agent patterns
 - **Durable Execution**: Can preserve agent progress across API failures and restarts
-- **LiteLLM Integration**: Can use LiteLLM as a backend for even more providers
 - **Better DX**: Similar to FastAPI - intuitive, well-documented, type-safe
+- **Performance**: 8ms P95 latency at 1k RPS (from LiteLLM backend)
 
-**Cons:**
-- Newer library (less battle-tested than LangChain)
-- Slightly more opinionated architecture
-- Additional dependency on Pydantic (though we likely use it already)
+**Why This Combination:**
+- PydanticAI provides type-safe agent framework and structured outputs
+- LiteLLM backend provides broad provider support and performance
+- Best of both worlds: developer experience + flexibility
 
 **Example:**
 ```python
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.models.litellm import LiteLLMModel
 
 class SuggestedCommand(BaseModel):
     command: str
     explanation: str
     raw: bool = False
 
+# Use LiteLLM backend for provider flexibility
+model = LiteLLMModel('anthropic/claude-sonnet-4-5')
 agent = Agent(
-    'anthropic:claude-sonnet-4-5',
+    model,
     result_type=SuggestedCommand,
     system_prompt="You are a terminal AI assistant..."
 )
@@ -176,87 +179,6 @@ async with agent.run_stream("List files") as stream:
         print(chunk, end='')
     result = await stream.result()
 ```
-
-#### Option 2: LiteLLM
-
-**Overview:**
-LiteLLM provides a unified interface to 100+ LLM providers with minimal abstraction overhead.
-
-**Pros:**
-- Unified interface to 100+ providers (OpenAI, Anthropic, Gemini, Ollama, etc.)
-- Built-in retry/fallback logic and load balancing
-- Native async/streaming support
-- Cost tracking and rate limiting
-- Minimal abstraction overhead
-- 8ms P95 latency at 1k RPS
-- Can be used as backend for PydanticAI
-
-**Cons:**
-- Less opinionated (need to build more ourselves)
-- No built-in type safety or validation
-- Tool calling interface varies by provider
-- Need to handle structured outputs manually
-
-**Use Case:**
-- Best used **as a backend for PydanticAI** (via `pydantic-ai-litellm` package)
-- Or standalone if we don't need agent features
-
-**Example:**
-```python
-from litellm import acompletion
-
-async def chat_stream(messages, model="gpt-4"):
-    response = await acompletion(
-        model=model,
-        messages=messages,
-        stream=True,
-        tools=[...]
-    )
-    async for chunk in response:
-        yield chunk
-```
-
-#### Option 3: LangChain
-
-**Overview:**
-Full-featured framework with extensive abstractions for agents, chains, and memory.
-
-**Pros:**
-- Most mature and battle-tested
-- Extensive ecosystem (callbacks, tracing, memory, RAG, etc.)
-- Strong tool/agent support
-- Good documentation and community
-
-**Cons:**
-- Higher abstraction overhead
-- More complex API
-- Potentially slower
-- Includes many features we don't need
-- Less type-safe than PydanticAI
-
-**Verdict:** Overkill for our use case
-
-#### Recommendation
-
-**Primary: PydanticAI + LiteLLM Backend**
-
-Use PydanticAI as the main framework with LiteLLM as the model provider backend:
-
-```python
-from pydantic_ai import Agent
-from pydantic_ai.models.litellm import LiteLLMModel
-
-model = LiteLLMModel('anthropic/claude-sonnet-4-5')
-agent = Agent(model, result_type=SuggestedCommand)
-```
-
-This gives us:
-- ✅ Type safety and structured outputs from PydanticAI
-- ✅ 100+ provider support from LiteLLM
-- ✅ Best of both worlds
-- ✅ Future-proof for advanced agent features
-
-**Fallback:** If PydanticAI proves problematic, fall back to standalone LiteLLM.
 
 ### Rust Libraries
 
@@ -1610,17 +1532,12 @@ Target: Within 10% of pure Rust implementation
 - [Type-safe LLM agents with PydanticAI](https://simmering.dev/blog/pydantic-ai/) - Tutorial
 - [Streaming with Pydantic AI](https://datastud.dev/posts/pydantic-ai-streaming/) - Streaming guide
 
-**LiteLLM:**
+**LiteLLM (PydanticAI Backend):**
 - [LiteLLM Documentation](https://docs.litellm.ai/) - Main docs
 - [LiteLLM GitHub](https://github.com/BerriAI/litellm) - Source code
 - [LiteLLM Streaming + Async](https://docs.litellm.ai/docs/completion/stream) - Streaming guide
 - [LiteLLM Integration for Pydantic AI](https://python.plainenglish.io/introducing-litellm-integration-for-pydantic-ai-659cd9e5753f) - Integration guide
 - [pydantic-ai-litellm](https://github.com/mochow13/pydantic-ai-litellm) - Integration package
-
-**LangChain (Alternative):**
-- [LangChain Python Docs](https://python.langchain.com/)
-- [LangChain Async Programming](https://python.langchain.com/docs/concepts/async/)
-- [LangChain Async API](https://lagnchain.readthedocs.io/en/stable/modules/models/llms/examples/async_llm.html)
 
 ### Python Distribution & Packaging
 
@@ -1645,7 +1562,8 @@ Target: Within 10% of pure Rust implementation
 
 - [pyo3-async-runtimes examples](https://github.com/PyO3/pyo3-async-runtimes/blob/main/src/lib.rs) - Reference implementations
 - [Embedding Python into Rust Hello World](https://github.com/indygreg/PyOxidizer/discussions/652) - PyOxidizer example
-- [Building Asynchronous LLM Application](https://medium.com/@givkashi/building-an-asynchronous-llm-application-with-langchain-and-gpt-4o-mini-4ee0964d917c) - LangChain async patterns
+- [Type-safe LLM agents with PydanticAI](https://simmering.dev/blog/pydantic-ai/) - Complete PydanticAI tutorial
+- [Streaming with Pydantic AI](https://datastud.dev/posts/pydantic-ai-streaming/) - Streaming implementation guide
 
 ---
 
