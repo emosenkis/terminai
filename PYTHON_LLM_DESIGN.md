@@ -276,7 +276,6 @@ One of the key challenges with embedding Python in a Rust application is distrib
 |------|----------|-------------|--------------|---------------|------------|--------|
 | **PyOxidizer** | Embed interpreter, extract to memory | Medium | Fast (~50ms) | High | Medium | Active |
 | **Nuitka** | Compile Python to C/binary | Small | Fastest | Medium (CPython quirks) | High | Active |
-| **PyInstaller** | Bundle + extract to temp dir | Large | Slow (~200ms) | Very High | Low | Very Active |
 | **System Python** | Require Python 3.9+ installed | Smallest | Fastest | Depends on system | Lowest | N/A |
 
 ### Option 1: PyOxidizer (Recommended)
@@ -433,41 +432,6 @@ cargo install --path .
 - ❌ Dependency on user's Python environment
 
 **Best for:** Development and for users comfortable with Python
-
-### Option 4: PyInstaller (Not Recommended)
-
-**What it does:**
-- Bundles Python interpreter and dependencies into a folder
-- Extracts to temporary directory at runtime
-- Can create "onefile" executable that extracts on every run
-
-**Why not recommended:**
-- Slow startup time (200ms+ for extraction)
-- Antivirus false positives (common issue)
-- Large distribution size
-- Designed for Python apps, awkward for Rust apps calling Python
-
-**Only consider if:** You need maximum Python compatibility and can't use PyOxidizer
-
-**Resources:**
-- [PyInstaller vs PyOxidizer Comparison](https://pyoxidizer.readthedocs.io/en/stable/pyoxidizer_comparisons.html)
-
-### Option 5: Maturin (Reverse Direction)
-
-**Note:** Maturin is for the opposite use case - packaging **Rust code as a Python package**, not for embedding Python in Rust binaries.
-
-**What it does:**
-- Builds Rust extensions for Python using PyO3
-- Publishes to PyPI as Python wheels
-- Users install via `pip install terminai`
-
-**Not suitable for our use case** because:
-- We want a standalone terminal binary, not a Python package
-- Would require users to use Python to launch Termin.AI
-- Goes against the goal of Rust-native application
-
-**Resources:**
-- [Maturin User Guide](https://www.maturin.rs/)
 
 ### Recommended Strategy
 
@@ -1672,12 +1636,6 @@ Target: Within 10% of pure Rust implementation
 - [Nuitka Documentation](https://nuitka.net/) - Official docs
 - [Nuitka Use Cases](https://nuitka.net/user-documentation/use-cases.html) - Usage guide
 - [Nuitka Bundle Standalone Binary](https://williamhuey.github.io/posts/nuitka-pyqtgraph-bundle-standalone-executable/) - Tutorial
-
-**Maturin:**
-- [Maturin User Guide](https://www.maturin.rs/) - Official docs
-- [Maturin GitHub](https://github.com/PyO3/maturin) - Source code
-- [Maturin Tutorial](https://www.maturin.rs/tutorial.html) - Getting started
-- [PyO3 Building and Distribution](https://pyo3.rs/v0.27.2/building-and-distribution.html) - PyO3 + maturin
 
 **Comparisons:**
 - [Distribute Python applications - 7 best tools](https://www.augmentedmind.de/2021/05/16/distribute-python-applications/) - Tool comparison
