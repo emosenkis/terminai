@@ -12,16 +12,17 @@
 2. [Motivation](#motivation)
 3. [Architecture](#architecture)
 4. [Technology Stack](#technology-stack)
-5. [Component Design](#component-design)
-6. [Async Communication Bridge](#async-communication-bridge)
-7. [Tool Calling Mechanism](#tool-calling-mechanism)
-8. [API Design](#api-design)
-9. [Error Handling](#error-handling)
-10. [Migration Path](#migration-path)
-11. [Trade-offs and Considerations](#trade-offs-and-considerations)
-12. [Implementation Phases](#implementation-phases)
-13. [Testing Strategy](#testing-strategy)
-14. [References](#references)
+5. [Python Distribution & Packaging](#python-distribution--packaging)
+6. [Component Design](#component-design)
+7. [Async Communication Bridge](#async-communication-bridge)
+8. [Tool Calling Mechanism](#tool-calling-mechanism)
+9. [API Design](#api-design)
+10. [Error Handling](#error-handling)
+11. [Migration Path](#migration-path)
+12. [Trade-offs and Considerations](#trade-offs-and-considerations)
+13. [Implementation Phases](#implementation-phases)
+14. [Testing Strategy](#testing-strategy)
+15. [References](#references)
 
 ---
 
@@ -31,11 +32,13 @@ This document proposes replacing the current Rust-based LLM integration (using t
 
 ### Key Goals
 
-- **Leverage Python's LLM Ecosystem**: Access to mature libraries like LiteLLM, LangChain, and OpenAI SDK
+- **Leverage Python's LLM Ecosystem**: Access to mature libraries like PydanticAI, LiteLLM, and LangChain
+- **Type Safety & Structured Outputs**: Use Pydantic for validated, type-safe LLM interactions
 - **Maintain Performance**: Async communication between Rust and Python
 - **Preserve Features**: Keep all existing functionality (streaming, tools, multi-provider support)
 - **Improve Maintainability**: Simpler LLM integration code with better library support
-- **Enable Future Extension**: Easier to add new providers, tools, and features
+- **Enable Future Extension**: Easier to add new providers, tools, and advanced agent features
+- **Self-Contained Distribution**: Bundle Python without requiring system Python installation
 
 ---
 
@@ -126,19 +129,77 @@ This document proposes replacing the current Rust-based LLM integration (using t
 
 ### Python Libraries
 
-#### Option 1: LiteLLM (Recommended)
+#### Option 1: PydanticAI (Recommended)
+
+**Overview:**
+PydanticAI is a GenAI agent framework built by the Pydantic team, designed to bring the "FastAPI feeling" to AI agent development. It provides type-safe, structured outputs with excellent async support.
+
+**Pros:**
+- **Type Safety**: Full Pydantic validation for all inputs/outputs
+- **Structured Outputs**: Native support for returning validated Pydantic models
+- **Tool Calling**: First-class tool support with automatic schema extraction from docstrings
+- **Multi-Provider**: Supports OpenAI, Anthropic, Gemini, DeepSeek, Groq, Ollama, and many more
+- **Async-First**: Built for async/await with streaming support
+- **Agent Framework**: Built-in support for multi-turn conversations and agent patterns
+- **Durable Execution**: Can preserve agent progress across API failures and restarts
+- **LiteLLM Integration**: Can use LiteLLM as a backend for even more providers
+- **Better DX**: Similar to FastAPI - intuitive, well-documented, type-safe
+
+**Cons:**
+- Newer library (less battle-tested than LangChain)
+- Slightly more opinionated architecture
+- Additional dependency on Pydantic (though we likely use it already)
+
+**Example:**
+```python
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+class SuggestedCommand(BaseModel):
+    command: str
+    explanation: str
+    raw: bool = False
+
+agent = Agent(
+    'anthropic:claude-sonnet-4-5',
+    result_type=SuggestedCommand,
+    system_prompt="You are a terminal AI assistant..."
+)
+
+# Simple usage
+result = await agent.run("How do I list files?")
+print(result.data.command)  # Type-safe access
+
+# Streaming
+async with agent.run_stream("List files") as stream:
+    async for chunk in stream.stream_text():
+        print(chunk, end='')
+    result = await stream.result()
+```
+
+#### Option 2: LiteLLM
+
+**Overview:**
+LiteLLM provides a unified interface to 100+ LLM providers with minimal abstraction overhead.
 
 **Pros:**
 - Unified interface to 100+ providers (OpenAI, Anthropic, Gemini, Ollama, etc.)
-- Built-in retry/fallback logic
+- Built-in retry/fallback logic and load balancing
 - Native async/streaming support
 - Cost tracking and rate limiting
 - Minimal abstraction overhead
 - 8ms P95 latency at 1k RPS
+- Can be used as backend for PydanticAI
 
 **Cons:**
-- Less opinionated than LangChain (need to build more ourselves)
+- Less opinionated (need to build more ourselves)
+- No built-in type safety or validation
 - Tool calling interface varies by provider
+- Need to handle structured outputs manually
+
+**Use Case:**
+- Best used **as a backend for PydanticAI** (via `pydantic-ai-litellm` package)
+- Or standalone if we don't need agent features
 
 **Example:**
 ```python
@@ -155,27 +216,376 @@ async def chat_stream(messages, model="gpt-4"):
         yield chunk
 ```
 
-#### Option 2: LangChain
+#### Option 3: LangChain
+
+**Overview:**
+Full-featured framework with extensive abstractions for agents, chains, and memory.
 
 **Pros:**
-- Full-featured framework with abstractions for everything
+- Most mature and battle-tested
+- Extensive ecosystem (callbacks, tracing, memory, RAG, etc.)
 - Strong tool/agent support
-- Extensive ecosystem (callbacks, tracing, memory, etc.)
-- Good documentation and examples
+- Good documentation and community
 
 **Cons:**
 - Higher abstraction overhead
 - More complex API
-- Potentially slower than LiteLLM
-- May include features we don't need
+- Potentially slower
+- Includes many features we don't need
+- Less type-safe than PydanticAI
 
-**Recommendation:** Start with **LiteLLM** for simplicity and performance, with option to switch to LangChain later if we need advanced features.
+**Verdict:** Overkill for our use case
+
+#### Recommendation
+
+**Primary: PydanticAI + LiteLLM Backend**
+
+Use PydanticAI as the main framework with LiteLLM as the model provider backend:
+
+```python
+from pydantic_ai import Agent
+from pydantic_ai.models.litellm import LiteLLMModel
+
+model = LiteLLMModel('anthropic/claude-sonnet-4-5')
+agent = Agent(model, result_type=SuggestedCommand)
+```
+
+This gives us:
+- ✅ Type safety and structured outputs from PydanticAI
+- ✅ 100+ provider support from LiteLLM
+- ✅ Best of both worlds
+- ✅ Future-proof for advanced agent features
+
+**Fallback:** If PydanticAI proves problematic, fall back to standalone LiteLLM.
 
 ### Rust Libraries
 
 - **pyo3** `v0.22+`: Core Rust-Python bindings
 - **pyo3-async-runtimes** `v0.22+`: Async bridge between Tokio and asyncio
 - **tokio**: Rust async runtime (already in use)
+
+---
+
+## Python Distribution & Packaging
+
+One of the key challenges with embedding Python in a Rust application is distribution: how do we ship Termin.AI without requiring users to have Python installed?
+
+### Packaging Options Comparison
+
+| Tool | Approach | Binary Size | Startup Time | Compatibility | Complexity | Status |
+|------|----------|-------------|--------------|---------------|------------|--------|
+| **PyOxidizer** | Embed interpreter, extract to memory | Medium | Fast (~50ms) | High | Medium | Active |
+| **Nuitka** | Compile Python to C/binary | Small | Fastest | Medium (CPython quirks) | High | Active |
+| **PyInstaller** | Bundle + extract to temp dir | Large | Slow (~200ms) | Very High | Low | Very Active |
+| **System Python** | Require Python 3.9+ installed | Smallest | Fastest | Depends on system | Lowest | N/A |
+
+### Option 1: PyOxidizer (Recommended)
+
+**What it does:**
+- Embeds a complete Python interpreter into your Rust binary
+- Extracts Python modules **into memory** at runtime (not to disk)
+- Produces highly portable, self-contained executables
+- Can produce fully statically-linked binaries on Linux
+
+**How it works:**
+```bash
+# Generate Python embedding artifacts
+pyoxidizer generate-python-embedding-artifacts \
+  --python-version 3.11 \
+  --target x86_64-unknown-linux-gnu \
+  artifacts/
+
+# Add to Cargo.toml
+[dependencies]
+pyembed = { path = "artifacts/" }
+```
+
+**Rust integration:**
+```rust
+// In main.rs
+use pyembed::{MainPythonInterpreter, OxidizedPythonInterpreterConfig};
+
+fn main() -> Result<()> {
+    let config = OxidizedPythonInterpreterConfig::default();
+    let interp = MainPythonInterpreter::new(config)?;
+
+    interp.with_gil(|py| {
+        // Your PyO3 code here
+        let terminai_llm = PyModule::import(py, "terminai_llm")?;
+        // ...
+    })?;
+
+    Ok(())
+}
+```
+
+**Pros:**
+- ✅ Single binary distribution (or binary + small resource files)
+- ✅ Fast startup - modules loaded from memory
+- ✅ No temp directory extraction
+- ✅ Works on systems without Python
+- ✅ Supports static linking on Linux
+- ✅ Good for security (no file extraction to disk)
+
+**Cons:**
+- ❌ Complex build process
+- ❌ Need to build all C extension dependencies from source
+- ❌ Limited support for some Python packages (those with complex native extensions)
+- ❌ Larger learning curve
+
+**Best for:** Production distribution where self-contained binary is important
+
+**Resources:**
+- [PyOxidizer Documentation](https://pyoxidizer.readthedocs.io/)
+- [Generic Python Embedding in Rust](https://pyoxidizer.readthedocs.io/en/stable/pyoxidizer_rust_generic_embedding.html)
+
+### Option 2: Nuitka
+
+**What it does:**
+- Compiles Python code to C, then compiles to native binary
+- Produces fastest runtime performance
+- Can create standalone executables or onefile bundles
+
+**How it works:**
+```bash
+# Compile Python module to extension module
+nuitka3 --module terminai_llm/
+
+# Or create standalone
+nuitka3 --standalone --onefile terminai_llm_runner.py
+```
+
+**Integration strategy:**
+1. Compile Python LLM client to C extension with Nuitka
+2. Link the extension into Rust binary
+3. Load via PyO3
+
+**Pros:**
+- ✅ Fastest runtime performance (true compiled code)
+- ✅ Can produce single-file executables
+- ✅ Smaller binary size than PyOxidizer
+- ✅ Compatible with Python 3.4-3.13
+
+**Cons:**
+- ❌ Requires C++ compiler at build time
+- ❌ Compatibility issues with some Python code (relies on CPython internals)
+- ❌ Complex build setup
+- ❌ Commercial license needed for some features (data file embedding)
+- ❌ Debugging compiled code is harder
+
+**Best for:** Maximum performance, if compatibility is verified
+
+**Resources:**
+- [Nuitka GitHub](https://github.com/Nuitka/Nuitka)
+- [Nuitka Use Cases](https://nuitka.net/user-documentation/use-cases.html)
+
+### Option 3: System Python Requirement
+
+**What it does:**
+- Require users to have Python 3.9+ installed on their system
+- Use `pyo3`'s auto-initialize feature to find and use system Python
+
+**How it works:**
+```toml
+# Cargo.toml
+[dependencies]
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
+```
+
+```rust
+// Rust code - automatic
+pyo3::prepare_freethreaded_python();
+Python::with_gil(|py| {
+    // Use system Python automatically
+});
+```
+
+**Installation script:**
+```bash
+#!/bin/bash
+# install.sh
+
+# Check Python version
+if ! python3 --version | grep -q "Python 3.9\|Python 3.10\|Python 3.11\|Python 3.12"; then
+    echo "Error: Python 3.9+ required"
+    exit 1
+fi
+
+# Install Python dependencies
+pip3 install --user pydantic-ai litellm
+
+# Install Termin.AI binary
+cargo install --path .
+```
+
+**Pros:**
+- ✅ Simplest build process
+- ✅ Smallest binary size (~20MB)
+- ✅ Fastest development iteration
+- ✅ Easy to update Python dependencies
+- ✅ Full compatibility with all Python packages
+- ✅ Standard Python debugging tools work
+
+**Cons:**
+- ❌ Requires users to install Python
+- ❌ Potential version conflicts on user's system
+- ❌ More complex installation instructions
+- ❌ Dependency on user's Python environment
+
+**Best for:** Development and for users comfortable with Python
+
+### Option 4: PyInstaller (Not Recommended)
+
+**What it does:**
+- Bundles Python interpreter and dependencies into a folder
+- Extracts to temporary directory at runtime
+- Can create "onefile" executable that extracts on every run
+
+**Why not recommended:**
+- Slow startup time (200ms+ for extraction)
+- Antivirus false positives (common issue)
+- Large distribution size
+- Designed for Python apps, awkward for Rust apps calling Python
+
+**Only consider if:** You need maximum Python compatibility and can't use PyOxidizer
+
+**Resources:**
+- [PyInstaller vs PyOxidizer Comparison](https://pyoxidizer.readthedocs.io/en/stable/pyoxidizer_comparisons.html)
+
+### Option 5: Maturin (Reverse Direction)
+
+**Note:** Maturin is for the opposite use case - packaging **Rust code as a Python package**, not for embedding Python in Rust binaries.
+
+**What it does:**
+- Builds Rust extensions for Python using PyO3
+- Publishes to PyPI as Python wheels
+- Users install via `pip install terminai`
+
+**Not suitable for our use case** because:
+- We want a standalone terminal binary, not a Python package
+- Would require users to use Python to launch Termin.AI
+- Goes against the goal of Rust-native application
+
+**Resources:**
+- [Maturin User Guide](https://www.maturin.rs/)
+
+### Recommended Strategy
+
+**Phase 1 - Development (Immediate):**
+- Use **System Python** requirement
+- Simple, fast iteration
+- Document Python 3.9+ requirement
+
+**Phase 2 - Alpha/Beta (Months 1-3):**
+- Continue with System Python
+- Gather feedback on which Python packages users need
+- Test PyOxidizer with our actual dependencies
+
+**Phase 3 - Production Release (Month 4+):**
+- Switch to **PyOxidizer** for main distribution
+- Provide instructions for System Python alternative
+- Consider Nuitka for performance-critical deployments
+
+**Distribution Matrix:**
+
+| Platform | Primary Distribution | Alternative |
+|----------|---------------------|-------------|
+| Linux | PyOxidizer (static binary) | System Python |
+| macOS | PyOxidizer (universal binary) | Homebrew (with Python dep) |
+| Windows | PyOxidizer (exe) | System Python |
+
+### Hybrid Approach: Feature Flag
+
+Support both embedded and system Python:
+
+```toml
+# Cargo.toml
+[features]
+default = ["embedded-python"]
+embedded-python = ["pyembed"]
+system-python = []
+
+[dependencies]
+pyo3 = "0.22"
+pyembed = { path = "artifacts/", optional = true }
+```
+
+```rust
+// src/python_runtime.rs
+#[cfg(feature = "embedded-python")]
+fn initialize_python() -> Result<()> {
+    use pyembed::MainPythonInterpreter;
+    let interp = MainPythonInterpreter::new(Default::default())?;
+    // ...
+}
+
+#[cfg(feature = "system-python")]
+fn initialize_python() -> Result<()> {
+    pyo3::prepare_freethreaded_python();
+    // ...
+}
+```
+
+Build variants:
+```bash
+# Embedded Python (for distribution)
+cargo build --release --features embedded-python
+
+# System Python (for development)
+cargo build --release --features system-python
+```
+
+### Dependency Installation
+
+For Python dependencies, use one of these strategies:
+
+**Strategy 1: Vendored wheels (PyOxidizer)**
+```python
+# pyoxidizer.bzl
+def make_exe():
+    dist = default_python_distribution()
+    policy = dist.make_python_packaging_policy()
+
+    # Bundle specific packages
+    policy.resources_location = "in-memory"
+    exe = dist.to_python_executable(
+        name="terminai",
+        packaging_policy=policy,
+        config=python_config,
+    )
+
+    exe.add_python_resources(dist.pip_install([
+        "pydantic-ai==0.0.14",
+        "litellm==1.50.3",
+        "pydantic==2.9.2",
+    ]))
+
+    return exe
+```
+
+**Strategy 2: Runtime pip install (System Python)**
+```python
+# python/setup_check.py
+import subprocess
+import sys
+
+required_packages = {
+    'pydantic_ai': '0.0.14',
+    'litellm': '1.50.3',
+    'pydantic': '2.9.2',
+}
+
+def check_and_install():
+    for package, version in required_packages.items():
+        try:
+            __import__(package.replace('-', '_'))
+        except ImportError:
+            print(f"Installing {package}...")
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "install",
+                f"{package}=={version}"
+            ])
+```
 
 ---
 
@@ -310,13 +720,27 @@ __all__ = ["LLMClient", "ToolRegistry", "ContextFormatter"]
 **File:** `python/terminai_llm/client.py`
 
 ```python
-import asyncio
+import os
 from typing import AsyncIterator, List, Dict, Optional, Any
-from litellm import acompletion
-import json
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.litellm import LiteLLMModel
+
+# Data models
+class SuggestedCommand(BaseModel):
+    """A command suggested by the AI assistant."""
+    command: str = Field(description="The shell command to execute")
+    explanation: str = Field(description="What the command does and why")
+    raw: bool = Field(default=False, description="Contains raw escape sequences")
+
+class TerminalContext(BaseModel):
+    """Terminal state and recent history."""
+    cwd: str
+    history_lines: List[str] = Field(default_factory=list)
+    last_exit_code: Optional[int] = None
 
 class LLMClient:
-    """Main LLM client using LiteLLM for multi-provider support."""
+    """Main LLM client using PydanticAI with LiteLLM backend."""
 
     def __init__(
         self,
@@ -325,14 +749,26 @@ class LLMClient:
         api_key: Optional[str] = None,
     ):
         self.provider = provider
-        self.model = model or self._default_model(provider)
-        self.api_key = api_key
-        self.tool_registry = ToolRegistry()
-        self._suggested_commands = []
+        self.model_name = model or self._default_model(provider)
+        self._suggested_commands: List[SuggestedCommand] = []
 
         # Set API key if provided
         if api_key:
             self._set_api_key(api_key)
+
+        # Create LiteLLM model
+        model_id = f"{provider}/{self.model_name}"
+        self.model = LiteLLMModel(model_id)
+
+        # Create PydanticAI agent
+        self.agent = Agent(
+            model=self.model,
+            system_prompt=self._get_system_prompt(),
+            retries=2,  # Built-in retry logic
+        )
+
+        # Register tools
+        self._register_tools()
 
     def _default_model(self, provider: str) -> str:
         """Get default model for provider."""
@@ -346,7 +782,6 @@ class LLMClient:
 
     def _set_api_key(self, api_key: str):
         """Set API key for the provider."""
-        import os
         key_mapping = {
             "anthropic": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
@@ -354,6 +789,95 @@ class LLMClient:
         }
         if self.provider in key_mapping:
             os.environ[key_mapping[self.provider]] = api_key
+
+    def _get_system_prompt(self) -> str:
+        """Get the system prompt for the AI assistant."""
+        return """You are an AI assistant integrated into a terminal emulator.
+Your role is to help users understand their terminal output, suggest useful commands,
+and provide guidance on shell operations.
+
+You have access to the current terminal state including:
+- Current working directory
+- Recent terminal output
+- Last command exit code
+
+When suggesting commands:
+- Use the suggest_command tool to properly format your suggestions
+- Explain what each command does clearly
+- Consider the user's current context
+- Prefer safe, non-destructive commands when possible"""
+
+    def _register_tools(self):
+        """Register tools with the PydanticAI agent."""
+
+        @self.agent.tool
+        async def suggest_command(
+            ctx: RunContext[TerminalContext],
+            command: str,
+            explanation: str,
+            raw: bool = False,
+        ) -> str:
+            """Suggest a command for the user to execute in the terminal.
+
+            Args:
+                command: The shell command to suggest (e.g., 'ls -la', 'git status')
+                explanation: Clear explanation of what this command does
+                raw: Set to true if command contains raw escape sequences
+            """
+            suggested = SuggestedCommand(
+                command=command,
+                explanation=explanation,
+                raw=raw,
+            )
+            self._suggested_commands.append(suggested)
+
+            raw_indicator = " (raw escape sequences)" if raw else ""
+            return f"✓ Command suggested{raw_indicator}: `{command}`"
+
+        # Placeholder tools that will be implemented in Rust
+        @self.agent.tool
+        async def read_file(
+            ctx: RunContext[TerminalContext],
+            path: str,
+        ) -> str:
+            """Read contents of a file.
+
+            Args:
+                path: Path to the file to read (relative to current directory)
+            """
+            # This will be overridden with Rust callback
+            return f"Error: read_file not yet implemented"
+
+        @self.agent.tool
+        async def read_scrollback(
+            ctx: RunContext[TerminalContext],
+            num_lines: int = 100,
+        ) -> str:
+            """Read recent lines from terminal scrollback buffer.
+
+            Args:
+                num_lines: Number of recent lines to read (default 100)
+            """
+            # This will be overridden with Rust callback
+            if ctx.deps.history_lines:
+                lines = ctx.deps.history_lines[-num_lines:]
+                return "\n".join(lines)
+            return "No scrollback available"
+
+        @self.agent.tool
+        async def grep_files(
+            ctx: RunContext[TerminalContext],
+            pattern: str,
+            file_glob: str = "*",
+        ) -> str:
+            """Search for pattern in files matching glob.
+
+            Args:
+                pattern: Regular expression pattern to search for
+                file_glob: File glob pattern (e.g., '*.txt', 'src/**/*.rs')
+            """
+            # This will be overridden with Rust callback
+            return f"Error: grep_files not yet implemented"
 
     async def send_message_stream(
         self,
@@ -363,104 +887,64 @@ class LLMClient:
     ) -> AsyncIterator[str]:
         """Send a message and stream the response."""
 
-        # Format context and build messages
-        messages = self._build_messages(user_message, context, history)
-
-        # Get tools from registry
-        tools = self.tool_registry.get_tool_definitions()
-
-        # Stream completion
-        response = await acompletion(
-            model=f"{self.provider}/{self.model}",
-            messages=messages,
-            tools=tools if tools else None,
-            stream=True,
+        # Convert context dict to Pydantic model
+        term_ctx = TerminalContext(
+            cwd=context.get("cwd", "."),
+            history_lines=context.get("history_lines", []),
+            last_exit_code=context.get("last_exit_code"),
         )
 
-        # Process stream
-        async for chunk in response:
-            # Handle text content
-            if chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+        # Format message with context
+        context_str = self._format_context(term_ctx)
+        full_message = f"{context_str}\n\nUser: {user_message}"
 
-            # Handle tool calls
-            if chunk.choices[0].delta.tool_calls:
-                await self._handle_tool_calls(
-                    chunk.choices[0].delta.tool_calls
-                )
+        # Stream response using PydanticAI
+        async with self.agent.run_stream(
+            full_message,
+            deps=term_ctx,
+            message_history=self._convert_history(history),
+        ) as stream:
+            # Stream text chunks
+            async for chunk in stream.stream_text():
+                yield chunk
 
-    async def _handle_tool_calls(self, tool_calls):
-        """Handle tool calls from LLM."""
-        for tool_call in tool_calls:
-            tool_name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
-
-            # Execute tool
-            result = await self.tool_registry.execute_tool(
-                tool_name, args
-            )
-
-            # Store results (e.g., suggested commands)
-            if tool_name == "suggest_command":
-                self._suggested_commands.append({
-                    "command": args["command"],
-                    "explanation": args["explanation"],
-                    "raw": args.get("raw", False),
-                })
-
-    def _build_messages(
-        self,
-        user_message: str,
-        context: Dict[str, Any],
-        history: List[Dict[str, str]],
-    ) -> List[Dict[str, str]]:
-        """Build message list with system prompt, history, and context."""
-        messages = [
-            {
-                "role": "system",
-                "content": self._get_system_prompt(),
-            }
-        ]
-
-        # Add conversation history
-        messages.extend(history)
-
-        # Add current message with context
-        context_str = self._format_context(context)
-        full_message = f"{context_str}\n\n{user_message}"
-        messages.append({
-            "role": "user",
-            "content": full_message,
-        })
-
-        return messages
-
-    def _get_system_prompt(self) -> str:
-        """Get the system prompt for the AI assistant."""
-        return """You are an AI assistant integrated into a terminal.
-You can help users with commands, explain output, and suggest actions.
-
-When suggesting commands, use the suggest_command tool."""
-
-    def _format_context(self, context: Dict[str, Any]) -> str:
+    def _format_context(self, context: TerminalContext) -> str:
         """Format terminal context for the prompt."""
         parts = []
 
-        if context.get("cwd"):
-            parts.append(f"Current directory: {context['cwd']}")
+        parts.append(f"📂 Current directory: {context.cwd}")
 
-        if context.get("last_exit_code") is not None:
-            parts.append(f"Last exit code: {context['last_exit_code']}")
+        if context.last_exit_code is not None:
+            status = "✓" if context.last_exit_code == 0 else "✗"
+            parts.append(f"{status} Last exit code: {context.last_exit_code}")
 
-        if context.get("history_lines"):
-            history = "\n".join(context["history_lines"][-50:])  # Last 50 lines
-            parts.append(f"Recent terminal output:\n```\n{history}\n```")
+        if context.history_lines:
+            history = "\n".join(context.history_lines[-50:])  # Last 50 lines
+            parts.append(f"\n📜 Recent terminal output:\n```\n{history}\n```")
 
         return "\n".join(parts)
 
+    def _convert_history(
+        self,
+        history: List[Dict[str, str]],
+    ) -> List[Dict[str, str]]:
+        """Convert message history to PydanticAI format."""
+        # PydanticAI expects simple role/content dicts
+        return [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in history
+        ]
+
     def take_suggested_commands(self) -> List[Dict[str, Any]]:
         """Get and clear suggested commands."""
-        commands = self._suggested_commands.copy()
+        commands = [
+            {
+                "command": cmd.command,
+                "explanation": cmd.explanation,
+                "raw": cmd.raw,
+            }
+            for cmd in self._suggested_commands
+        ]
         self._suggested_commands.clear()
         return commands
 ```
@@ -835,7 +1319,7 @@ Python exceptions are automatically converted to Rust `PyErr`, which we wrap in 
 ### Phase 1: Parallel Implementation (Week 1)
 
 - [ ] Set up Python module structure
-- [ ] Implement basic LiteLLM client
+- [ ] Implement PydanticAI client with LiteLLM backend
 - [ ] Create PyO3 bridge with simple test
 - [ ] Verify async communication works
 
@@ -884,24 +1368,33 @@ Python exceptions are automatically converted to Rust `PyErr`, which we wrap in 
 ### Advantages ✅
 
 1. **Better Library Support:**
-   - LiteLLM supports 100+ providers vs ~5 in rig
+   - PydanticAI + LiteLLM: 100+ providers vs ~5 in rig
    - Updates quickly when providers add features
-   - Built-in retry, fallback, caching
+   - Built-in retry, fallback, caching, and durable execution
 
-2. **Easier Maintenance:**
-   - Simpler code for LLM interactions
-   - More examples and documentation
+2. **Type Safety:**
+   - Pydantic validation for all LLM inputs and outputs
+   - Structured outputs with automatic validation
+   - Compile-time type checking in Python
+   - Less runtime errors
+
+3. **Easier Maintenance:**
+   - Simpler, more intuitive code (FastAPI-like DX)
+   - Extensive examples and documentation
    - Larger community for support
+   - Better tooling integration with Rust's type system
 
-3. **Future Flexibility:**
-   - Easy to add new providers
-   - Access to Python AI ecosystem (RAG, agents, etc.)
+4. **Future Flexibility:**
+   - Easy to add new providers (LiteLLM supports 100+)
+   - Access to Python AI ecosystem (RAG, agents, embeddings)
    - Can leverage Python-only features quickly
+   - Agent framework ready for multi-agent patterns
 
-4. **Development Speed:**
+5. **Development Speed:**
    - Faster iteration on LLM features
-   - Better debugging tools
+   - Better debugging tools (Python debugger + Pydantic error messages)
    - Rich ecosystem for observability
+   - Type-safe tool definitions with automatic schema extraction
 
 ### Disadvantages ⚠️
 
@@ -1135,24 +1628,66 @@ Target: Within 10% of pure Rust implementation
 
 ## References
 
-### Documentation
+### Core Technologies
 
-- [PyO3 User Guide](https://pyo3.rs/)
-- [pyo3-async-runtimes](https://github.com/PyO3/pyo3-async-runtimes)
-- [LiteLLM Documentation](https://docs.litellm.ai/)
+**PyO3 & Async Integration:**
+- [PyO3 User Guide](https://pyo3.rs/) - Main documentation for Rust-Python bindings
+- [pyo3-async-runtimes GitHub](https://github.com/PyO3/pyo3-async-runtimes) - Async bridge library
+- [pyo3-async-runtimes Documentation](https://docs.rs/pyo3-async-runtimes/latest/pyo3_async_runtimes/)
+- [Async / Await in PyO3](https://pyo3.rs/v0.13.2/ecosystem/async-await) - Async patterns guide
+- [PyO3 Async Integration Patterns](https://github.com/PyO3/pyo3/discussions/3438) - Community discussions
+
+**PydanticAI:**
+- [PydanticAI Documentation](https://ai.pydantic.dev/) - Official docs
+- [PydanticAI GitHub](https://github.com/pydantic/pydantic-ai) - Source code
+- [PydanticAI Agents](https://ai.pydantic.dev/agents/) - Agent framework guide
+- [PydanticAI Tools](https://ai.pydantic.dev/tools/) - Tool calling documentation
+- [PydanticAI Output](https://ai.pydantic.dev/output/) - Structured outputs
+- [Type-safe LLM agents with PydanticAI](https://simmering.dev/blog/pydantic-ai/) - Tutorial
+- [Streaming with Pydantic AI](https://datastud.dev/posts/pydantic-ai-streaming/) - Streaming guide
+
+**LiteLLM:**
+- [LiteLLM Documentation](https://docs.litellm.ai/) - Main docs
+- [LiteLLM GitHub](https://github.com/BerriAI/litellm) - Source code
+- [LiteLLM Streaming + Async](https://docs.litellm.ai/docs/completion/stream) - Streaming guide
+- [LiteLLM Integration for Pydantic AI](https://python.plainenglish.io/introducing-litellm-integration-for-pydantic-ai-659cd9e5753f) - Integration guide
+- [pydantic-ai-litellm](https://github.com/mochow13/pydantic-ai-litellm) - Integration package
+
+**LangChain (Alternative):**
 - [LangChain Python Docs](https://python.langchain.com/)
-- [Async / Await in PyO3](https://pyo3.rs/v0.13.2/ecosystem/async-await)
+- [LangChain Async Programming](https://python.langchain.com/docs/concepts/async/)
+- [LangChain Async API](https://lagnchain.readthedocs.io/en/stable/modules/models/llms/examples/async_llm.html)
 
-### Blog Posts & Tutorials
+### Python Distribution & Packaging
 
-- [PyO3 Async Integration Patterns](https://github.com/PyO3/pyo3/discussions/3438)
-- [LiteLLM Streaming Guide](https://docs.litellm.ai/docs/completion/stream)
-- [Building Async Python Libraries](https://python.langchain.com/docs/concepts/async/)
+**PyOxidizer:**
+- [PyOxidizer GitHub](https://github.com/indygreg/PyOxidizer) - Main repository
+- [PyOxidizer Documentation](https://pyoxidizer.readthedocs.io/en/stable/) - Official docs
+- [Generic Python Embedding in Rust](https://pyoxidizer.readthedocs.io/en/stable/pyoxidizer_rust_generic_embedding.html) - Embedding guide
+- [PyOxidizer Rust Projects](https://pyoxidizer.readthedocs.io/en/stable/pyoxidizer_rust_projects.html) - Integration patterns
+- [PyOxidizer Comparisons](https://pyoxidizer.readthedocs.io/en/stable/pyoxidizer_comparisons.html) - vs other tools
 
-### Code Examples
+**Nuitka:**
+- [Nuitka GitHub](https://github.com/Nuitka/Nuitka) - Source code
+- [Nuitka Documentation](https://nuitka.net/) - Official docs
+- [Nuitka Use Cases](https://nuitka.net/user-documentation/use-cases.html) - Usage guide
+- [Nuitka Bundle Standalone Binary](https://williamhuey.github.io/posts/nuitka-pyqtgraph-bundle-standalone-executable/) - Tutorial
 
-- [pyo3-async-runtimes examples](https://github.com/PyO3/pyo3-async-runtimes/tree/main/examples)
-- [LiteLLM async examples](https://github.com/BerriAI/litellm/tree/main/examples)
+**Maturin:**
+- [Maturin User Guide](https://www.maturin.rs/) - Official docs
+- [Maturin GitHub](https://github.com/PyO3/maturin) - Source code
+- [Maturin Tutorial](https://www.maturin.rs/tutorial.html) - Getting started
+- [PyO3 Building and Distribution](https://pyo3.rs/v0.27.2/building-and-distribution.html) - PyO3 + maturin
+
+**Comparisons:**
+- [Distribute Python applications - 7 best tools](https://www.augmentedmind.de/2021/05/16/distribute-python-applications/) - Tool comparison
+- [4 Attempts at Packaging Python as an Executable](https://tryexceptpass.org/article/package-python-as-executable/) - Detailed comparison
+
+### Code Examples & Tutorials
+
+- [pyo3-async-runtimes examples](https://github.com/PyO3/pyo3-async-runtimes/blob/main/src/lib.rs) - Reference implementations
+- [Embedding Python into Rust Hello World](https://github.com/indygreg/PyOxidizer/discussions/652) - PyOxidizer example
+- [Building Asynchronous LLM Application](https://medium.com/@givkashi/building-an-asynchronous-llm-application-with-langchain-and-gpt-4o-mini-4ee0964d917c) - LangChain async patterns
 
 ---
 
