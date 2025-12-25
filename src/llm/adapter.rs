@@ -33,9 +33,7 @@ impl LLMClientAdapter {
   pub async fn new(provider: Provider, model: Option<String>) -> Result<Self> {
     #[cfg(feature = "python-llm")]
     {
-      Ok(Self::Python(
-        PythonLLMBridge::new(provider, model).await?,
-      ))
+      Ok(Self::Python(PythonLLMBridge::new(provider, model).await?))
     }
 
     #[cfg(not(feature = "python-llm"))]
@@ -54,9 +52,7 @@ impl LLMClientAdapter {
     {
       // TODO: Python bridge doesn't support custom endpoints yet
       let _ = endpoint;
-      Ok(Self::Python(
-        PythonLLMBridge::new(provider, model).await?,
-      ))
+      Ok(Self::Python(PythonLLMBridge::new(provider, model).await?))
     }
 
     #[cfg(not(feature = "python-llm"))]
