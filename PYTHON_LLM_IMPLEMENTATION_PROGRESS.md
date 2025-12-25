@@ -24,11 +24,14 @@
 - [x] Create Rust bridge (PythonLLMBridge)
 - [x] Basic bridge initialization and command extraction working
 - [x] Error handling
-- [x] Unit tests for Python client (22 tests passing)
+- [x] Unit tests for Python client (28 tests passing - 22 original + 6 integration)
 - [x] Unit tests for tools
+- [x] Integration tests for end-to-end functionality
 - [x] Rust compilation successful with python-llm feature flag
-- [ ] Implement async message sending (TODO: needs pyo3-async-runtimes integration)
+- [x] Implement async message sending (using tokio spawn_blocking)
+- [x] Comprehensive documentation (README.md)
 - [ ] Add streaming support (TODO: complex async bridge required)
+- [ ] Implement true async with pyo3-async-runtimes (current: spawn_blocking workaround)
 
 ## Phase 2: Tools ⏳ PENDING
 
