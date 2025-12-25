@@ -1,0 +1,120 @@
+// Tests for LLM Client Adapter
+#[cfg(test)]
+mod tests {
+  use crate::llm::adapter::LLMClientAdapter;
+  use crate::llm::{ChatMessage, Provider, TerminalContext};
+  use std::path::PathBuf;
+
+  fn skip_if_no_api_key() -> bool {
+    std::env::var("ANTHROPIC_API_KEY").is_err()
+  }
+
+  #[tokio::test]
+  async fn test_adapter_initialization() {
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let adapter = LLMClientAdapter::new(Provider::Anthropic, None).await;
+    assert!(
+      adapter.is_ok(),
+      "Failed to create adapter: {:?}",
+      adapter.err()
+    );
+  }
+
+  #[tokio::test]
+  async fn test_adapter_with_custom_model() {
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let adapter = LLMClientAdapter::new(
+      Provider::Anthropic,
+      Some("claude-3-haiku-20240307".to_string()),
+    )
+    .await;
+
+    assert!(adapter.is_ok());
+  }
+
+  #[tokio::test]
+  async fn test_adapter_set_cwd() {
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
+      .await
+      .unwrap();
+
+    let result = adapter.set_cwd(PathBuf::from("/tmp"));
+    assert!(result.is_ok());
+  }
+
+  #[tokio::test]
+  async fn test_adapter_update_scrollback() {
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
+      .await
+      .unwrap();
+
+    let lines = vec![
+      "line 1".to_string(),
+      "line 2".to_string(),
+      "line 3".to_string(),
+    ];
+    let result = adapter.update_scrollback(lines);
+    assert!(result.is_ok());
+  }
+
+  #[tokio::test]
+  async fn test_adapter_take_suggested_commands_empty() {
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
+      .await
+      .unwrap();
+
+    let commands = adapter.take_suggested_commands();
+    assert!(commands.is_ok());
+    assert_eq!(commands.unwrap().len(), 0);
+  }
+
+  #[tokio::test]
+  async fn test_adapter_send_message() {
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
+      .await
+      .unwrap();
+
+    let context = TerminalContext::new(
+      vec!["$ ls".to_string()],
+      PathBuf::from("/tmp"),
+      Some(0),
+    );
+
+    let history: Vec<ChatMessage> = vec![];
+
+    let result = adapter
+      .send_message("Hello, how do I list files?", &context, &history)
+      .await;
+
+    // This will return a placeholder response for Python, or actual response for Rig
+    assert!(result.is_ok());
+  }
+}

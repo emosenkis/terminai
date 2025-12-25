@@ -54,13 +54,17 @@
 - [ ] Test Ollama provider
 - [ ] Add provider-specific configuration
 
-## Phase 4: Integration ⏳ PENDING
+## Phase 4: Integration ⏳ IN PROGRESS
 
-- [ ] Create adapter layer in src/llm/mod.rs
-- [ ] Add python-llm feature flag
-- [ ] Integration tests with app
+- [x] Add python-llm feature flag (already existed from Phase 1)
+- [x] Create adapter layer (LLMClientAdapter in src/llm/adapter.rs)
+- [x] Adapter supports both Rig and Python backends based on feature flag
+- [x] Basic integration tests for adapter (adapter_test.rs)
+- [x] Adapter compiles with and without python-llm feature
+- [ ] Integration tests with full app
 - [ ] Performance benchmarking
 - [ ] Fix discovered issues
+- [ ] Replace LLMClient with LLMClientAdapter in app code (gradual migration)
 
 ## Phase 5: Migration ⏳ PENDING
 
@@ -117,6 +121,14 @@
 - Tool Args structs made public (GrepFilesArgs, ReadFileArgs) for bridge access
 - Full callback registration deferred - requires passing Rust closures to Python (complex with PyO3)
 - Current approach: bridge methods can be called directly when needed
+
+### Adapter Layer Implementation
+- Created `LLMClientAdapter` enum in src/llm/adapter.rs
+- Adapter switches between Rig and Python backends based on feature flag
+- Provides unified API: new(), set_cwd(), update_scrollback(), take_suggested_commands(), send_message_stream(), send_message()
+- Python backend currently falls back to non-streaming for send_message_stream() (returns single-item stream)
+- Adapter exported from llm module alongside existing LLMClient
+- Allows gradual migration: apps can opt-in to adapter without changing existing code
 
 ---
 
