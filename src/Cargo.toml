@@ -22,7 +22,7 @@ name = "termin"
 path = "lib.rs"
 
 [features]
-default = []
+default = ["python-llm"]
 python-llm = ["pyo3", "pyo3-async-runtimes"]
 
 [[bin]]
@@ -105,11 +105,8 @@ rat-scrolled = { path = "../rat-salsa/rat-scrolled" }
 rat-theme4 = { path = "../rat-salsa/rat-theme4" }
 rat-text = { path = "../rat-salsa/rat-text" }
 rat-cursor = { path = "../rat-salsa/rat-cursor" }
-rig-core = "0.27.0"
 async-stream = "0.3"
 thiserror = "2.0"
-grep = "0.3"
-walkdir = "2.5"
 
 [target."cfg(unix)".dependencies]
 daemonize = "0.5.0"

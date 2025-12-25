@@ -1,7 +1,7 @@
-// Tests for LLM Client Adapter
+// Tests for Python LLM Bridge
 #[cfg(test)]
 mod tests {
-  use crate::llm::adapter::LLMClientAdapter;
+  use crate::llm::client::*;
   use crate::llm::{ChatMessage, Provider, TerminalContext};
   use std::path::PathBuf;
 
@@ -10,97 +10,95 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn test_adapter_initialization() {
+  async fn test_bridge_initialization() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
     }
 
-    let adapter = LLMClientAdapter::new(Provider::Anthropic, None).await;
+    let bridge = LLMClient::new(Provider::Anthropic, None).await;
     assert!(
-      adapter.is_ok(),
-      "Failed to create adapter: {:?}",
-      adapter.err()
+      bridge.is_ok(),
+      "Failed to create bridge: {:?}",
+      bridge.err()
     );
+
+    let bridge = bridge.unwrap();
+    assert_eq!(bridge.provider(), Provider::Anthropic);
+    assert_eq!(bridge.model(), "claude-sonnet-4-5");
   }
 
   #[tokio::test]
-  async fn test_adapter_with_custom_model() {
+  async fn test_bridge_with_custom_model() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
     }
 
-    let adapter = LLMClientAdapter::new(
+    let bridge = LLMClient::new(
       Provider::Anthropic,
       Some("claude-3-haiku-20240307".to_string()),
     )
     .await;
 
-    assert!(adapter.is_ok());
+    assert!(bridge.is_ok());
+    let bridge = bridge.unwrap();
+    assert_eq!(bridge.model(), "claude-3-haiku-20240307");
   }
 
   #[tokio::test]
-  async fn test_adapter_set_cwd() {
+  async fn test_set_cwd() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
     }
 
-    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
-      .await
-      .unwrap();
+    let bridge = LLMClient::new(Provider::Anthropic, None).await.unwrap();
 
-    let result = adapter.set_cwd(PathBuf::from("/tmp"));
+    let result = bridge.set_cwd(PathBuf::from("/tmp"));
     assert!(result.is_ok());
   }
 
   #[tokio::test]
-  async fn test_adapter_update_scrollback() {
+  async fn test_update_scrollback() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
     }
 
-    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
-      .await
-      .unwrap();
+    let bridge = LLMClient::new(Provider::Anthropic, None).await.unwrap();
 
     let lines = vec![
       "line 1".to_string(),
       "line 2".to_string(),
       "line 3".to_string(),
     ];
-    let result = adapter.update_scrollback(lines);
+    let result = bridge.update_scrollback(lines);
     assert!(result.is_ok());
   }
 
   #[tokio::test]
-  async fn test_adapter_take_suggested_commands_empty() {
+  async fn test_take_suggested_commands_empty() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
     }
 
-    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
-      .await
-      .unwrap();
+    let bridge = LLMClient::new(Provider::Anthropic, None).await.unwrap();
 
-    let commands = adapter.take_suggested_commands();
+    let commands = bridge.take_suggested_commands();
     assert!(commands.is_ok());
     assert_eq!(commands.unwrap().len(), 0);
   }
 
   #[tokio::test]
-  async fn test_adapter_send_message() {
+  async fn test_send_message_placeholder() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
     }
 
-    let adapter = LLMClientAdapter::new(Provider::Anthropic, None)
-      .await
-      .unwrap();
+    let bridge = LLMClient::new(Provider::Anthropic, None).await.unwrap();
 
     let context = TerminalContext::new(
       vec!["$ ls".to_string()],
@@ -110,11 +108,13 @@ mod tests {
 
     let history: Vec<ChatMessage> = vec![];
 
-    let result = adapter
+    let result = bridge
       .send_message("Hello, how do I list files?", &context, &history)
       .await;
 
-    // This will return a placeholder response for Python, or actual response for Rig
     assert!(result.is_ok());
+    let response = result.unwrap();
+    // Currently returns placeholder
+    assert!(response.contains("Python bridge received message"));
   }
 }
