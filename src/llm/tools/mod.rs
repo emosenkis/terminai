@@ -5,7 +5,9 @@ pub mod read_file;
 pub mod read_scrollback;
 pub mod suggest_command;
 
-pub use grep_files::GrepFilesTool;
-pub use read_file::ReadFileTool;
-pub use read_scrollback::ReadScrollbackTool;
-pub use suggest_command::{SuggestCommandTool, SuggestedCommand};
+pub use grep_files::{GrepFilesArgs, GrepFilesTool};
+pub use read_file::{ReadFileArgs, ReadFileTool};
+pub use read_scrollback::{ReadScrollbackArgs, ReadScrollbackTool};
+pub use suggest_command::{
+  SuggestCommandArgs, SuggestCommandTool, SuggestedCommand,
+};

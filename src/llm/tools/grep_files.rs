@@ -18,16 +18,16 @@ const MAX_FILES: usize = 1000;
 #[derive(Deserialize)]
 pub struct GrepFilesArgs {
   /// Pattern to search for (regex or literal string)
-  pattern: String,
+  pub pattern: String,
   /// File glob pattern (e.g., "*.rs", "src/**/*.py")
   #[serde(default)]
-  file_pattern: Option<String>,
+  pub file_pattern: Option<String>,
   /// Whether to use case-insensitive search
   #[serde(default)]
-  case_insensitive: bool,
+  pub case_insensitive: bool,
   /// Maximum number of matches to return (default: 50, max: 100)
   #[serde(default)]
-  max_matches: Option<usize>,
+  pub max_matches: Option<usize>,
 }
 
 #[derive(Debug, thiserror::Error)]

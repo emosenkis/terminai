@@ -7,12 +7,15 @@ use anyhow::{Context, Result};
 use futures::stream::Stream;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use rig::tool::Tool;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use super::providers::Provider;
-use super::tools::SuggestedCommand;
+use super::tools::{
+  GrepFilesArgs, GrepFilesTool, ReadFileArgs, ReadFileTool, SuggestedCommand,
+};
 use super::{ChatMessage, TerminalContext};
 
 /// Python LLM client bridge
@@ -22,9 +25,13 @@ pub struct PythonLLMBridge {
   /// Python client instance (held across GIL boundary)
   py_client: Py<PyAny>,
   /// Current working directory for tools
-  cwd: Arc<Mutex<PathBuf>>,
+  cwd: Arc<RwLock<PathBuf>>,
   /// Scrollback buffer for tools
   scrollback_buffer: Arc<Mutex<Vec<String>>>,
+  /// Read file tool
+  read_file_tool: ReadFileTool,
+  /// Grep files tool
+  grep_files_tool: GrepFilesTool,
 }
 
 impl PythonLLMBridge {
@@ -73,20 +80,36 @@ impl PythonLLMBridge {
     })
     .context("Failed to initialize Python LLM client")?;
 
-    Ok(Self {
-      provider,
-      model_name,
-      py_client,
-      cwd: Arc::new(Mutex::new(PathBuf::from("."))),
-      scrollback_buffer: Arc::new(Mutex::new(Vec::new())),
-    })
+    let cwd = Arc::new(RwLock::new(PathBuf::from(".")));
+
+    // Initialize tools
+    let read_file_tool = ReadFileTool::new(Arc::clone(&cwd));
+    let grep_files_tool = GrepFilesTool::new(Arc::clone(&cwd));
+
+    // Create bridge without calling register_tool_callbacks yet
+    let bridge = Python::with_gil(|py| -> Result<Self> {
+      Ok(Self {
+        provider,
+        model_name,
+        py_client: py_client.clone_ref(py),
+        cwd,
+        scrollback_buffer: Arc::new(Mutex::new(Vec::new())),
+        read_file_tool,
+        grep_files_tool,
+      })
+    })?;
+
+    // Register tool callbacks with Python client
+    bridge.register_tool_callbacks()?;
+
+    Ok(bridge)
   }
 
   /// Set the current working directory
   pub fn set_cwd(&self, cwd: PathBuf) -> Result<()> {
     *self
       .cwd
-      .lock()
+      .write()
       .map_err(|_| anyhow::anyhow!("Failed to acquire cwd lock"))? = cwd;
     Ok(())
   }
@@ -99,6 +122,49 @@ impl PythonLLMBridge {
       .map_err(|_| anyhow::anyhow!("Failed to acquire scrollback lock"))? =
       lines;
     Ok(())
+  }
+
+  /// Register tool callbacks with the Python client
+  fn register_tool_callbacks(&self) -> Result<()> {
+    // TODO: Implement Python callback registration
+    // This is complex because we need to pass Rust function references to Python
+    // For now, callbacks are registered manually in tests or via direct method calls
+    Ok(())
+  }
+
+  /// Call read_file tool implementation
+  pub fn read_file_impl(&self, path: String) -> Result<String> {
+    // Create a new runtime for blocking the async call
+    let rt = tokio::runtime::Runtime::new()?;
+
+    let args = ReadFileArgs {
+      path,
+      start_line: None,
+      max_lines: None,
+    };
+
+    rt.block_on(async { self.read_file_tool.call(args).await })
+      .map_err(|e| anyhow::anyhow!("read_file error: {}", e))
+  }
+
+  /// Call grep_files tool implementation
+  pub fn grep_files_impl(
+    &self,
+    pattern: String,
+    file_glob: Option<String>,
+  ) -> Result<String> {
+    // Create a new runtime for blocking the async call
+    let rt = tokio::runtime::Runtime::new()?;
+
+    let args = GrepFilesArgs {
+      pattern,
+      file_pattern: file_glob,
+      case_insensitive: false,
+      max_matches: None,
+    };
+
+    rt.block_on(async { self.grep_files_tool.call(args).await })
+      .map_err(|e| anyhow::anyhow!("grep_files error: {}", e))
   }
 
   /// Get and clear suggested commands from Python client

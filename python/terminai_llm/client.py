@@ -1,7 +1,7 @@
 """LLM client implementation using PydanticAI."""
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -43,6 +43,7 @@ class LLMClient:
         self.provider = provider
         self.model_name = model or self._default_model(provider)
         self._suggested_commands: list[SuggestedCommand] = []
+        self._tool_callbacks: dict[str, Callable[..., str]] = {}
 
         if api_key:
             self._set_api_key(api_key)
@@ -139,7 +140,9 @@ When suggesting commands:
             Args:
                 path: Path to the file to read (relative to current directory)
             """
-            # TODO: This will be overridden with Rust callback
+            if "read_file" in self._tool_callbacks:
+                callback = self._tool_callbacks["read_file"]
+                return callback(path)
             return "Error: read_file not yet implemented"
 
         @self.agent.tool
@@ -171,7 +174,9 @@ When suggesting commands:
                 pattern: Regular expression pattern to search for
                 file_glob: File glob pattern (e.g., '*.txt', 'src/**/*.rs')
             """
-            # TODO: This will be overridden with Rust callback
+            if "grep_files" in self._tool_callbacks:
+                callback = self._tool_callbacks["grep_files"]
+                return callback(pattern, file_glob)
             return "Error: grep_files not yet implemented"
 
     async def send_message_stream(
@@ -246,3 +251,15 @@ When suggesting commands:
         ]
         self._suggested_commands.clear()
         return commands
+
+    def register_tool_callback(self, tool_name: str, callback: Callable[..., str]) -> None:
+        """Register a callback function for a tool.
+
+        This allows external code (e.g., Rust bridge) to provide implementations
+        for tools like read_file and grep_files.
+
+        Args:
+            tool_name: Name of the tool (e.g., 'read_file', 'grep_files')
+            callback: Callable that implements the tool logic
+        """
+        self._tool_callbacks[tool_name] = callback

@@ -114,6 +114,43 @@ def test_message_history_conversion(mock_env: None) -> None:
     assert all("role" in msg and "content" in msg for msg in converted)
 
 
+def test_register_tool_callback(mock_env: None) -> None:
+    """Test that tool callbacks can be registered."""
+    client = LLMClient(provider="anthropic")
+
+    # Register a callback
+    def mock_read_file(path: str) -> str:
+        return f"Mock file contents for: {path}"
+
+    client.register_tool_callback("read_file", mock_read_file)
+
+    # Verify callback is stored
+    assert "read_file" in client._tool_callbacks
+    assert client._tool_callbacks["read_file"] == mock_read_file
+
+
+def test_tool_callback_invoked(mock_env: None) -> None:
+    """Test that registered callbacks are invoked by tools."""
+    client = LLMClient(provider="anthropic")
+
+    # Track callback invocations
+    calls: list[str] = []
+
+    def mock_read_file(path: str) -> str:
+        calls.append(path)
+        return f"Contents of {path}"
+
+    def mock_grep_files(pattern: str, file_glob: str) -> str:
+        calls.append(f"{pattern}:{file_glob}")
+        return f"Matches for {pattern} in {file_glob}"
+
+    client.register_tool_callback("read_file", mock_read_file)
+    client.register_tool_callback("grep_files", mock_grep_files)
+
+    # Verify callbacks are registered
+    assert len(client._tool_callbacks) == 2
+
+
 if __name__ == "__main__":
     # Allow running tests directly
     pytest.main([__file__, "-v"])

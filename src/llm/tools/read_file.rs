@@ -11,13 +11,13 @@ const MAX_FILE_LINES: usize = 1000;
 #[derive(Deserialize)]
 pub struct ReadFileArgs {
   /// Path to the file to read (relative to cwd or absolute)
-  path: String,
+  pub path: String,
   /// Starting line number (0-indexed, optional)
   #[serde(default)]
-  start_line: Option<usize>,
+  pub start_line: Option<usize>,
   /// Number of lines to read (optional, default: 100)
   #[serde(default)]
-  max_lines: Option<usize>,
+  pub max_lines: Option<usize>,
 }
 
 #[derive(Debug, thiserror::Error)]
