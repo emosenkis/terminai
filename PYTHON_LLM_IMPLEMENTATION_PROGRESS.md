@@ -95,6 +95,14 @@
 - Deferred streaming implementation to later phase
 - Current bridge handles initialization and synchronous operations
 
+### Test Runtime Issues
+- Rust tests with PyO3 require proper Python environment setup
+- `auto-initialize` feature causes initialization issues in test harness
+- Python tests work perfectly (22/22 passing)
+- Rust compilation succeeds with python-llm feature
+- Runtime Python initialization needs LD_LIBRARY_PATH and proper sys.path
+- For production, will use embedded Python or system Python with proper config
+
 ---
 
 ## Next Steps
