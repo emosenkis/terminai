@@ -48,6 +48,10 @@ class LLMClient:
         if api_key:
             self._set_api_key(api_key)
 
+        # Set default Ollama base URL if not already configured
+        if provider == "ollama" and "OLLAMA_BASE_URL" not in os.environ:
+            os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434/v1"
+
         model_id = f"{provider}:{self.model_name}"
 
         self.agent: Agent[TerminalContext, None] = Agent(

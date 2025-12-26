@@ -89,7 +89,7 @@ Set environment variables for API keys:
 export ANTHROPIC_API_KEY="sk-..."
 export OPENAI_API_KEY="sk-..."
 export GOOGLE_API_KEY="..."
-export OLLAMA_BASE_URL="http://localhost:11434"  # For Ollama
+# OLLAMA_BASE_URL defaults to http://localhost:11434 if not set
 ```
 
 ## Development
