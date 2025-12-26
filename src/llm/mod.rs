@@ -6,6 +6,7 @@
 pub mod client;
 pub mod prompts;
 pub mod providers;
+pub mod python_bridge;
 
 pub use client::{LLMClient, SuggestedCommand};
 pub use providers::Provider;

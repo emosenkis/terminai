@@ -1,6 +1,6 @@
 # Instructions for Claude Code When Working on Termin.AI
 
-**Last Updated:** 2025-11-14
+**Last Updated:** 2025-12-26
 **Project:** Termin.AI - Interactive Terminal with AI Assistant
 **Status:** Active Development (v0.1.0)
 
@@ -8,9 +8,49 @@
 
 ## Overview
 
-You are working on **Termin.AI**, a terminal wrapper that provides AI assistance through an overlay interface. This is a Rust project that borrows terminal virtualization code from mprocs but builds a completely different product.
+You are working on **Termin.AI**, a terminal wrapper that provides AI assistance through an overlay interface. This is a Rust project with Python integration (via PyO3) that borrows terminal virtualization code from mprocs but builds a completely different product.
 
 **Critical:** This is NOT an mprocs extension. It's a single-shell terminal with AI overlay.
+
+---
+
+## Build and Run Requirements
+
+**IMPORTANT: This project uses PyO3 to integrate Python LLM clients with Rust.**
+
+### Building and Running
+
+**Always use the `./with_python_env.sh` wrapper script for all Rust operations:**
+
+```bash
+# Build the project
+./with_python_env.sh cargo build
+
+# Run the project
+./with_python_env.sh cargo run
+
+# Run tests
+./with_python_env.sh cargo test
+
+# Check compilation
+./with_python_env.sh cargo check
+```
+
+### Why the wrapper script is required
+
+The `with_python_env.sh` script:
+1. Sets up a Python virtual environment with required dependencies
+2. Configures `PYO3_PYTHON` to point to the correct Python interpreter
+3. Ensures PyO3 can find the Python libraries during compilation
+4. Installs the `terminai_llm` Python package in development mode
+
+### Without the wrapper
+
+**DO NOT** run `cargo build`, `cargo run`, or `cargo test` directly - PyO3 compilation will fail with linker errors.
+
+### Module affected
+
+The `src/llm/` module uses PyO3 to call into Python code in `python/terminai_llm/` for LLM provider integrations (OpenAI, Anthropic, Ollama, etc.).
 
 ---
 
@@ -330,10 +370,11 @@ See the examples above in "When to Raise Issues" section.
 ### During Implementation
 
 1. **Follow the plan strictly** - use specified modules, types, structure
-2. **Write tests** as you go (PRD specifies high test coverage)
-3. **Raise issues immediately** if you discover problems
-4. **Document deviations** if user approves changes
-5. **Update plan docs** if architecture changes
+2. **Use `./with_python_env.sh` for all cargo commands** - required for PyO3
+3. **Write tests** as you go (PRD specifies high test coverage)
+4. **Raise issues immediately** if you discover problems
+5. **Document deviations** if user approves changes
+6. **Update plan docs** if architecture changes
 
 ### Before Completing
 
@@ -515,10 +556,12 @@ safe_commands = ["ls", "pwd"]
 - Input handling
 
 **`src/llm/`** - LLM client
-- Multi-provider API client
+- Multi-provider API client (via PyO3/Python)
 - Streaming responses
 - API key management
 - Provider abstraction
+- **Note:** Uses PyO3 to call Python code in `python/terminai_llm/`
+- **Build requirement:** Must use `./with_python_env.sh` wrapper
 
 **`src/ai/`** - AI assistant
 - Conversation management
@@ -678,16 +721,17 @@ Refer to IMPLEMENTATION_PLAN.md for phase details:
 
 ## Final Reminders
 
-1. **READ THE PRD FIRST** - It's the contract
-2. **FOLLOW THE PLAN** - Unless you find a problem
-3. **RAISE ISSUES EARLY** - Don't wait until you're stuck
-4. **SINGLE SHELL FOCUS** - Not multi-process
-5. **NOT AN MPROCS FORK** - Different product
-6. **SECURITY MATTERS** - Command injection is dangerous
-7. **USER EXPERIENCE FIRST** - Transparent until AI needed
-8. **TEST EVERYTHING** - Terminal bugs are subtle
-9. **DOCUMENT CHANGES** - Update plans if needed
-10. **ASK WHEN UNSURE** - Clarity is better than guessing
+1. **USE `./with_python_env.sh`** - Required for all cargo commands (PyO3)
+2. **READ THE PRD FIRST** - It's the contract
+3. **FOLLOW THE PLAN** - Unless you find a problem
+4. **RAISE ISSUES EARLY** - Don't wait until you're stuck
+5. **SINGLE SHELL FOCUS** - Not multi-process
+6. **NOT AN MPROCS FORK** - Different product
+7. **SECURITY MATTERS** - Command injection is dangerous
+8. **USER EXPERIENCE FIRST** - Transparent until AI needed
+9. **TEST EVERYTHING** - Terminal bugs are subtle
+10. **DOCUMENT CHANGES** - Update plans if needed
+11. **ASK WHEN UNSURE** - Clarity is better than guessing
 
 ---
 

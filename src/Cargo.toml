@@ -33,6 +33,11 @@ path = "bin/terminai.rs"
 name = "termcap"
 path = "bin/termcap.rs"
 
+[[bin]]
+name = "test_llm_e2e"
+path = "bin/test_llm_e2e.rs"
+required-features = ["python-llm"]
+
 [dependencies]
 anyhow = "1.0.72"
 assert_matches = "1.5.0"
@@ -94,8 +99,8 @@ tui-markdown = "0.3"
 tui-textarea = "0.7.0"
 
 # TERMIN.AI: Python bridge dependencies (optional)
-pyo3 = { version = "0.23", features = ["auto-initialize"], optional = true }
-pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"], optional = true }
+pyo3 = { version = "0.27", features = ["auto-initialize"], optional = true }
+pyo3-async-runtimes = { version = "0.27", features = ["tokio-runtime", "unstable-streams"], optional = true }
 
 # TERMIN.AI: rat-salsa dependencies for focus management
 rat-salsa = { path = "../rat-salsa/rat-salsa", features = ["async"] }

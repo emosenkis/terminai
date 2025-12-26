@@ -1,11 +1,14 @@
 """LLM client implementation using PydanticAI."""
 
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestedCommand(BaseModel):
@@ -40,19 +43,24 @@ class LLMClient:
             model: Model name (optional, uses provider default if not specified)
             api_key: API key for the provider (optional, uses environment if not specified)
         """
+        logger.info(f"Initializing LLMClient with provider={provider}, model={model}")
+
         self.provider = provider
         self.model_name = model or self._default_model(provider)
         self._suggested_commands: list[SuggestedCommand] = []
         self._tool_callbacks: dict[str, Callable[..., str]] = {}
 
         if api_key:
+            logger.debug("Setting API key from parameter")
             self._set_api_key(api_key)
 
         # Set default Ollama base URL if not already configured
         if provider == "ollama" and "OLLAMA_BASE_URL" not in os.environ:
+            logger.debug("Setting default Ollama base URL")
             os.environ["OLLAMA_BASE_URL"] = "http://localhost:11434/v1"
 
         model_id = f"{provider}:{self.model_name}"
+        logger.info(f"Creating PydanticAI agent with model_id={model_id}")
 
         self.agent: Agent[TerminalContext, None] = Agent(
             model=model_id,
@@ -60,7 +68,9 @@ class LLMClient:
             retries=2,
         )
 
+        logger.debug("Registering tools")
         self._register_tools()
+        logger.info("LLMClient initialized successfully")
 
     def _default_model(self, provider: str) -> str:
         """Get default model for provider."""
@@ -199,22 +209,40 @@ When suggesting commands:
         Yields:
             Text chunks as they are generated
         """
+        logger.info(f"send_message_stream called with user_message={user_message[:50]}...")
+        logger.debug(f"Context: {context}")
+        logger.debug(f"History length: {len(history)}")
+
         term_ctx = TerminalContext(
             cwd=context.get("cwd", "."),
             history_lines=context.get("history_lines", []),
             last_exit_code=context.get("last_exit_code"),
         )
 
+        logger.debug("Created TerminalContext")
+
         context_str = self._format_context(term_ctx)
         full_message = f"{context_str}\n\nUser: {user_message}"
 
-        async with self.agent.run_stream(
-            user_prompt=full_message,
-            deps=term_ctx,
-            message_history=None,
-        ) as stream:
-            async for chunk in stream.stream_text():
-                yield chunk
+        logger.info("Starting agent.run_stream")
+        chunk_count = 0
+
+        try:
+            async with self.agent.run_stream(
+                user_prompt=full_message,
+                deps=term_ctx,
+                message_history=None,
+            ) as stream:
+                logger.info("Agent stream started, beginning iteration")
+                async for chunk in stream.stream_text():
+                    chunk_count += 1
+                    if chunk_count <= 5 or chunk_count % 10 == 0:
+                        logger.debug(f"Yielding chunk #{chunk_count}: {chunk[:30]}...")
+                    yield chunk
+                logger.info(f"Stream complete, yielded {chunk_count} chunks")
+        except Exception as e:
+            logger.error(f"Error in send_message_stream: {e}", exc_info=True)
+            raise
 
     def _format_context(self, context: TerminalContext) -> str:
         """Format terminal context for the prompt."""

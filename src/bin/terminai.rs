@@ -430,8 +430,29 @@ fn main() -> Result<()> {
 
   // Create tokio runtime for async operations
   // NOTE: PollTokio requires manual runtime initialization (cannot use #[tokio::main])
-  log::debug!("Creating tokio runtime");
+  log::debug!("Creating tokio runtime for PollTokio");
   let tokio_rt = tokio::runtime::Runtime::new()?;
+
+  // Initialize Python for LLM streaming
+  #[cfg(feature = "python-llm")]
+  {
+    log::debug!("Initializing Python");
+    pyo3::prepare_freethreaded_python();
+    log::info!("Python initialized");
+
+    // Create a separate runtime for pyo3-async-runtimes and leak it
+    log::debug!("Creating tokio runtime for pyo3-async-runtimes");
+    let pyo3_rt = tokio::runtime::Runtime::new()?;
+    let pyo3_rt: &'static tokio::runtime::Runtime =
+      Box::leak(Box::new(pyo3_rt));
+
+    // Initialize pyo3-async-runtimes with its own runtime
+    log::debug!("Initializing pyo3-async-runtimes");
+    pyo3_async_runtimes::tokio::init_with_runtime(pyo3_rt).map_err(|_| {
+      anyhow::anyhow!("Failed to initialize pyo3-async-runtimes")
+    })?;
+    log::info!("pyo3-async-runtimes initialized with separate tokio runtime");
+  }
 
   // Initialize shell and AI asynchronously
   log::debug!("Initializing shell and AI components");
