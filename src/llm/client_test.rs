@@ -92,7 +92,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn test_send_message_placeholder() {
+  async fn test_send_message() {
     if skip_if_no_api_key() {
       eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
       return;
@@ -109,12 +109,13 @@ mod tests {
     let history: Vec<ChatMessage> = vec![];
 
     let result = bridge
-      .send_message("Hello, how do I list files?", &context, &history)
+      .send_message("Reply with just 'OK'", &context, &history)
       .await;
 
-    assert!(result.is_ok());
+    assert!(result.is_ok(), "Failed to send message: {:?}", result.err());
     let response = result.unwrap();
-    // Currently returns placeholder
-    assert!(response.contains("Python bridge received message"));
+    // Should get actual LLM response
+    assert!(!response.is_empty(), "Response should not be empty");
+    println!("LLM Response: {}", response);
   }
 }

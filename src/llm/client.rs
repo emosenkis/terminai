@@ -262,13 +262,59 @@ impl LLMClient {
             .map_err(|e| anyhow::anyhow!("Failed to append message: {}", e))?;
         }
 
-        // Call Python send_message method
-        // TODO: Actually implement the async call
-        // For now return placeholder
-        Ok(format!(
-          "LLM response to: '{}' (implementation pending)",
-          user_message
-        ))
+        // Call Python send_message_stream and collect all chunks
+        // Note: This is not truly async - we block until all chunks are received
+        // For true async streaming, we need pyo3-async-runtimes
+        let py_result = py_client
+          .call_method1(
+            py,
+            "send_message_stream",
+            (user_message.clone(), context_dict, history_list),
+          )
+          .map_err(|e| {
+            anyhow::anyhow!("Failed to call send_message_stream: {}", e)
+          })?;
+
+        // Import asyncio to run the async generator
+        let asyncio = py
+          .import("asyncio")
+          .map_err(|e| anyhow::anyhow!("Failed to import asyncio: {}", e))?;
+
+        // Collect all chunks from the async iterator
+        let collect_code = r#"
+async def collect_stream(stream):
+    chunks = []
+    async for chunk in stream:
+        chunks.append(chunk)
+    return "".join(chunks)
+"#;
+
+        // Execute the collection function
+        let locals = PyDict::new_bound(py);
+        py.run_bound(collect_code, None, Some(&locals))
+          .map_err(|e| {
+            anyhow::anyhow!("Failed to define collect function: {}", e)
+          })?;
+
+        let collect_fn = locals
+          .get_item("collect_stream")
+          .map_err(|e| anyhow::anyhow!("Failed to get collect_stream: {}", e))?
+          .context("collect_stream not found")?;
+
+        // Run the coroutine and get result
+        let coroutine = collect_fn.call1((py_result,)).map_err(|e| {
+          anyhow::anyhow!("Failed to call collect_stream: {}", e)
+        })?;
+
+        let result = asyncio
+          .call_method1("run", (coroutine,))
+          .map_err(|e| anyhow::anyhow!("Failed to run coroutine: {}", e))?;
+
+        let response = result
+          .extract::<String>()
+          .map_err(|e| anyhow::anyhow!("Failed to extract response: {}", e))?;
+
+        Ok(response)
       })
     })
     .await
