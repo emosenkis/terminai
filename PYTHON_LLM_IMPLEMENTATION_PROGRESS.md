@@ -151,8 +151,208 @@ The Python LLM implementation is now the only LLM implementation in Termin.AI:
 
 ## Remaining Work
 
-- [ ] Implement actual LLM call in send_message() (currently returns placeholder)
-- [ ] Add streaming support with pyo3-async-runtimes
+- [x] ~~Implement actual LLM call in send_message()~~ **COMPLETE** - Now calls Python LLM and returns real responses
+- [x] ~~Add basic streaming support~~ **COMPLETE** - send_message_stream() works but collects full response first
+- [ ] Implement true chunk-by-chunk streaming (see details below)
 - [ ] Fix Ollama compatibility issue with PydanticAI
 - [ ] Performance optimization
 - [ ] Additional provider testing
+
+---
+
+## How to Implement True Chunk-by-Chunk Streaming
+
+**Current Implementation:** `send_message_stream()` collects the full LLM response using `send_message()` then wraps it in a single-item stream. This works but doesn't provide real-time streaming UX.
+
+**Goal:** Stream individual chunks from Python's async iterator to Rust's Stream as they arrive from the LLM API.
+
+### Challenge
+
+The core difficulty is bridging Python's `asyncio` event loop with Rust's `tokio` runtime:
+
+- **Python side:** `send_message_stream()` returns an async iterator (`AsyncIterator[str]`)
+- **Rust side:** Need to return `Pin<Box<dyn Stream<Item = Result<String>> + Send>>`
+- **Problem:** PyO3's `auto-initialize` feature doesn't handle async bridging automatically
+
+### Approach 1: Using pyo3-async-runtimes (Recommended)
+
+**Library:** [`pyo3-async-runtimes`](https://github.com/PyO3/pyo3-async-runtimes) v0.23+
+
+**What it does:**
+- Bridges Python's `asyncio` event loop with Rust async runtimes
+- Provides utilities to convert Python coroutines/iterators to Rust futures/streams
+- Handles GIL management across async boundaries
+
+**Implementation Steps:**
+
+1. **Update Cargo.toml dependencies:**
+   ```toml
+   pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime", "attributes"] }
+   ```
+
+2. **Initialize the async runtime bridge in main.rs:**
+   ```rust
+   use pyo3_async_runtimes::tokio::init_multi_thread;
+
+   #[tokio::main]
+   async fn main() -> Result<()> {
+       pyo3::prepare_freethreaded_python();
+
+       Python::with_gil(|py| {
+           init_multi_thread(py)?;
+           Ok::<_, PyErr>(())
+       })?;
+
+       // Rest of application...
+   }
+   ```
+
+3. **Convert Python async iterator to Rust stream:**
+   ```rust
+   use pyo3_async_runtimes::tokio::into_stream;
+
+   pub async fn send_message_stream(
+       &self,
+       user_message: &str,
+       context: &TerminalContext,
+       conversation_history: &[ChatMessage],
+   ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+       let py_stream = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
+           // Build context and history (same as current implementation)
+           let context_dict = /* ... */;
+           let history_list = /* ... */;
+
+           // Call Python send_message_stream
+           let stream = self.py_client
+               .call_method1(py, "send_message_stream", (
+                   user_message,
+                   context_dict,
+                   history_list,
+               ))?
+               .into_py(py);
+
+           Ok(stream)
+       })?;
+
+       // Convert Python async iterator to Rust stream
+       let rust_stream = Python::with_gil(|py| {
+           let py_iter = py_stream.as_ref(py);
+           into_stream(py_iter)
+       })?;
+
+       // Map the stream to extract chunks
+       use futures::StreamExt;
+       let chunk_stream = rust_stream.map(|result| {
+           result
+               .map_err(|e| anyhow::anyhow!("Stream error: {}", e))
+               .and_then(|py_obj| {
+                   Python::with_gil(|py| {
+                       py_obj.extract::<String>(py)
+                           .map_err(|e| anyhow::anyhow!("Extract error: {}", e))
+                   })
+               })
+       });
+
+       Ok(Box::pin(chunk_stream))
+   }
+   ```
+
+4. **Test the implementation:**
+   ```bash
+   ./with_python_env.sh cargo test --lib test_send_message_stream -- --nocapture
+   ```
+
+**Expected Output:**
+- Multiple chunks printed as they arrive
+- Lower latency to first token
+- Streaming UX in terminal
+
+### Approach 2: Channel-Based Bridge (Alternative)
+
+**Simpler but less elegant:** Use Rust channels and spawn Python in a background task.
+
+**Implementation:**
+```rust
+pub async fn send_message_stream(
+    &self,
+    user_message: &str,
+    context: &TerminalContext,
+    conversation_history: &[ChatMessage],
+) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let py_client = Python::with_gil(|py| self.py_client.clone_ref(py));
+    let user_message = user_message.to_string();
+    let context = context.clone();
+    let history = conversation_history.to_vec();
+
+    // Spawn blocking task to run Python async code
+    tokio::task::spawn_blocking(move || {
+        Python::with_gil(|py| -> PyResult<()> {
+            // Build context/history and call send_message_stream
+            let py_stream = /* ... */;
+
+            // Create Python helper function to iterate and send
+            let iterate_code = r#"
+async def iterate_stream(stream):
+    chunks = []
+    async for chunk in stream:
+        chunks.append(chunk)
+    return chunks
+"#;
+
+            let locals = PyDict::new_bound(py);
+            py.run(iterate_code, None, Some(&locals))?;
+            let iterate_fn = locals.get_item("iterate_stream")?.unwrap();
+
+            // Run and collect chunks
+            let asyncio = py.import("asyncio")?;
+            let coroutine = iterate_fn.call1((py_stream,))?;
+            let chunks = asyncio.call_method1("run", (coroutine,))?;
+
+            // Send each chunk to channel
+            for chunk in chunks.iter()? {
+                let chunk_str = chunk?.extract::<String>()?;
+                let _ = tx.send(Ok(chunk_str));
+            }
+
+            Ok(())
+        })
+    });
+
+    use tokio_stream::wrappers::UnboundedReceiverStream;
+    Ok(Box::pin(UnboundedReceiverStream::new(rx)))
+}
+```
+
+**Pros:**
+- Simpler to implement
+- Doesn't require pyo3-async-runtimes setup
+
+**Cons:**
+- Still collects all chunks before streaming (doesn't solve the problem!)
+- Less efficient than true async bridging
+- More complex channel management
+
+### Recommended Path Forward
+
+**Use Approach 1 (pyo3-async-runtimes)** because:
+1. ✅ True chunk-by-chunk streaming as chunks arrive from API
+2. ✅ Proper async bridging (no blocking tasks)
+3. ✅ Better performance and resource usage
+4. ✅ More maintainable long-term
+5. ✅ Follows PyO3 best practices
+
+**Estimated Effort:** 2-4 hours for someone familiar with async Rust
+
+**Testing:**
+- Verify chunks arrive incrementally (print timestamps)
+- Test with long responses to see streaming in action
+- Ensure no deadlocks or GIL contention
+- Test error handling during streaming
+
+### References
+
+- [pyo3-async-runtimes documentation](https://docs.rs/pyo3-async-runtimes/latest/pyo3_async_runtimes/)
+- [PyO3 async/await guide](https://pyo3.rs/v0.23.3/ecosystem/async-await)
+- [Example: bridging asyncio and tokio](https://github.com/PyO3/pyo3-async-runtimes/tree/main/examples)
