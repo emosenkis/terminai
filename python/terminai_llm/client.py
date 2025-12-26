@@ -226,6 +226,7 @@ When suggesting commands:
 
         logger.info("Starting agent.run_stream")
         chunk_count = 0
+        previous_text = ""
 
         try:
             async with self.agent.run_stream(
@@ -234,12 +235,18 @@ When suggesting commands:
                 message_history=None,
             ) as stream:
                 logger.info("Agent stream started, beginning iteration")
-                async for chunk in stream.stream_text():
+                async for cumulative_text in stream.stream_text():
                     chunk_count += 1
+                    # stream_text() yields cumulative text, extract only the new delta
+                    delta = cumulative_text[len(previous_text):]
+                    previous_text = cumulative_text
+
                     if chunk_count <= 5 or chunk_count % 10 == 0:
-                        logger.debug(f"Yielding chunk #{chunk_count}: {chunk[:30]}...")
-                    yield chunk
-                logger.info(f"Stream complete, yielded {chunk_count} chunks")
+                        logger.debug(f"Yielding delta #{chunk_count}: {delta[:30]}...")
+
+                    if delta:  # Only yield if there's new content
+                        yield delta
+                logger.info(f"Stream complete, yielded {chunk_count} deltas")
         except Exception as e:
             logger.error(f"Error in send_message_stream: {e}", exc_info=True)
             raise
