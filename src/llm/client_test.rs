@@ -118,4 +118,60 @@ mod tests {
     assert!(!response.is_empty(), "Response should not be empty");
     println!("LLM Response: {}", response);
   }
+
+  #[tokio::test]
+  async fn test_send_message_stream() {
+    use futures::StreamExt;
+
+    if skip_if_no_api_key() {
+      eprintln!("Skipping test: ANTHROPIC_API_KEY not set");
+      return;
+    }
+
+    let bridge = LLMClient::new(Provider::Anthropic, None).await.unwrap();
+
+    let context = TerminalContext::new(
+      vec!["$ pwd".to_string(), "/tmp".to_string()],
+      PathBuf::from("/tmp"),
+      Some(0),
+    );
+
+    let history: Vec<ChatMessage> = vec![];
+
+    let result = bridge
+      .send_message_stream("Reply with just 'STREAMING OK'", &context, &history)
+      .await;
+
+    assert!(
+      result.is_ok(),
+      "Failed to create stream: {:?}",
+      result.err()
+    );
+    let mut stream = result.unwrap();
+
+    // Collect all chunks
+    let mut chunks = Vec::new();
+    while let Some(chunk_result) = stream.next().await {
+      assert!(
+        chunk_result.is_ok(),
+        "Stream error: {:?}",
+        chunk_result.err()
+      );
+      chunks.push(chunk_result.unwrap());
+    }
+
+    // Verify we got chunks
+    assert!(!chunks.is_empty(), "Should receive at least one chunk");
+
+    let full_response = chunks.join("");
+    println!(
+      "Streamed response ({} chunks): {}",
+      chunks.len(),
+      full_response
+    );
+    assert!(
+      !full_response.is_empty(),
+      "Full response should not be empty"
+    );
+  }
 }

@@ -184,19 +184,23 @@ impl LLMClient {
 
   /// Send a message and stream the response
   ///
-  /// TODO: Implement proper async streaming from Python to Rust
-  /// This is complex because it requires bridging Python's asyncio with Rust's async/await
+  /// Streams chunks from the Python LLM client to a Rust Stream.
+  /// Uses a simpler collect-then-stream approach since proper async bridging is complex.
   pub async fn send_message_stream(
     &self,
-    _user_message: &str,
-    _context: &TerminalContext,
-    _conversation_history: &[ChatMessage],
+    user_message: &str,
+    context: &TerminalContext,
+    conversation_history: &[ChatMessage],
   ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-    // TODO: Implement Python async iterator -> Rust stream conversion
-    // This requires using pyo3-async-runtimes to properly bridge the async boundaries
-    Err(anyhow::anyhow!(
-      "Streaming not yet implemented. Use send_message() instead."
-    ))
+    // For now, use send_message and create a single-item stream
+    // TODO: Implement true streaming with pyo3-async-runtimes
+    let response = self
+      .send_message(user_message, context, conversation_history)
+      .await?;
+
+    // Create a stream that yields the full response at once
+    use futures::stream;
+    Ok(Box::pin(stream::once(async move { Ok(response) })))
   }
 
   /// Send a non-streaming message
