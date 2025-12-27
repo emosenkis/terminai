@@ -38,6 +38,7 @@ pub mod ai_proc;
 pub mod command;
 pub mod env_loader;
 pub mod llm;
+pub mod llm_subprocess;
 pub mod privacy;
 pub mod shell;
 pub mod terminai_config;

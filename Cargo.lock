@@ -18,6 +18,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "ag-ui-client"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc224ec3acf6c0daa1a21a6138e7c231527900b56c459b27cde7dbd53ca517e8"
+dependencies = [
+ "ag-ui-core",
+ "async-trait",
+ "bytes",
+ "futures",
+ "json-patch",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "ag-ui-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cfd1ace43da05cf4dc0ffeb6d55dc16003df69b9c6959f1ac1262611137c2e2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "uuid",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -147,6 +179,17 @@ name = "async-stream-impl"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "async-trait"
+version = "0.1.89"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9035ad2d096bed7955a320ee7e2230574d28fd3c3a0f186cbea1ff3c7eed5dbb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1728,6 +1771,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "json-patch"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f300e415e2134745ef75f04562dd0145405c2f7fd92065db029ac4b16b57fe90"
+dependencies = [
+ "jsonptr",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "jsonptr"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5a3cc660ba5d72bce0b3bb295bf20847ccbb40fd423f3f05b61273672e561fe"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lab"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2061,6 +2126,18 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "memoffset 0.9.1",
+]
+
+[[package]]
+name = "nix"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74523f3a35e05aba87a1d978330aef40f67b0304ac79c1c00b294c9830543db6"
+dependencies = [
+ "bitflags 2.10.0",
+ "cfg-if",
+ "cfg_aliases 0.2.1",
+ "libc",
 ]
 
 [[package]]
@@ -3869,6 +3946,7 @@ dependencies = [
 name = "termin"
 version = "0.1.0"
 dependencies = [
+ "ag-ui-client",
  "anyhow",
  "assert_matches",
  "async-stream",
@@ -3894,6 +3972,7 @@ dependencies = [
  "log",
  "log-panics",
  "mlua",
+ "nix 0.30.1",
  "parking_lot",
  "phf 0.12.1",
  "portable-pty",
@@ -3926,6 +4005,7 @@ dependencies = [
  "tui-textarea",
  "unicode-segmentation",
  "unicode-width 0.2.0",
+ "uuid",
  "walkdir",
  "which",
  "winapi",
@@ -4453,6 +4533,7 @@ dependencies = [
  "atomic",
  "getrandom 0.3.4",
  "js-sys",
+ "serde_core",
  "wasm-bindgen",
 ]
 

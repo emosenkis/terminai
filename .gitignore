@@ -19,4 +19,13 @@ terminai_*.log
 .*.swp
 
 # Dependencies for reference
+/tmp-deps
 /deps
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+python/uv.lock
+python/.venv

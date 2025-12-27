@@ -102,9 +102,12 @@ async-stream = "0.3"
 thiserror = "2.0"
 grep = "0.3"
 walkdir = "2.5"
+ag-ui-client = "0.1.0"
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [target."cfg(unix)".dependencies]
 daemonize = "0.5.0"
+nix = { version = "0.30", features = ["signal"] }
 
 [target."cfg(windows)".dependencies]
 winapi = { version = "0.3", features = ["consoleapi", "winuser"] }
