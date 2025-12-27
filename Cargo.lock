@@ -3947,6 +3947,7 @@ name = "termin"
 version = "0.1.0"
 dependencies = [
  "ag-ui-client",
+ "ag-ui-core",
  "anyhow",
  "assert_matches",
  "async-stream",
