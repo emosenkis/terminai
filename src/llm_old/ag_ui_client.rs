@@ -245,21 +245,28 @@ mod tests {
   }
 
   #[tokio::test]
-  #[ignore] // Requires API keys in environment
+  #[cfg_attr(not(feature = "ollama-tests"), ignore)]
   async fn test_chat_basic() {
-    // This test requires ANTHROPIC_API_KEY or similar to be set
+    // Configure to use Ollama with functiongemma model
+    // SAFETY: Setting environment variables in tests before spawning any threads
+    unsafe {
+      std::env::set_var("TERMINAI_PROVIDER", "ollama");
+      std::env::set_var("OLLAMA_MODEL", "functiongemma");
+      std::env::set_var("OLLAMA_ENDPOINT", "http://localhost:11434");
+    }
+
     let config = LlmSubprocessConfig::for_testing();
     let client = AgUiClient::spawn(config)
       .await
       .expect("Failed to spawn client");
 
     let response = client
-      .chat("Hello, who are you?", None)
+      .chat("What is 2+2? Answer with just the number.", None)
       .await
       .expect("Failed to get chat response");
 
     assert!(!response.is_empty());
-    println!("Response: {}", response);
+    println!("Ollama response: {}", response);
 
     client.shutdown().await.expect("Failed to shutdown client");
   }

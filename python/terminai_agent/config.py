@@ -25,18 +25,30 @@ class ProviderConfig:
     endpoint: str | None = None
 
     @classmethod
-    def from_env(cls, provider: Provider) -> "ProviderConfig":
+    def from_env(cls, provider: Provider | None = None) -> "ProviderConfig":
         """Create provider config from environment variables.
 
         Args:
-            provider: The provider to configure
+            provider: The provider to configure. If None, reads from TERMINAI_PROVIDER env var.
 
         Returns:
             ProviderConfig instance
 
         Raises:
-            ValueError: If required API key is not set
+            ValueError: If required API key is not set or provider not specified
         """
+        # Determine provider from environment if not specified
+        if provider is None:
+            provider_str = os.getenv("TERMINAI_PROVIDER")
+            if not provider_str:
+                raise ValueError(
+                    "Provider not specified and TERMINAI_PROVIDER environment variable not set"
+                )
+            try:
+                provider = Provider(provider_str.lower())
+            except ValueError:
+                raise ValueError(f"Unknown provider: {provider_str}")
+
         # Default models for each provider
         default_models = {
             Provider.ANTHROPIC: "claude-sonnet-4-5",

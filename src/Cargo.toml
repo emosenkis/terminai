@@ -114,6 +114,11 @@ winapi = { version = "0.3", features = ["consoleapi", "winuser"] }
 insta = { version = "1.34", features = ["yaml"] }
 tempfile = "3.8"
 
+[features]
+# Enable integration tests that require a running Ollama instance
+# Run with: cargo test --features ollama-tests
+ollama-tests = []
+
 [lints.clippy]
 while_let_loop = "allow"
 collapsible_else_if = "allow"
