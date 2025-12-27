@@ -1,16 +1,44 @@
 """FastAPI server for AG-UI protocol."""
 
+import json
 import logging
 import socket
+from typing import AsyncIterator
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+
+from .agent import TerminAIAgent
+from .config import ProviderConfig
 
 logger = logging.getLogger(__name__)
 
 # Global shared secret for authentication
 _EXPECTED_SECRET: str | None = None
+
+
+# Request/Response models
+class TerminalContext(BaseModel):
+    """Terminal context for the agent."""
+
+    history_lines: list[str]
+    cwd: str
+    last_exit_code: int | None = None
+
+
+class ChatRequest(BaseModel):
+    """Request to start a chat conversation."""
+
+    message: str
+    context: TerminalContext | None = None
+
+
+class ChatResponse(BaseModel):
+    """Response from a chat request."""
+
+    response: str
 
 
 def find_available_port(host: str, port_range: tuple[int, int]) -> int:
@@ -82,6 +110,79 @@ def create_app() -> FastAPI:
             "version": "0.1.0",
             "protocol": "ag-ui",
         }
+
+    @app.post("/chat", response_model=ChatResponse)
+    async def chat(request: ChatRequest) -> ChatResponse:
+        """Non-streaming chat endpoint."""
+        logger.info(f"Received chat request: {request.message[:50]}...")
+
+        # Load provider config from environment
+        provider_config = ProviderConfig.from_env()
+        agent = TerminAIAgent(provider_config)
+
+        # Build context for the agent
+        context = None
+        if request.context:
+            from .agent import TerminalContext as AgentTerminalContext
+
+            context = AgentTerminalContext(
+                history_lines=request.context.history_lines,
+                cwd=request.context.cwd,
+                last_exit_code=request.context.last_exit_code,
+            )
+
+        # Get response from agent
+        response_text = await agent.chat(request.message, context)
+
+        return ChatResponse(response=response_text)
+
+    @app.post("/chat/stream")
+    async def chat_stream(request: ChatRequest) -> StreamingResponse:
+        """Streaming chat endpoint using Server-Sent Events."""
+        logger.info(f"Received streaming chat request: {request.message[:50]}...")
+
+        async def event_generator() -> AsyncIterator[str]:
+            """Generate SSE events from agent stream."""
+            # Load provider config from environment
+            provider_config = ProviderConfig.from_env()
+            agent = TerminAIAgent(provider_config)
+
+            # Build context for the agent
+            context = None
+            if request.context:
+                from .agent import TerminalContext as AgentTerminalContext
+
+                context = AgentTerminalContext(
+                    history_lines=request.context.history_lines,
+                    cwd=request.context.cwd,
+                    last_exit_code=request.context.last_exit_code,
+                )
+
+            try:
+                # Stream response chunks
+                async for chunk in agent.chat_stream(request.message, context):
+                    # Format as SSE: "data: {...}\n\n"
+                    event = {"type": "text_chunk", "content": chunk}
+                    yield f"data: {json.dumps(event)}\n\n"
+
+                # Send completion event
+                done_event = {"type": "done"}
+                yield f"data: {json.dumps(done_event)}\n\n"
+
+            except Exception as e:
+                logger.error(f"Error in chat stream: {e}", exc_info=True)
+                # Send error event
+                error_event = {"type": "error", "message": str(e)}
+                yield f"data: {json.dumps(error_event)}\n\n"
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
 
     return app
 
