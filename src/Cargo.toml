@@ -97,11 +97,8 @@ rat-scrolled = { path = "../rat-salsa/rat-scrolled" }
 rat-theme4 = { path = "../rat-salsa/rat-theme4" }
 rat-text = { path = "../rat-salsa/rat-text" }
 rat-cursor = { path = "../rat-salsa/rat-cursor" }
-rig-core = "0.27.0"
 async-stream = "0.3"
 thiserror = "2.0"
-grep = "0.3"
-walkdir = "2.5"
 ag-ui-client = "0.1.0"
 ag-ui-core = "0.1.0"  # Need this for types
 uuid = { version = "1.11", features = ["v4", "serde"] }
