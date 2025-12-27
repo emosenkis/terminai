@@ -18,6 +18,8 @@ pub struct LlmSubprocessConfig {
   pub port_range: (u16, u16),
   /// Host to bind to
   pub host: String,
+  /// Optional explicit Python project directory (for tests)
+  pub python_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for LlmSubprocessConfig {
@@ -26,6 +28,25 @@ impl Default for LlmSubprocessConfig {
       python_command: "python".to_string(),
       port_range: (18080, 18099),
       host: "127.0.0.1".to_string(),
+      python_dir: None,
+    }
+  }
+}
+
+impl LlmSubprocessConfig {
+  /// Create a config for testing with explicit Python directory
+  #[cfg(test)]
+  pub fn for_testing() -> Self {
+    Self {
+      python_command: "python".to_string(),
+      port_range: (18080, 18099),
+      host: "127.0.0.1".to_string(),
+      python_dir: Some(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+          .parent()
+          .unwrap()
+          .join("python"),
+      ),
     }
   }
 }
@@ -49,18 +70,24 @@ impl LlmSubprocess {
     let secret = Uuid::new_v4().to_string();
 
     // Find the Python project directory
-    let python_dir = std::env::current_exe()?
-      .parent()
-      .context("Could not determine executable directory")?
-      .join("../python")
-      .canonicalize()
-      .or_else(|_| {
-        // Fallback to workspace-relative path for development
-        std::env::current_dir()?
-          .join("python")
-          .canonicalize()
-          .context("Could not find Python project directory")
-      })?;
+    let python_dir = if let Some(dir) = config.python_dir {
+      // Explicit directory provided (typically for tests)
+      dir
+    } else {
+      // Auto-detect: try relative to executable, then current dir
+      std::env::current_exe()?
+        .parent()
+        .context("Could not determine executable directory")?
+        .join("../python")
+        .canonicalize()
+        .or_else(|_| {
+          // Fallback to workspace-relative path for development
+          std::env::current_dir()?
+            .join("python")
+            .canonicalize()
+            .context("Could not find Python project directory")
+        })?
+    };
 
     log::info!("Python project directory: {}", python_dir.display());
 

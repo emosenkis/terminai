@@ -286,9 +286,11 @@ mod tests {
   use super::*;
 
   #[tokio::test]
-  #[ignore] // Requires Python subprocess
   async fn test_activation() {
-    let mut process = AIChatProcess::new()
+    use crate::llm_subprocess::LlmSubprocessConfig;
+
+    let config = LlmSubprocessConfig::for_testing();
+    let mut process = AIChatProcess::new_with_config(config)
       .await
       .expect("Failed to create AI chat process");
 

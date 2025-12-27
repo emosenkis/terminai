@@ -5,6 +5,9 @@ pub mod ag_ui_client; // High-level AG-UI client
 pub mod ag_ui_transport; // Transport layer for AG-UI (subprocess + HTTP)
 pub mod providers; // Provider enum (anthropic, openai, etc.)
 
+#[cfg(test)]
+pub mod test_fixtures; // Test utilities for subprocess integration tests
+
 pub use ag_ui_client::{
   AgUiClient, Message, Role, StreamEvent,
   TerminalContext as AgUiTerminalContext,

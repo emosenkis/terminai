@@ -233,9 +233,8 @@ mod tests {
   use super::*;
 
   #[tokio::test]
-  #[ignore] // Requires Python environment
   async fn test_client_lifecycle() {
-    let config = LlmSubprocessConfig::default();
+    let config = LlmSubprocessConfig::for_testing();
     let client = AgUiClient::spawn(config)
       .await
       .expect("Failed to spawn client");
@@ -246,9 +245,10 @@ mod tests {
   }
 
   #[tokio::test]
-  #[ignore] // Requires Python environment and API keys
+  #[ignore] // Requires API keys in environment
   async fn test_chat_basic() {
-    let config = LlmSubprocessConfig::default();
+    // This test requires ANTHROPIC_API_KEY or similar to be set
+    let config = LlmSubprocessConfig::for_testing();
     let client = AgUiClient::spawn(config)
       .await
       .expect("Failed to spawn client");

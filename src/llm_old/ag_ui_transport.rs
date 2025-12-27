@@ -112,9 +112,8 @@ mod tests {
   use super::*;
 
   #[tokio::test]
-  #[ignore] // Requires Python environment
   async fn test_transport_lifecycle() {
-    let config = LlmSubprocessConfig::default();
+    let config = LlmSubprocessConfig::for_testing();
     let transport = AgUiTransport::spawn(config)
       .await
       .expect("Failed to spawn transport");
