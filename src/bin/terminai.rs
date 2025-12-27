@@ -32,7 +32,7 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 // Import only what we need from the crate
 use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
-use termin::llm::{Provider, TerminalContext};
+use termin::llm::AgUiTerminalContext;
 use termin::mouse::MouseEvent;
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 use termin::vt100;
@@ -293,38 +293,16 @@ async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>
           };
 
           if can_initialize {
-            if let Ok(provider) =
-              std::str::FromStr::from_str(&provider_config.name)
-            {
-              let endpoint = if provider == Provider::OpenRouter {
-                Some("https://openrouter.ai/api/v1".to_string())
-              } else {
-                None
-              };
-
-              match AIChatProcess::new_with_endpoint(
-                provider,
-                Some(model_config.model.clone()),
-                endpoint,
-              )
-              .await
-              {
-                Ok(process) => {
-                  log::info!("AI assistant initialized successfully");
-                  return (Some(process), chat_position, None);
-                }
-                Err(e) => {
-                  log::error!(
-                    "Failed to initialize AI with configured provider: {:?}",
-                    e
-                  );
-                }
+            // NOTE: Provider configuration is now read from environment variables
+            // in the Python subprocess (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
+            match AIChatProcess::new().await {
+              Ok(process) => {
+                log::info!("AI assistant initialized successfully");
+                return (Some(process), chat_position, None);
               }
-            } else {
-              log::error!(
-                "Unknown provider in config: {}",
-                provider_config.name
-              );
+              Err(e) => {
+                log::error!("Failed to initialize AI subprocess: {:?}", e);
+              }
             }
           }
         }
@@ -560,7 +538,7 @@ impl<'a> AppState<'a> {
   }
 
   /// Extract terminal context from shell for AI
-  fn extract_context(&self) -> TerminalContext {
+  fn extract_context(&self) -> AgUiTerminalContext {
     use std::path::PathBuf;
 
     let mut history_lines = Vec::new();
@@ -600,11 +578,18 @@ impl<'a> AppState<'a> {
     }
 
     // Get current working directory
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    let cwd = std::env::current_dir()
+      .unwrap_or_else(|_| PathBuf::from("/"))
+      .to_string_lossy()
+      .to_string();
 
     // No exit code tracking yet (future enhancement)
-    // Note: Privacy filtering will be applied by AIChatProcess.send_input_with_context
-    TerminalContext::new(history_lines, cwd, None)
+    // Note: Privacy filtering will be applied by AIChatProcess.start_streaming
+    AgUiTerminalContext {
+      history_lines,
+      cwd,
+      last_exit_code: None,
+    }
   }
 
   // OLD METHODS REMOVED - now using rat-salsa init/render/event functions instead

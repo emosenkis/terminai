@@ -2,7 +2,8 @@ use anyhow::Result;
 use std::sync::Arc;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
-use crate::llm::{ChatMessage, LLMClient, Provider};
+use crate::llm::{AgUiClient, AgUiTerminalContext, Role, StreamEvent};
+use crate::llm_subprocess::LlmSubprocessConfig;
 use crate::privacy::PrivacyFilter;
 
 /// Message in the chat conversation
@@ -21,7 +22,7 @@ pub enum MessageRole {
 
 /// AI chat process state
 pub struct AIChatProcess {
-  llm_client: Arc<LLMClient>,
+  llm_client: Arc<AgUiClient>,
   conversation: Vec<Message>,
   command_parser: CommandParser,
   safety_validator: SafetyValidator,
@@ -45,18 +46,16 @@ pub struct PendingCommand {
 
 impl AIChatProcess {
   /// Create a new AI chat process
-  pub async fn new(provider: Provider, model: Option<String>) -> Result<Self> {
-    Self::new_with_endpoint(provider, model, None).await
+  ///
+  /// This spawns a Python subprocess running the LLM agent.
+  /// Provider and model are configured via environment variables.
+  pub async fn new() -> Result<Self> {
+    Self::new_with_config(LlmSubprocessConfig::default()).await
   }
 
-  /// Create a new AI chat process with custom endpoint
-  pub async fn new_with_endpoint(
-    provider: Provider,
-    model: Option<String>,
-    endpoint: Option<String>,
-  ) -> Result<Self> {
-    let llm_client =
-      Arc::new(LLMClient::new_with_endpoint(provider, model, endpoint).await?);
+  /// Create a new AI chat process with custom subprocess configuration
+  pub async fn new_with_config(config: LlmSubprocessConfig) -> Result<Self> {
+    let llm_client = Arc::new(AgUiClient::spawn(config).await?);
 
     Ok(Self {
       llm_client,
@@ -93,12 +92,14 @@ impl AIChatProcess {
   pub async fn start_streaming(
     &mut self,
     user_message: &str,
-    context: crate::llm::TerminalContext,
+    context: AgUiTerminalContext,
   ) -> Result<
     std::pin::Pin<
       Box<dyn futures::stream::Stream<Item = Result<String>> + Send>,
     >,
   > {
+    use futures::StreamExt;
+
     if user_message.is_empty() {
       return Err(anyhow::anyhow!("Empty message"));
     }
@@ -115,30 +116,32 @@ impl AIChatProcess {
     });
 
     // Filter sensitive information from context
-    let filtered_context = crate::llm::TerminalContext {
+    let filtered_context = AgUiTerminalContext {
       history_lines: self.privacy_filter.filter_lines(&context.history_lines),
       cwd: context.cwd,
       last_exit_code: context.last_exit_code,
     };
 
-    // Convert conversation to ChatMessage format
-    let history: Vec<ChatMessage> = self
-      .conversation
-      .iter()
-      .filter_map(|msg| match msg.role {
-        MessageRole::User => Some(ChatMessage::user(msg.content.clone())),
-        MessageRole::Assistant => {
-          Some(ChatMessage::assistant(msg.content.clone()))
-        }
-        MessageRole::System => None, // System messages handled separately
-      })
-      .collect();
-
-    // Send to LLM with streaming
-    self
+    // Get streaming response from AG-UI client
+    let event_stream = self
       .llm_client
-      .send_message_stream(&user_message, &filtered_context, &history)
-      .await
+      .chat_stream(user_message, Some(filtered_context))
+      .await?;
+
+    // Map StreamEvents to text chunks
+    let text_stream = event_stream.filter_map(|result| async move {
+      match result {
+        Ok(StreamEvent::TextChunk { content }) => Some(Ok(content)),
+        Ok(StreamEvent::Error { message }) => {
+          Some(Err(anyhow::anyhow!("LLM error: {}", message)))
+        }
+        Ok(StreamEvent::Done) => None, // End of stream
+        Ok(_) => None,                 // Ignore other event types for now
+        Err(e) => Some(Err(e)),
+      }
+    });
+
+    Ok(Box::pin(text_stream))
   }
 
   /// Append a token to the streaming response
@@ -282,26 +285,12 @@ impl AIChatProcess {
 mod tests {
   use super::*;
 
-  #[test]
-  fn test_activation() {
-    let mut process = AIChatProcess {
-      // Create a mock LLM client for testing
-      llm_client: Arc::new(
-        futures::executor::block_on(LLMClient::new(Provider::Anthropic, None))
-          .expect("Failed to create test LLM client"),
-      ),
-      conversation: Vec::new(),
-      command_parser: CommandParser::new(),
-      safety_validator: SafetyValidator::new(),
-      privacy_filter: PrivacyFilter::new(),
-      active: false,
-      awaiting_approval: None,
-      error_message: None,
-      error_scroll_offset: 0,
-      is_sending: false,
-      scroll_offset: 0,
-      streaming_response: None,
-    };
+  #[tokio::test]
+  #[ignore] // Requires Python subprocess
+  async fn test_activation() {
+    let mut process = AIChatProcess::new()
+      .await
+      .expect("Failed to create AI chat process");
 
     assert!(!process.is_active());
 
