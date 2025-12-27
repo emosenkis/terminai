@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import logging
 import sys
-from pathlib import Path
 
 from terminai_agent.server import run_server
 

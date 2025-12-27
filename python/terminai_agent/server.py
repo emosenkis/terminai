@@ -1,13 +1,10 @@
 """FastAPI server for AG-UI protocol."""
 
-import asyncio
 import logging
 import socket
-import sys
-from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
