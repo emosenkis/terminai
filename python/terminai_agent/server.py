@@ -139,7 +139,7 @@ def create_app() -> FastAPI:
 
             # Custom endpoints
             endpoints = {
-                Provider.OLLAMA: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                Provider.OLLAMA: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
                 Provider.OPENROUTER: "https://openrouter.ai/api/v1",
             }
 
@@ -166,9 +166,8 @@ def create_app() -> FastAPI:
         # Run the agent and get event stream
         event_stream = adapter.run_stream()
 
-        # Encode and return the response
-        sse_event_stream = adapter.encode_stream(event_stream)
-        return adapter.streaming_response(sse_event_stream)
+        # Return streaming response (it will handle encoding internally)
+        return adapter.streaming_response(event_stream)
 
     return app
 

@@ -23,7 +23,7 @@ use crate::llm_subprocess::{LlmSubprocess, LlmSubprocessConfig};
 /// and provides Termin.AI-specific defaults (tools, context, etc.)
 pub struct AgUiClient {
   http_agent: Arc<HttpAgent>,
-  subprocess: LlmSubprocess,
+  pub(crate) subprocess: LlmSubprocess,
   provider: String,
   model: String,
 }
@@ -165,6 +165,13 @@ impl AgUiClient {
   /// Check if the subprocess is still running
   pub async fn is_running(&self) -> bool {
     self.subprocess.is_running().await
+  }
+
+  /// Get the base URL of the Python subprocess
+  ///
+  /// Primarily for testing and debugging.
+  pub fn base_url(&self) -> &str {
+    self.subprocess.base_url()
   }
 
   /// Shutdown the client and Python subprocess gracefully

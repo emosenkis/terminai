@@ -67,15 +67,8 @@ class ProviderConfig:
             Provider.OPENROUTER: "OPENROUTER_API_KEY",
         }
 
-        # Custom endpoints
-        endpoints = {
-            Provider.OLLAMA: os.getenv("OLLAMA_ENDPOINT", "http://localhost:11434"),
-            Provider.OPENROUTER: "https://openrouter.ai/api/v1",
-        }
-
         model = os.getenv(f"{provider.value.upper()}_MODEL", default_models[provider])
         api_key_env = api_key_envs[provider]
-        endpoint = endpoints.get(provider)
 
         # Verify API key is set if required
         if api_key_env and not os.getenv(api_key_env):
@@ -87,7 +80,6 @@ class ProviderConfig:
             provider=provider,
             model=model,
             api_key_env=api_key_env,
-            endpoint=endpoint,
         )
 
     def get_api_key(self) -> str | None:

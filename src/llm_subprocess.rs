@@ -20,6 +20,8 @@ pub struct LlmSubprocessConfig {
   pub host: String,
   /// Optional explicit Python project directory (for tests)
   pub python_dir: Option<std::path::PathBuf>,
+  /// Optional environment variables to set for the subprocess (for tests)
+  pub env_vars: Vec<(String, String)>,
 }
 
 impl Default for LlmSubprocessConfig {
@@ -29,13 +31,13 @@ impl Default for LlmSubprocessConfig {
       port_range: (18080, 18099),
       host: "127.0.0.1".to_string(),
       python_dir: None,
+      env_vars: Vec::new(),
     }
   }
 }
 
 impl LlmSubprocessConfig {
   /// Create a config for testing with explicit Python directory
-  #[cfg(test)]
   pub fn for_testing() -> Self {
     Self {
       python_command: "python".to_string(),
@@ -44,10 +46,21 @@ impl LlmSubprocessConfig {
       python_dir: Some(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
           .parent()
-          .unwrap()
+          .expect("Failed to get parent directory")
           .join("python"),
       ),
+      env_vars: Vec::new(),
     }
+  }
+
+  /// Add an environment variable to the subprocess
+  pub fn with_env(
+    mut self,
+    key: impl Into<String>,
+    value: impl Into<String>,
+  ) -> Self {
+    self.env_vars.push((key.into(), value.into()));
+    self
   }
 }
 
@@ -96,7 +109,8 @@ impl LlmSubprocess {
     // including those loaded from ~/.config/terminai/terminai.env
     // This allows users to configure API keys and other settings via standard env vars
     log::info!("Spawning LLM agent subprocess");
-    let mut child = Command::new("uv")
+    let mut command = Command::new("uv");
+    command
       .arg("run")
       .arg("python")
       .arg("-m")
@@ -112,7 +126,15 @@ impl LlmSubprocess {
       .current_dir(&python_dir)
       .stdout(Stdio::piped())
       .stderr(Stdio::piped())
-      .kill_on_drop(true)
+      .kill_on_drop(true);
+
+    // Add custom environment variables (useful for testing)
+    for (key, value) in &config.env_vars {
+      log::debug!("Setting env var: {}={}", key, value);
+      command.env(key, value);
+    }
+
+    let mut child = command
       .spawn()
       .context("Failed to spawn Python subprocess")?;
 
