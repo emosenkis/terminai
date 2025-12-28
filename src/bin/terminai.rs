@@ -32,7 +32,7 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 // Import only what we need from the crate
 use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
-use termin::llm::AgUiTerminalContext;
+use termin::llm::TerminalContext;
 use termin::mouse::MouseEvent;
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 use termin::vt100;
@@ -293,9 +293,14 @@ async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>
           };
 
           if can_initialize {
-            // NOTE: Provider configuration is now read from environment variables
-            // in the Python subprocess (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-            match AIChatProcess::new().await {
+            // Pass provider and model to the AI chat process
+            // The subprocess will receive these via environment variables
+            match AIChatProcess::new_with_provider(
+              provider_config.name.clone(),
+              model_config.model.clone(),
+            )
+            .await
+            {
               Ok(process) => {
                 log::info!("AI assistant initialized successfully");
                 return (Some(process), chat_position, None);
@@ -538,7 +543,7 @@ impl<'a> AppState<'a> {
   }
 
   /// Extract terminal context from shell for AI
-  fn extract_context(&self) -> AgUiTerminalContext {
+  fn extract_context(&self) -> TerminalContext {
     use std::path::PathBuf;
 
     let mut history_lines = Vec::new();
@@ -585,7 +590,7 @@ impl<'a> AppState<'a> {
 
     // No exit code tracking yet (future enhancement)
     // Note: Privacy filtering will be applied by AIChatProcess.start_streaming
-    AgUiTerminalContext {
+    TerminalContext {
       history_lines,
       cwd,
       last_exit_code: None,

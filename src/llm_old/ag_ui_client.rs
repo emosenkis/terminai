@@ -79,6 +79,8 @@ pub enum StreamEvent {
 pub struct AgUiClient {
   transport: AgUiTransport,
   http_client: Client,
+  provider: String,
+  model: String,
 }
 
 impl AgUiClient {
@@ -86,10 +88,16 @@ impl AgUiClient {
   ///
   /// # Arguments
   /// * `config` - Subprocess configuration
+  /// * `provider` - LLM provider name (e.g., "ollama", "anthropic")
+  /// * `model` - Model name (e.g., "functiongemma", "claude-sonnet-4-5")
   ///
   /// # Returns
   /// Configured client ready for chat operations
-  pub async fn spawn(config: LlmSubprocessConfig) -> Result<Self> {
+  pub async fn spawn(
+    config: LlmSubprocessConfig,
+    provider: impl Into<String>,
+    model: impl Into<String>,
+  ) -> Result<Self> {
     log::info!("Creating AG-UI client");
 
     let transport = AgUiTransport::spawn(config).await?;
@@ -98,12 +106,15 @@ impl AgUiClient {
     Ok(Self {
       transport,
       http_client,
+      provider: provider.into(),
+      model: model.into(),
     })
   }
 
   /// Send a chat message and get a complete response
   ///
   /// This is a non-streaming version that waits for the full response.
+  /// Uses AG-UI protocol with forwardedProps for provider/model configuration.
   ///
   /// # Arguments
   /// * `message` - User message to send
@@ -117,44 +128,70 @@ impl AgUiClient {
     context: Option<TerminalContext>,
   ) -> Result<String> {
     let message = message.into();
-    log::debug!("Sending chat message: {}", message);
+    log::debug!("Sending AG-UI chat message: {}", message);
 
-    let url = format!("{}/chat", self.transport.base_url());
-    let request = ChatRequest { message, context };
+    use crate::llm_old::ag_ui_protocol::RunAgentInput;
+
+    // Create AG-UI RunAgentInput with forwardedProps
+    let mut run_input =
+      RunAgentInput::new(self.provider.clone(), self.model.clone())
+        .with_user_message(message);
+
+    // TODO: Add context to the request (needs to be added to RunAgentInput)
+
+    let url = self.transport.base_url().to_string();
 
     let response = self
       .http_client
       .post(&url)
       .headers(self.transport.headers().clone())
-      .json(&request)
+      .header("Accept", "text/event-stream")
+      .json(&run_input)
       .send()
       .await
-      .context("Failed to send chat request")?;
+      .context("Failed to send AG-UI request")?;
 
     if !response.status().is_success() {
       anyhow::bail!(
-        "Chat request failed with status {}: {}",
+        "AG-UI request failed with status {}: {}",
         response.status(),
         response.text().await.unwrap_or_default()
       );
     }
 
-    #[derive(Deserialize)]
-    struct ChatResponse {
-      response: String,
+    // For non-streaming, collect all text chunks from SSE
+    let mut full_response = String::new();
+    let stream = response.bytes_stream();
+    let reader = tokio_util::io::StreamReader::new(stream.map(|result| {
+      result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }));
+
+    let mut lines = reader.lines();
+    while let Some(line) = lines.next_line().await? {
+      if line.starts_with("data: ") {
+        let data = &line[6..];
+        if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
+          match event {
+            StreamEvent::TextChunk { content } => {
+              full_response.push_str(&content);
+            }
+            StreamEvent::Done => break,
+            StreamEvent::Error { message } => {
+              anyhow::bail!("AG-UI error: {}", message);
+            }
+            _ => {}
+          }
+        }
+      }
     }
 
-    let chat_response: ChatResponse = response
-      .json()
-      .await
-      .context("Failed to parse chat response")?;
-
-    Ok(chat_response.response)
+    Ok(full_response)
   }
 
   /// Send a chat message and get a streaming response
   ///
   /// Returns a stream of events (text chunks, tool calls, etc.)
+  /// Uses AG-UI protocol with forwardedProps for provider/model configuration.
   ///
   /// # Arguments
   /// * `message` - User message to send
@@ -168,23 +205,30 @@ impl AgUiClient {
     context: Option<TerminalContext>,
   ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
     let message = message.into();
-    log::debug!("Sending streaming chat message: {}", message);
+    log::debug!("Sending AG-UI streaming chat message: {}", message);
 
-    let url = format!("{}/chat/stream", self.transport.base_url());
-    let request = ChatRequest { message, context };
+    use crate::llm_old::ag_ui_protocol::RunAgentInput;
+
+    // Create AG-UI RunAgentInput with forwardedProps
+    let run_input =
+      RunAgentInput::new(self.provider.clone(), self.model.clone())
+        .with_user_message(message);
+
+    let url = self.transport.base_url().to_string();
 
     let response = self
       .http_client
       .post(&url)
       .headers(self.transport.headers().clone())
-      .json(&request)
+      .header("Accept", "text/event-stream")
+      .json(&run_input)
       .send()
       .await
-      .context("Failed to send streaming chat request")?;
+      .context("Failed to send AG-UI streaming request")?;
 
     if !response.status().is_success() {
       anyhow::bail!(
-        "Streaming chat request failed with status {}: {}",
+        "AG-UI streaming request failed with status {}: {}",
         response.status(),
         response.text().await.unwrap_or_default()
       );
@@ -235,7 +279,7 @@ mod tests {
   #[tokio::test]
   async fn test_client_lifecycle() {
     let config = LlmSubprocessConfig::for_testing();
-    let client = AgUiClient::spawn(config)
+    let client = AgUiClient::spawn(config, "ollama", "functiongemma")
       .await
       .expect("Failed to spawn client");
 
@@ -247,16 +291,14 @@ mod tests {
   #[tokio::test]
   #[cfg_attr(not(feature = "ollama-tests"), ignore)]
   async fn test_chat_basic() {
-    // Configure to use Ollama with functiongemma model
+    // Configure environment for Ollama endpoint
     // SAFETY: Setting environment variables in tests before spawning any threads
     unsafe {
-      std::env::set_var("TERMINAI_PROVIDER", "ollama");
-      std::env::set_var("OLLAMA_MODEL", "functiongemma");
-      std::env::set_var("OLLAMA_ENDPOINT", "http://localhost:11434");
+      std::env::set_var("OLLAMA_BASE_URL", "http://localhost:11434");
     }
 
     let config = LlmSubprocessConfig::for_testing();
-    let client = AgUiClient::spawn(config)
+    let client = AgUiClient::spawn(config, "ollama", "functiongemma")
       .await
       .expect("Failed to spawn client");
 

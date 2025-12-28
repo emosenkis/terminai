@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
-use crate::llm::{AgUiClient, AgUiTerminalContext, Role, StreamEvent};
+use crate::llm::{AgUiClient, TerminalContext};
 use crate::llm_subprocess::LlmSubprocessConfig;
 use crate::privacy::PrivacyFilter;
 
@@ -48,14 +48,34 @@ impl AIChatProcess {
   /// Create a new AI chat process
   ///
   /// This spawns a Python subprocess running the LLM agent.
-  /// Provider and model are configured via environment variables.
+  /// Provider and model must be explicitly provided.
+  ///
+  /// **Deprecated**: Use `new_with_provider()` instead.
   pub async fn new() -> Result<Self> {
-    Self::new_with_config(LlmSubprocessConfig::default()).await
+    // Default to ollama/functiongemma for backward compatibility
+    Self::new_with_provider("ollama".to_string(), "functiongemma".to_string())
+      .await
+  }
+
+  /// Create a new AI chat process with provider and model
+  ///
+  /// This spawns a Python subprocess with the specified provider and model.
+  pub async fn new_with_provider(
+    provider: String,
+    model: String,
+  ) -> Result<Self> {
+    let config = LlmSubprocessConfig::default();
+    Self::new_with_config(config, provider, model).await
   }
 
   /// Create a new AI chat process with custom subprocess configuration
-  pub async fn new_with_config(config: LlmSubprocessConfig) -> Result<Self> {
-    let llm_client = Arc::new(AgUiClient::spawn(config).await?);
+  pub async fn new_with_config(
+    config: LlmSubprocessConfig,
+    provider: String,
+    model: String,
+  ) -> Result<Self> {
+    let llm_client =
+      Arc::new(AgUiClient::spawn(config, provider, model).await?);
 
     Ok(Self {
       llm_client,
@@ -92,7 +112,7 @@ impl AIChatProcess {
   pub async fn start_streaming(
     &mut self,
     user_message: &str,
-    context: AgUiTerminalContext,
+    context: TerminalContext,
   ) -> Result<
     std::pin::Pin<
       Box<dyn futures::stream::Stream<Item = Result<String>> + Send>,
@@ -116,32 +136,23 @@ impl AIChatProcess {
     });
 
     // Filter sensitive information from context
-    let filtered_context = AgUiTerminalContext {
+    let filtered_context = TerminalContext {
       history_lines: self.privacy_filter.filter_lines(&context.history_lines),
-      cwd: context.cwd,
+      cwd: context.cwd.clone(),
       last_exit_code: context.last_exit_code,
     };
 
-    // Get streaming response from AG-UI client
-    let event_stream = self
+    // Convert terminal context to AG-UI context items
+    let context_items = filtered_context.to_ag_ui_context();
+
+    // Get streaming text response from AG-UI client
+    // (subscriber pattern already converts events to text chunks)
+    let text_stream = self
       .llm_client
-      .chat_stream(user_message, Some(filtered_context))
+      .chat_stream(user_message, Some(context_items))
       .await?;
 
-    // Map StreamEvents to text chunks
-    let text_stream = event_stream.filter_map(|result| async move {
-      match result {
-        Ok(StreamEvent::TextChunk { content }) => Some(Ok(content)),
-        Ok(StreamEvent::Error { message }) => {
-          Some(Err(anyhow::anyhow!("LLM error: {}", message)))
-        }
-        Ok(StreamEvent::Done) => None, // End of stream
-        Ok(_) => None,                 // Ignore other event types for now
-        Err(e) => Some(Err(e)),
-      }
-    });
-
-    Ok(Box::pin(text_stream))
+    Ok(text_stream)
   }
 
   /// Append a token to the streaming response
@@ -290,9 +301,13 @@ mod tests {
     use crate::llm_subprocess::LlmSubprocessConfig;
 
     let config = LlmSubprocessConfig::for_testing();
-    let mut process = AIChatProcess::new_with_config(config)
-      .await
-      .expect("Failed to create AI chat process");
+    let mut process = AIChatProcess::new_with_config(
+      config,
+      "ollama".to_string(),
+      "functiongemma".to_string(),
+    )
+    .await
+    .expect("Failed to create AI chat process");
 
     assert!(!process.is_active());
 

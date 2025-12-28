@@ -60,6 +60,7 @@ serde = { version = "1.0.177", features = ["derive"] }
 serde_json = "1.0.138"
 serde_yaml = "0.9.25"
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
 triggered = "0.1.2"
 tui-input = { version = "0.14.0", default-features = false, features = [
   "crossterm",
@@ -99,8 +100,11 @@ rat-text = { path = "../rat-salsa/rat-text" }
 rat-cursor = { path = "../rat-salsa/rat-cursor" }
 async-stream = "0.3"
 thiserror = "2.0"
-ag-ui-client = "0.1.0"
-ag-ui-core = "0.1.0"  # Need this for types
+# Note: Using versions from crates.io for now
+# TODO: Update to use local workspace version from tmp-deps once workspace is configured
+ag-ui-client = "0.1"
+ag-ui-core = "0.1"
+async-trait = "0.1"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [target."cfg(unix)".dependencies]

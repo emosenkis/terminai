@@ -5,7 +5,7 @@ description = "AI agent subprocess for Termin.AI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic-ai-slim[anthropic,openai,gemini]>=0.0.14",
+    "pydantic-ai-slim[anthropic,openai,google,vertex-ai,ag-ui]>=0.0.14",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "httpx>=0.27.0",

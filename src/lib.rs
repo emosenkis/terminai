@@ -37,14 +37,12 @@ pub mod yaml_val;
 pub mod ai_proc;
 pub mod command;
 pub mod env_loader;
-pub mod llm_old; // TODO: Rename to llm after removing old code
+pub mod llm;
+pub mod llm_old; // TODO: Remove after migration complete
 pub mod llm_subprocess;
 pub mod privacy;
 pub mod shell;
 pub mod terminai_config;
-
-// Re-export llm_old as llm for compatibility
-pub use llm_old as llm;
 
 // Test utilities
 #[cfg(test)]

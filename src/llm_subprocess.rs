@@ -92,6 +92,9 @@ impl LlmSubprocess {
     log::info!("Python project directory: {}", python_dir.display());
 
     // Spawn the subprocess
+    // NOTE: The subprocess inherits ALL environment variables from the parent process,
+    // including those loaded from ~/.config/terminai/terminai.env
+    // This allows users to configure API keys and other settings via standard env vars
     log::info!("Spawning LLM agent subprocess");
     let mut child = Command::new("uv")
       .arg("run")
@@ -113,11 +116,27 @@ impl LlmSubprocess {
       .spawn()
       .context("Failed to spawn Python subprocess")?;
 
-    // Read stdout to get the port
+    // Read stdout and stderr concurrently
     let stdout = child.stdout.take().context("Failed to capture stdout")?;
+    let stderr = child.stderr.take().context("Failed to capture stderr")?;
+
     let mut stdout_reader = BufReader::new(stdout).lines();
+    let mut stderr_reader = BufReader::new(stderr).lines();
 
     log::debug!("Waiting for AG_UI_PORT from subprocess...");
+
+    // Collect stderr lines in case of failure
+    let stderr_lines = Arc::new(Mutex::new(Vec::new()));
+    let stderr_lines_clone = stderr_lines.clone();
+
+    // Spawn task to capture stderr
+    let stderr_task = tokio::spawn(async move {
+      while let Ok(Some(line)) = stderr_reader.next_line().await {
+        log::info!("[Python stderr] {}", line);
+        stderr_lines_clone.lock().await.push(line);
+      }
+    });
+
     let port = timeout(Duration::from_secs(10), async {
       while let Some(line) = stdout_reader.next_line().await? {
         log::debug!("Subprocess stdout: {}", line);
@@ -127,6 +146,24 @@ impl LlmSubprocess {
           return Ok::<u16, anyhow::Error>(port);
         }
       }
+
+      // Subprocess terminated - check if it's still running
+      let status = child.try_wait()?;
+      if let Some(exit_status) = status {
+        // Process exited - wait a moment for stderr to be captured
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let stderr_output = stderr_lines.lock().await.join("\n");
+        if stderr_output.is_empty() {
+          anyhow::bail!("Subprocess terminated with status {} without providing port", exit_status);
+        } else {
+          anyhow::bail!(
+            "Subprocess terminated with status {} without providing port.\nStderr:\n{}",
+            exit_status,
+            stderr_output
+          );
+        }
+      }
+
       anyhow::bail!("Subprocess terminated without providing port")
     })
     .await
@@ -134,14 +171,10 @@ impl LlmSubprocess {
 
     log::info!("LLM agent subprocess started on port {}", port);
 
-    // Spawn task to monitor stderr
-    let stderr = child.stderr.take().context("Failed to capture stderr")?;
+    // Continue monitoring stderr after successful startup
     tokio::spawn(async move {
-      let mut stderr_reader = BufReader::new(stderr).lines();
-      while let Ok(Some(line)) = stderr_reader.next_line().await {
-        log::info!("[Python] {}", line);
-      }
-      log::warn!("Python subprocess stderr stream ended");
+      let _ = stderr_task.await;
+      log::debug!("Python subprocess stderr monitoring ended");
     });
 
     let base_url = format!("http://{}:{}", config.host, port);

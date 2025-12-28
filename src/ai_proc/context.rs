@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::{llm::AgUiTerminalContext, proc::view::ProcView};
+use crate::{llm::TerminalContext, proc::view::ProcView};
 
 /// Extract terminal context from process views
 pub struct ContextExtractor {
@@ -18,7 +18,7 @@ impl ContextExtractor {
     proc_views: &[ProcView],
     process_id: Option<usize>,
     cwd: PathBuf,
-  ) -> AgUiTerminalContext {
+  ) -> TerminalContext {
     // Get the target process, defaulting to the first one if not specified
     let target_proc = if let Some(id) = process_id {
       proc_views.get(id)
@@ -70,7 +70,7 @@ impl ContextExtractor {
       }
     }
 
-    AgUiTerminalContext {
+    TerminalContext {
       history_lines,
       cwd: cwd.to_string_lossy().to_string(),
       last_exit_code: exit_code,
@@ -82,7 +82,7 @@ impl ContextExtractor {
     &self,
     proc: &ProcView,
     cwd: PathBuf,
-  ) -> AgUiTerminalContext {
+  ) -> TerminalContext {
     let mut history_lines = Vec::new();
     let exit_code = proc.exit_code().map(|code| code as i32);
 
@@ -122,7 +122,7 @@ impl ContextExtractor {
       }
     }
 
-    AgUiTerminalContext {
+    TerminalContext {
       history_lines,
       cwd: cwd.to_string_lossy().to_string(),
       last_exit_code: exit_code,

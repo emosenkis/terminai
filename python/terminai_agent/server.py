@@ -3,42 +3,23 @@
 import json
 import logging
 import socket
-from typing import AsyncIterator
+from http import HTTPStatus
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, Response
+from pydantic import ValidationError
+from pydantic_ai.ui import SSE_CONTENT_TYPE
+from pydantic_ai.ui.ag_ui import AGUIAdapter
 
 from .agent import TerminAIAgent
 from .config import ProviderConfig
+from .forwarded_props import TerminAIForwardedProps
 
 logger = logging.getLogger(__name__)
 
 # Global shared secret for authentication
 _EXPECTED_SECRET: str | None = None
-
-
-# Request/Response models
-class TerminalContext(BaseModel):
-    """Terminal context for the agent."""
-
-    history_lines: list[str]
-    cwd: str
-    last_exit_code: int | None = None
-
-
-class ChatRequest(BaseModel):
-    """Request to start a chat conversation."""
-
-    message: str
-    context: TerminalContext | None = None
-
-
-class ChatResponse(BaseModel):
-    """Response from a chat request."""
-
-    response: str
 
 
 def find_available_port(host: str, port_range: tuple[int, int]) -> int:
@@ -111,78 +92,83 @@ def create_app() -> FastAPI:
             "protocol": "ag-ui",
         }
 
-    @app.post("/chat", response_model=ChatResponse)
-    async def chat(request: ChatRequest) -> ChatResponse:
-        """Non-streaming chat endpoint."""
-        logger.info(f"Received chat request: {request.message[:50]}...")
+    @app.post("/")
+    async def run_agent(request: Request) -> Response:
+        """AG-UI protocol endpoint for running the agent."""
+        accept = request.headers.get("accept", SSE_CONTENT_TYPE)
 
-        # Load provider config from environment
-        provider_config = ProviderConfig.from_env()
-        agent = TerminAIAgent(provider_config)
-
-        # Build context for the agent
-        context = None
-        if request.context:
-            from .agent import TerminalContext as AgentTerminalContext
-
-            context = AgentTerminalContext(
-                history_lines=request.context.history_lines,
-                cwd=request.context.cwd,
-                last_exit_code=request.context.last_exit_code,
+        try:
+            # Parse AG-UI RunAgentInput from request body
+            run_input = AGUIAdapter.build_run_input(await request.body())
+        except ValidationError as e:
+            logger.error(f"Invalid AG-UI input: {e}")
+            return Response(
+                content=json.dumps(e.errors()),
+                media_type="application/json",
+                status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
+            )
+        except Exception as e:
+            logger.error(f"Error parsing request: {e}", exc_info=True)
+            return Response(
+                content=json.dumps({"error": str(e)}),
+                media_type="application/json",
+                status_code=HTTPStatus.BAD_REQUEST,
             )
 
-        # Get response from agent
-        response_text = await agent.chat(request.message, context)
+        # Extract forwarded props for provider/model configuration
+        try:
+            forwarded_props = TerminAIForwardedProps(**run_input.forwarded_props)
+            logger.info(
+                f"Using provider: {forwarded_props.provider}, model: {forwarded_props.model}"
+            )
 
-        return ChatResponse(response=response_text)
+            # Create provider config from forwarded props
+            import os
+            from .config import Provider
 
-    @app.post("/chat/stream")
-    async def chat_stream(request: ChatRequest) -> StreamingResponse:
-        """Streaming chat endpoint using Server-Sent Events."""
-        logger.info(f"Received streaming chat request: {request.message[:50]}...")
+            provider = Provider(forwarded_props.provider.lower())
 
-        async def event_generator() -> AsyncIterator[str]:
-            """Generate SSE events from agent stream."""
-            # Load provider config from environment
+            # API key environment variables
+            api_key_envs = {
+                Provider.ANTHROPIC: "ANTHROPIC_API_KEY",
+                Provider.OPENAI: "OPENAI_API_KEY",
+                Provider.GEMINI: "GOOGLE_API_KEY",
+                Provider.OLLAMA: None,  # Local server, no API key
+                Provider.OPENROUTER: "OPENROUTER_API_KEY",
+            }
+
+            # Custom endpoints
+            endpoints = {
+                Provider.OLLAMA: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                Provider.OPENROUTER: "https://openrouter.ai/api/v1",
+            }
+
+            provider_config = ProviderConfig(
+                provider=provider,
+                model=forwarded_props.model,
+                api_key_env=api_key_envs[provider],
+                endpoint=endpoints.get(provider),
+            )
+        except Exception as e:
+            logger.error(f"Invalid forwarded props: {e}", exc_info=True)
+            # Fall back to environment configuration
             provider_config = ProviderConfig.from_env()
-            agent = TerminAIAgent(provider_config)
+            logger.info(
+                f"Falling back to env config: {provider_config.provider.value}/{provider_config.model}"
+            )
 
-            # Build context for the agent
-            context = None
-            if request.context:
-                from .agent import TerminalContext as AgentTerminalContext
+        # Create the agent with the provider config
+        agent = TerminAIAgent(provider_config)
 
-                context = AgentTerminalContext(
-                    history_lines=request.context.history_lines,
-                    cwd=request.context.cwd,
-                    last_exit_code=request.context.last_exit_code,
-                )
+        # Create AG-UI adapter
+        adapter = AGUIAdapter(agent=agent.agent, run_input=run_input, accept=accept)
 
-            try:
-                # Stream response chunks
-                async for chunk in agent.chat_stream(request.message, context):
-                    # Format as SSE: "data: {...}\n\n"
-                    event = {"type": "text_chunk", "content": chunk}
-                    yield f"data: {json.dumps(event)}\n\n"
+        # Run the agent and get event stream
+        event_stream = adapter.run_stream()
 
-                # Send completion event
-                done_event = {"type": "done"}
-                yield f"data: {json.dumps(done_event)}\n\n"
-
-            except Exception as e:
-                logger.error(f"Error in chat stream: {e}", exc_info=True)
-                # Send error event
-                error_event = {"type": "error", "message": str(e)}
-                yield f"data: {json.dumps(error_event)}\n\n"
-
-        return StreamingResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-        )
+        # Encode and return the response
+        sse_event_stream = adapter.encode_stream(event_stream)
+        return adapter.streaming_response(sse_event_stream)
 
     return app
 
