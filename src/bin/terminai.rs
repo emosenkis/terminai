@@ -7,7 +7,10 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{
+  Mutex,
+  mpsc::{self, UnboundedReceiver},
+};
 use tui::Frame;
 use tui::style::Modifier;
 
@@ -225,12 +228,18 @@ impl Widget for TerminalWidget<'_> {
 /// Helper to initialize shell and AI process asynchronously
 async fn initialize_app_components(
   command: Vec<String>,
-) -> Result<(Shell, Option<AIChatProcess>, ChatPosition, Option<String>)> {
+) -> Result<(
+  Shell,
+  UnboundedReceiver<ShellEvent>,
+  Option<AIChatProcess>,
+  ChatPosition,
+  Option<String>,
+)> {
   // Get terminal size
   let (cols, rows) = crossterm::terminal::size()?;
 
-  // Spawn shell or command
-  let shell = if command.is_empty() {
+  // Spawn shell or command (returns Shell and event receiver)
+  let (shell, shell_event_rx) = if command.is_empty() {
     // No command specified, use $SHELL
     let shell_cmd =
       std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -247,7 +256,13 @@ async fn initialize_app_components(
   // Initialize AI and get chat position from config
   let (ai_process, chat_position, config_error) = initialize_ai().await;
 
-  Ok((shell, ai_process, chat_position, config_error))
+  Ok((
+    shell,
+    shell_event_rx,
+    ai_process,
+    chat_position,
+    config_error,
+  ))
 }
 
 /// Initialize AI process (extracted from App::new)
@@ -389,7 +404,7 @@ fn main() -> Result<()> {
 
   // Initialize shell and AI asynchronously
   log::debug!("Initializing shell and AI components");
-  let (shell, mut ai_process, chat_position, config_error) =
+  let (shell, shell_event_rx, mut ai_process, chat_position, config_error) =
     tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
     "Shell and AI components initialized, ai_present={}, chat_position={:?}",
@@ -397,11 +412,16 @@ fn main() -> Result<()> {
     chat_position
   );
 
+  // Create PollShell for rat-salsa event loop integration
+  log::debug!("Creating PollShell for event loop");
+  let poll_shell = PollShell::new(shell_event_rx);
+
   // Set the VT parser for scrollback reading (if AI is enabled)
   if let Some(ref mut ai_proc) = ai_process {
     log::debug!("Setting VT parser for AI scrollback reading");
+    let vt_clone = Arc::clone(&shell.vt);
     tokio_rt.block_on(async {
-      ai_proc.set_vt_parser(Arc::clone(&shell.vt)).await;
+      ai_proc.set_vt_parser(vt_clone).await;
     });
     log::info!("VT parser set for AI process");
   }
@@ -429,9 +449,7 @@ fn main() -> Result<()> {
   };
 
   // Run rat-salsa event loop
-  // NOTE: For Phase 1, we poll crossterm events manually to avoid version conflicts
-  // NOTE: Shell events are also polled inline in the event() function
-  // TODO: Phase 2+: Use PollCrossterm and PollShell properly
+  // Phase 2: PollShell properly integrated via rat-salsa framework
   log::info!("Starting rat-salsa event loop");
   log::debug!("Creating RunConfig with inline terminal");
 
@@ -473,6 +491,7 @@ fn main() -> Result<()> {
     config
       .poll(PollTimers::default())
       .poll(PollCrossterm)
+      .poll(poll_shell) // Phase 2: PollShell integrated into rat-salsa framework
       .poll(PollRendered)
       .poll(PollTokio::new(tokio_rt)),
   ) {
@@ -836,33 +855,13 @@ fn event(
   state: &mut AppState,
   ctx: &mut Global,
 ) -> Result<Control<AppEvent>, Error> {
-  // Process shell events FIRST (on every event handler call)
-  // This ensures shell output is processed even when we return early for keyboard events
-  // Limit to 5 events per iteration to stay responsive
-  let mut shell_changed = false;
-  for _ in 0..5 {
-    match state.shell.event_rx.try_recv() {
-      Ok(shell_event) => {
-        match shell_event {
-          ShellEvent::Output => {
-            // Shell produced output, need to re-render
-            shell_changed = true;
-          }
-          ShellEvent::TermReply(reply) => {
-            state.shell.writer.write_all(reply.as_bytes())?;
-            state.shell.writer.flush()?;
-          }
-          ShellEvent::Exited(code) => {
-            log::info!("Shell exited with code: {}", code);
-            return Ok(Control::Quit);
-          }
-        }
-      }
-      Err(_) => break, // No more events
-    }
-  }
+  // Shell events now come through PollShell via rat-salsa framework
+  // No need for manual polling - events arrive as AppEvent variants
 
-  // Process tool execution events from AI (similar to shell events)
+  // Track if any state changed requiring re-render
+  let mut shell_changed = false;
+
+  // Process tool execution events from AI
   // Check for tool events and handle command suggestions
   if let Some(ref ai_process_arc) = state.ai_process {
     // Use try_lock to avoid blocking - this is a synchronous event loop
@@ -1355,10 +1354,23 @@ fn event(
       }
       Control::Continue
     }
-    // Shell events are handled inline above
-    AppEvent::ShellOutput
-    | AppEvent::ShellTermReply(_)
-    | AppEvent::ShellExited(_) => Control::Continue,
+    // Shell events now arrive via PollShell
+    AppEvent::ShellOutput => {
+      // Shell produced output, trigger re-render
+      log::trace!("Shell output event");
+      Control::Changed
+    }
+    AppEvent::ShellTermReply(reply) => {
+      // Write terminal reply back to shell
+      state.shell.writer.write_all(reply.as_bytes())?;
+      state.shell.writer.flush()?;
+      log::trace!("Shell term reply sent");
+      Control::Continue
+    }
+    AppEvent::ShellExited(code) => {
+      log::info!("Shell exited with code: {}", code);
+      Control::Quit
+    }
   };
   Ok(if shell_changed && result == Control::Continue {
     Control::Changed

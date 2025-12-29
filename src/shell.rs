@@ -23,23 +23,28 @@ pub struct Shell {
   pub writer: Box<dyn Write + Send>,
   pub master: Option<Box<dyn portable_pty::MasterPty + Send>>,
   pub _pid: u32,
-  pub event_rx: UnboundedReceiver<ShellEvent>,
 }
 
 impl Shell {
   /// Spawn a shell command (runs through /bin/sh -c)
-  pub fn spawn(shell_cmd: &str, rows: u16, cols: u16) -> Result<Self> {
+  /// Returns (Shell, event_receiver) tuple
+  pub fn spawn(
+    shell_cmd: &str,
+    rows: u16,
+    cols: u16,
+  ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     log::info!("Spawning shell: {} ({}x{})", shell_cmd, cols, rows);
     Self::spawn_internal(shell_cmd, &[], rows, cols)
   }
 
   /// Spawn a command with explicit arguments (no shell interpretation)
+  /// Returns (Shell, event_receiver) tuple
   pub fn spawn_command(
     cmd: &str,
     args: &[String],
     rows: u16,
     cols: u16,
-  ) -> Result<Self> {
+  ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     log::info!("Spawning command: {} {:?} ({}x{})", cmd, args, cols, rows);
     Self::spawn_internal(cmd, args, rows, cols)
   }
@@ -49,7 +54,7 @@ impl Shell {
     args: &[String],
     rows: u16,
     cols: u16,
-  ) -> Result<Self> {
+  ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     // Setup event channel
     let (event_tx, event_rx) = mpsc::unbounded_channel();
 
@@ -146,13 +151,15 @@ impl Shell {
       let _ = event_tx.send(ShellEvent::Exited(exit_code));
     });
 
-    Ok(Shell {
-      vt,
-      writer,
-      master: Some(pair.master),
-      _pid: pid,
+    Ok((
+      Shell {
+        vt,
+        writer,
+        master: Some(pair.master),
+        _pid: pid,
+      },
       event_rx,
-    })
+    ))
   }
 
   pub fn send_key(&mut self, key: Key) -> Result<()> {
