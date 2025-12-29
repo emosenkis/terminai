@@ -5,10 +5,12 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.models import KnownModelName
 
 from terminai_agent.config import Provider, ProviderConfig
+from terminai_agent.tools.grep_files import GrepFilesArgs, format_grep_result, grep_files
+from terminai_agent.tools.read_file import ReadFileArgs, read_file
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +47,12 @@ When suggesting shell commands for the user to execute:
 3. Warn about potentially dangerous operations
 
 You have access to:
-- Recent terminal history from the active process
-- The current working directory
-- Exit codes from recent commands
-- Tools to read files and search code
+- **Terminal context:** Recent history, current directory, exit codes
+- **Tools:**
+  - `suggest_command`: Suggest a shell command for the user to execute
+  - `read_scrollback`: Read recent terminal output
+  - `read_file_tool`: Read file contents from disk (use this to examine code/config files)
+  - `grep_files_tool`: Search files for patterns (use this to find code references)
 
 Be concise but thorough. Prioritize practical solutions."""
 
@@ -66,7 +70,7 @@ class TerminAIAgent:
         self.agent = self._create_agent()
 
     def _create_agent(self) -> Agent[TerminalContext, Any]:
-        """Create the Pydantic AI agent."""
+        """Create the Pydantic AI agent with registered tools."""
         # Map our provider to Pydantic AI model name
         model_name = self._get_model_name()
 
@@ -78,7 +82,64 @@ class TerminAIAgent:
             system_prompt=SYSTEM_PROMPT,
         )
 
-        # Tools will be registered separately
+        # Register Python-side tools
+        @agent.tool
+        async def read_file_tool(
+            ctx: RunContext[TerminalContext],
+            path: str,
+            start_line: int | None = None,
+            max_lines: int | None = None,
+        ) -> str:
+            """Read file contents with optional line range.
+
+            Args:
+                path: Path to the file to read (relative to cwd or absolute)
+                start_line: Starting line number (0-indexed, optional)
+                max_lines: Maximum number of lines to read (default: 100, max: 1000)
+
+            Returns:
+                File contents as formatted string
+            """
+            args = ReadFileArgs(path=path, start_line=start_line, max_lines=max_lines)
+            result = await read_file(args, cwd=ctx.deps.cwd)
+
+            if result.error:
+                raise ValueError(result.error)
+
+            return result.content
+
+        @agent.tool
+        async def grep_files_tool(
+            ctx: RunContext[TerminalContext],
+            pattern: str,
+            file_pattern: str | None = None,
+            case_insensitive: bool = False,
+            max_matches: int | None = None,
+        ) -> str:
+            """Search files for pattern using regex.
+
+            Args:
+                pattern: Pattern to search for (regex or literal string)
+                file_pattern: File glob pattern (e.g., '*.rs', 'src/**/*.py'). Optional.
+                case_insensitive: Whether to use case-insensitive search
+                max_matches: Maximum number of matches to return (default: 50, max: 100)
+
+            Returns:
+                Formatted search results
+            """
+            args = GrepFilesArgs(
+                pattern=pattern,
+                file_pattern=file_pattern,
+                case_insensitive=case_insensitive,
+                max_matches=max_matches,
+            )
+            result = await grep_files(args, cwd=ctx.deps.cwd)
+
+            if result.error:
+                raise ValueError(result.error)
+
+            return format_grep_result(result)
+
         return agent
 
     def _get_model_name(self) -> str | KnownModelName:
