@@ -876,11 +876,23 @@ fn event(
 
             // Check if it was a suggest_command tool
             if tool_name == "suggest_command" {
-              log::info!("Checking for command suggestions...");
-              // Command suggestion checking will be done via async task
-              // For now, just log that we received the event
-              // The suggestion will be available on next event loop iteration
-              // TODO: Spawn async task to check suggestions and show modal
+              log::info!("Command suggested, spawning checker task");
+
+              // Spawn async task to retrieve and display the suggestion
+              let ai_process_clone = Arc::clone(ai_process_arc);
+              ctx.spawn_async(async move {
+                let mut ai = ai_process_clone.lock().await;
+                if let Some(suggestion) = ai.get_latest_suggestion().await {
+                  log::info!(
+                    "Retrieved suggestion: {} (risk: {:?})",
+                    suggestion.command,
+                    suggestion.risk_level
+                  );
+                  // Convert to pending command for approval UI
+                  ai.set_pending_command(suggestion).await;
+                }
+                Ok(Control::Changed)
+              });
             }
           }
           ToolExecutionEvent::ContinuedTextChunk { chunk } => {

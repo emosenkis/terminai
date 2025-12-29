@@ -441,16 +441,27 @@ impl<'a> AIChatUI<'a> {
       )
       .split(popup_area);
 
-    // Risk level
-    let risk_color = match pending.risk_level {
-      crate::command::RiskLevel::Safe => Color::Green,
-      crate::command::RiskLevel::Caution => Color::Yellow,
-      crate::command::RiskLevel::Dangerous => Color::Red,
+    // Risk level with emoji and description
+    let (risk_emoji, risk_color, risk_description) = match pending.risk_level {
+      crate::command::RiskLevel::Safe => {
+        ("🟢", Color::Green, "Command appears safe to execute")
+      }
+      crate::command::RiskLevel::Caution => {
+        ("🟡", Color::Yellow, "Review this command carefully")
+      }
+      crate::command::RiskLevel::Dangerous => {
+        ("🔴", Color::Red, "This command could modify/delete data")
+      }
     };
 
-    let risk_text = format!("Risk: {:?}", pending.risk_level);
-    let risk_para =
-      Paragraph::new(risk_text).style(Style::default().fg(risk_color));
+    let risk_text = format!(
+      "{} {} - {}",
+      risk_emoji,
+      format!("{:?}", pending.risk_level).to_uppercase(),
+      risk_description
+    );
+    let risk_para = Paragraph::new(risk_text)
+      .style(Style::default().fg(risk_color).add_modifier(Modifier::BOLD));
     risk_para.render(chunks[0], buf);
 
     // Command

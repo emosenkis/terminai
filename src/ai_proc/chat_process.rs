@@ -270,6 +270,18 @@ impl AIChatProcess {
     self.awaiting_approval.as_ref()
   }
 
+  /// Set a command suggestion as pending approval
+  pub async fn set_pending_command(&mut self, suggestion: CommandSuggestion) {
+    self.awaiting_approval = Some(PendingCommand {
+      command: suggestion.command,
+      risk_level: suggestion.risk_level,
+      target_process: None, // Default to no specific process
+    });
+
+    // Clear suggestions after converting to pending
+    self.coordinator.clear_suggestions().await;
+  }
+
   /// Approve the pending command
   pub fn approve_command(&mut self) -> Option<PendingCommand> {
     self.awaiting_approval.take()
