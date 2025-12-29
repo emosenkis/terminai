@@ -1,3 +1,12 @@
+//! Provider enum for LLM providers
+//!
+//! NOTE: This enum is duplicated in Python (config.py) because:
+//! - Rust: Pre-flight validation (check API keys before spawning subprocess)
+//! - Python: Actual provider selection and configuration
+//!
+//! The duplication is intentional - each side needs its own copy for
+//! its specific purpose. Keep in sync when adding new providers!
+
 use serde::{Deserialize, Serialize};
 
 /// LLM provider types

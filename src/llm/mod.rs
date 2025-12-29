@@ -3,6 +3,7 @@
 pub mod client;
 pub mod forwarded_props;
 pub mod integration_example;
+pub mod providers;
 pub mod subscriber;
 pub mod terminal_context;
 pub mod tool_coordinator;
@@ -25,5 +26,5 @@ pub use ag_ui_core::types::context::Context;
 pub use ag_ui_core::types::message::Message;
 pub use ag_ui_core::types::tool::Tool;
 
-// Re-export Provider from llm_old for backward compatibility
-pub use crate::llm_old::Provider;
+// Re-export Provider enum
+pub use providers::Provider;
