@@ -53,6 +53,8 @@ pub enum AppEvent {
   ToggleKeymapWindow,
 
   SendKey { key: Key },
+
+  ExecuteSuggestedCommand { command: String },
 }
 
 impl CustomProcCmd for AppEvent {}
@@ -105,6 +107,9 @@ impl AppEvent {
       AppEvent::CopyModeCopy => "Copy selected text".to_string(),
       AppEvent::ToggleKeymapWindow => "Toggle help".to_string(),
       AppEvent::SendKey { key } => format!("Send {} key", key.to_string()),
+      AppEvent::ExecuteSuggestedCommand { command } => {
+        format!("Execute suggested command: {}", command)
+      }
     }
   }
 }

@@ -15,7 +15,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::llm::subscriber::StreamingSubscriber;
+use crate::llm::tool_executor::ToolExecutionRequest;
 use crate::llm_subprocess::{LlmSubprocess, LlmSubprocessConfig};
+
+/// Response from chat_stream containing both text stream and tool requests
+pub struct ChatStreamResponse {
+  /// Stream of text chunks from the LLM
+  pub text_stream: Pin<Box<dyn Stream<Item = Result<String>> + Send>>,
+  /// Receiver for tool execution requests
+  pub tool_rx: tokio::sync::mpsc::UnboundedReceiver<ToolExecutionRequest>,
+}
 
 /// High-level AG-UI client for Termin.AI
 ///
@@ -62,21 +71,22 @@ impl AgUiClient {
     })
   }
 
-  /// Send a chat message and get a streaming text response
+  /// Send a chat message and get a streaming text response with tool requests
   ///
-  /// Uses the official SDK's subscriber pattern to stream text chunks
+  /// Uses the official SDK's subscriber pattern to stream text chunks and
+  /// capture tool execution requests.
   ///
   /// # Arguments
   /// * `message` - User message to send
   /// * `context_items` - Optional terminal context items
   ///
   /// # Returns
-  /// Stream of text chunks
+  /// ChatStreamResponse containing text stream and tool request receiver
   pub async fn chat_stream(
     &self,
     message: impl Into<String>,
     context_items: Option<Vec<Context>>,
-  ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+  ) -> Result<ChatStreamResponse> {
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -86,8 +96,11 @@ impl AgUiClient {
     // Create channel for streaming text
     let (tx, rx) = mpsc::unbounded_channel();
 
+    // Create channel for tool execution requests
+    let (tool_tx, tool_rx) = mpsc::unbounded_channel();
+
     // Create subscriber
-    let subscriber = StreamingSubscriber::new(tx.clone());
+    let subscriber = StreamingSubscriber::new(tx.clone(), tool_tx);
 
     // Build RunAgentParams (using public fields in v0.1)
     let params = RunAgentParams {
@@ -118,9 +131,12 @@ impl AgUiClient {
       // Channel closes when tx is dropped
     });
 
-    // Return receiver as stream
-    let stream = UnboundedReceiverStream::new(rx);
-    Ok(Box::pin(stream))
+    // Return both text stream and tool request receiver
+    let text_stream = UnboundedReceiverStream::new(rx);
+    Ok(ChatStreamResponse {
+      text_stream: Box::pin(text_stream),
+      tool_rx,
+    })
   }
 
   /// Default tools provided by the Rust side
@@ -160,6 +176,92 @@ impl AgUiClient {
         }),
       },
     ]
+  }
+
+  /// Submit tool result and continue conversation
+  ///
+  /// Creates a NEW HTTP request with tool result message appended to history.
+  /// Returns stream of LLM's continued response with tool requests.
+  ///
+  /// # Arguments
+  /// * `messages` - Full message history so far
+  /// * `tool_result` - Tool execution result to submit
+  /// * `context_items` - Optional terminal context items
+  ///
+  /// # Returns
+  /// ChatStreamResponse containing continued text stream and tool request receiver
+  pub async fn submit_tool_result(
+    &self,
+    messages: Vec<Message>,
+    tool_result: crate::llm::tool_executor::ToolResult,
+    context_items: Option<Vec<Context>>,
+  ) -> Result<ChatStreamResponse> {
+    use tokio::sync::mpsc;
+    use tokio_stream::wrappers::UnboundedReceiverStream;
+
+    log::info!(
+      "Submitting tool result for {:?} (error: {})",
+      tool_result.tool_call_id,
+      tool_result.is_error
+    );
+
+    // Create channel for streaming text
+    let (tx, rx) = mpsc::unbounded_channel();
+
+    // Create channel for tool execution requests
+    let (tool_tx, tool_rx) = mpsc::unbounded_channel();
+
+    // Create subscriber
+    let subscriber = StreamingSubscriber::new(tx.clone(), tool_tx);
+
+    // Append tool result to messages
+    let mut updated_messages = messages;
+
+    // Convert is_error boolean to Option<String> error field
+    let error = if tool_result.is_error {
+      Some("Tool execution failed".to_string())
+    } else {
+      None
+    };
+
+    updated_messages.push(Message::Tool {
+      id: ag_ui_core::types::ids::MessageId::random(),
+      tool_call_id: tool_result.tool_call_id,
+      content: tool_result.content,
+      error,
+    });
+
+    // Build RunAgentParams with updated messages
+    let params = RunAgentParams {
+      run_id: None,
+      tools: Some(Self::default_tools()),
+      context: context_items,
+      forwarded_props: Some(json!({
+          "provider": self.provider,
+          "model": self.model,
+      })),
+      messages: updated_messages,
+      state: serde_json::Value::Null,
+    };
+
+    // Clone agent for background task
+    let agent = Arc::clone(&self.http_agent);
+
+    // Spawn background task to run agent
+    tokio::spawn(async move {
+      if let Err(e) = agent.run_agent(&params, [subscriber]).await {
+        // Send error if agent fails
+        let _ = tx.send(Err(anyhow::anyhow!("{}", e)));
+      }
+      // Channel closes when tx is dropped
+    });
+
+    // Return both text stream and tool request receiver
+    let text_stream = UnboundedReceiverStream::new(rx);
+    Ok(ChatStreamResponse {
+      text_stream: Box::pin(text_stream),
+      tool_rx,
+    })
   }
 
   /// Check if the subprocess is still running

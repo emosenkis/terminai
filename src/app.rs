@@ -872,6 +872,32 @@ impl App {
         loop_action.render();
       }
 
+      AppEvent::ExecuteSuggestedCommand { command } => {
+        // Execute the suggested command in the current process
+        if let Some(proc) = self.state.get_current_proc_mut() {
+          log::info!("Executing suggested command: {}", command);
+          // Send the command as a series of key presses
+          for ch in command.chars() {
+            pc.send(KernelCommand::ProcCmd(
+              proc.id,
+              ProcCmd::SendKey(Key::new(
+                crossterm::event::KeyCode::Char(ch),
+                crossterm::event::KeyModifiers::NONE,
+              )),
+            ));
+          }
+          // Send Enter to execute
+          pc.send(KernelCommand::ProcCmd(
+            proc.id,
+            ProcCmd::SendKey(Key::new(
+              crossterm::event::KeyCode::Enter,
+              crossterm::event::KeyModifiers::NONE,
+            )),
+          ));
+        }
+        loop_action.render();
+      }
+
       AppEvent::SendKey { key } => {
         if let Some(proc) = self.state.get_current_proc_mut() {
           pc.send(KernelCommand::ProcCmd(proc.id, ProcCmd::SendKey(*key)));

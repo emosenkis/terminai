@@ -19,7 +19,7 @@ use tui::{
 
 // rat-salsa imports
 use rat_cursor::HasScreenCursor;
-use rat_event::{HandleEvent, MouseOnly, Outcome, Regular};
+use rat_event::{HandleEvent, Outcome, Regular};
 use rat_focus::{FocusBuilder, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
@@ -50,7 +50,7 @@ struct Args {
 /// Global state for rat-salsa (implements SalsaContext)
 pub struct Global {
   ctx: SalsaAppContext<AppEvent, Error>,
-  theme: SalsaTheme,
+  _theme: SalsaTheme,
 }
 
 impl SalsaContext<AppEvent, Error> for Global {
@@ -67,7 +67,7 @@ impl Global {
   pub fn new(theme: SalsaTheme) -> Self {
     Self {
       ctx: Default::default(),
-      theme,
+      _theme: theme,
     }
   }
 }
@@ -389,13 +389,22 @@ fn main() -> Result<()> {
 
   // Initialize shell and AI asynchronously
   log::debug!("Initializing shell and AI components");
-  let (shell, ai_process, chat_position, config_error) =
+  let (shell, mut ai_process, chat_position, config_error) =
     tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
     "Shell and AI components initialized, ai_present={}, chat_position={:?}",
     ai_process.is_some(),
     chat_position
   );
+
+  // Set the VT parser for scrollback reading (if AI is enabled)
+  if let Some(ref mut ai_proc) = ai_process {
+    log::debug!("Setting VT parser for AI scrollback reading");
+    tokio_rt.block_on(async {
+      ai_proc.set_vt_parser(Arc::clone(&shell.vt)).await;
+    });
+    log::info!("VT parser set for AI process");
+  }
 
   // Get terminal size for initial state
   let (_, rows) = crossterm::terminal::size()?;
@@ -852,6 +861,53 @@ fn event(
       Err(_) => break, // No more events
     }
   }
+
+  // Process tool execution events from AI (similar to shell events)
+  // Check for tool events and handle command suggestions
+  if let Some(ref ai_process_arc) = state.ai_process {
+    // Use try_lock to avoid blocking - this is a synchronous event loop
+    if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+      // Check for tool execution events (non-blocking)
+      if let Some(tool_event) = ai_process.try_recv_tool_event() {
+        use termin::llm::ToolExecutionEvent;
+        match tool_event {
+          ToolExecutionEvent::ToolExecuted { tool_name } => {
+            log::info!("Tool executed: {}", tool_name);
+
+            // Check if it was a suggest_command tool
+            if tool_name == "suggest_command" {
+              log::info!("Checking for command suggestions...");
+              // Command suggestion checking will be done via async task
+              // For now, just log that we received the event
+              // The suggestion will be available on next event loop iteration
+              // TODO: Spawn async task to check suggestions and show modal
+            }
+          }
+          ToolExecutionEvent::ContinuedTextChunk { chunk } => {
+            log::debug!("Continued text: {}", chunk);
+            // Append to AI process streaming response
+            ai_process.append_streaming_token(chunk);
+            shell_changed = true; // Trigger re-render
+          }
+          ToolExecutionEvent::ContinuedStreamComplete { full_response } => {
+            log::info!(
+              "Continued response complete: {} chars",
+              full_response.len()
+            );
+            // Complete the streaming with the full response
+            ai_process.complete_streaming(full_response);
+            shell_changed = true; // Trigger re-render
+          }
+          ToolExecutionEvent::Error { message } => {
+            log::error!("Tool execution error: {}", message);
+            ai_process.set_error(format!("Tool execution failed: {}", message));
+            shell_changed = true; // Trigger re-render
+          }
+        }
+      }
+    }
+  }
+
   if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
     if screen.total_rows() > state.last_total_rows {
@@ -1053,7 +1109,8 @@ fn event(
                   };
 
                   match stream {
-                    Ok(mut stream) => {
+                    Ok(response) => {
+                      let mut stream = response.text_stream;
                       let mut full_response = String::new();
 
                       // Process stream tokens with lock/unlock cycles

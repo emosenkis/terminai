@@ -1,8 +1,12 @@
 use anyhow::Result;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
-use crate::llm::{AgUiClient, TerminalContext};
+use crate::llm::{
+  AgUiClient, CommandSuggestion, Message as AgUiMessage, TerminalContext,
+  ToolCoordinator, ToolExecutionContext, ToolExecutionEvent, ToolExecutor,
+};
 use crate::llm_subprocess::LlmSubprocessConfig;
 use crate::privacy::PrivacyFilter;
 
@@ -35,6 +39,13 @@ pub struct AIChatProcess {
   scroll_offset: u16,
   /// Streaming response in progress (not yet in conversation history)
   streaming_response: Option<String>,
+  /// Tool execution coordinator
+  coordinator: Arc<ToolCoordinator>,
+  /// Command suggestions from LLM tool calls
+  command_suggestions: Arc<Mutex<Vec<CommandSuggestion>>>,
+  /// Tool execution event receiver
+  tool_event_rx:
+    Option<tokio::sync::mpsc::UnboundedReceiver<ToolExecutionEvent>>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +88,27 @@ impl AIChatProcess {
     let llm_client =
       Arc::new(AgUiClient::spawn(config, provider, model).await?);
 
+    // Create shared state for tool execution
+    let command_suggestions = Arc::new(Mutex::new(Vec::new()));
+    let message_history = Arc::new(Mutex::new(Vec::new()));
+
+    // Create tool executor
+    let tool_context = ToolExecutionContext {
+      vt_parser: None, // Will be set later if needed
+      command_suggestions: Arc::clone(&command_suggestions),
+      command_executor: crate::command::CommandExecutor::new(),
+      safety_validator: crate::command::SafetyValidator::new(),
+    };
+    let tool_executor = ToolExecutor::new(tool_context);
+
+    // Create tool coordinator
+    let coordinator = Arc::new(ToolCoordinator::new(
+      Arc::clone(&llm_client),
+      tool_executor,
+      message_history,
+      Arc::clone(&command_suggestions),
+    ));
+
     Ok(Self {
       llm_client,
       conversation: Vec::new(),
@@ -90,6 +122,9 @@ impl AIChatProcess {
       is_sending: false,
       scroll_offset: 0,
       streaming_response: None,
+      coordinator,
+      command_suggestions,
+      tool_event_rx: None,
     })
   }
 
@@ -113,11 +148,8 @@ impl AIChatProcess {
     &mut self,
     user_message: &str,
     context: TerminalContext,
-  ) -> Result<
-    std::pin::Pin<
-      Box<dyn futures::stream::Stream<Item = Result<String>> + Send>,
-    >,
-  > {
+  ) -> Result<crate::llm::ChatStreamResponse> {
+    use ag_ui_core::types::ids::MessageId;
     use futures::StreamExt;
 
     if user_message.is_empty() {
@@ -135,6 +167,16 @@ impl AIChatProcess {
       content: user_message.to_string(),
     });
 
+    // Add user message to AG-UI message history for tool execution
+    self
+      .coordinator
+      .add_message(AgUiMessage::User {
+        id: MessageId::random(),
+        content: user_message.to_string(),
+        name: None,
+      })
+      .await;
+
     // Filter sensitive information from context
     let filtered_context = TerminalContext {
       history_lines: self.privacy_filter.filter_lines(&context.history_lines),
@@ -145,14 +187,34 @@ impl AIChatProcess {
     // Convert terminal context to AG-UI context items
     let context_items = filtered_context.to_ag_ui_context();
 
-    // Get streaming text response from AG-UI client
-    // (subscriber pattern already converts events to text chunks)
-    let text_stream = self
+    // Get streaming response with text and tool requests from AG-UI client
+    let response = self
       .llm_client
       .chat_stream(user_message, Some(context_items))
       .await?;
 
-    Ok(text_stream)
+    // Spawn tool execution loop in background
+    let coordinator = Arc::clone(&self.coordinator);
+    let tool_rx = response.tool_rx;
+    let (event_tx, event_rx) =
+      tokio::sync::mpsc::unbounded_channel::<ToolExecutionEvent>();
+
+    tokio::spawn(async move {
+      crate::llm::run_tool_execution_loop(coordinator, tool_rx, event_tx).await;
+    });
+
+    // Store the event receiver for checking tool events
+    self.tool_event_rx = Some(event_rx);
+
+    // Return just the text stream in ChatStreamResponse format
+    // (tool_rx is consumed by background loop, so create a dummy channel)
+    let (_dummy_tool_tx, dummy_tool_rx) =
+      tokio::sync::mpsc::unbounded_channel();
+
+    Ok(crate::llm::ChatStreamResponse {
+      text_stream: response.text_stream,
+      tool_rx: dummy_tool_rx,
+    })
   }
 
   /// Append a token to the streaming response
@@ -289,6 +351,63 @@ impl AIChatProcess {
   /// Reset scroll to bottom (most recent messages)
   pub fn scroll_to_bottom(&mut self) {
     self.scroll_offset = 0;
+  }
+
+  /// Check for pending command suggestions from tool calls
+  pub async fn has_command_suggestions(&self) -> bool {
+    self.coordinator.has_suggestions().await
+  }
+
+  /// Get the latest command suggestion from tool calls
+  pub async fn get_latest_suggestion(&self) -> Option<CommandSuggestion> {
+    self.coordinator.get_latest_suggestion().await
+  }
+
+  /// Clear all command suggestions
+  pub async fn clear_suggestions(&mut self) {
+    self.coordinator.clear_suggestions().await
+  }
+
+  /// Check for tool execution events (non-blocking)
+  ///
+  /// Returns the next tool event if one is available.
+  pub fn try_recv_tool_event(&mut self) -> Option<ToolExecutionEvent> {
+    if let Some(ref mut rx) = self.tool_event_rx {
+      rx.try_recv().ok()
+    } else {
+      None
+    }
+  }
+
+  /// Set the VT parser for scrollback reading
+  ///
+  /// This should be called after initialization with the shell's VT parser.
+  pub async fn set_vt_parser(
+    &mut self,
+    vt_parser: std::sync::Arc<
+      std::sync::RwLock<crate::vt100::Parser<crate::shell::ReplySender>>,
+    >,
+  ) {
+    // Update the coordinator's tool executor context
+    // Note: We need to reconstruct the coordinator with the new VT parser
+    let command_suggestions = Arc::clone(&self.command_suggestions);
+    let message_history =
+      Arc::new(Mutex::new(self.coordinator.get_history().await));
+
+    let tool_context = ToolExecutionContext {
+      vt_parser: Some(vt_parser),
+      command_suggestions: Arc::clone(&command_suggestions),
+      command_executor: crate::command::CommandExecutor::new(),
+      safety_validator: crate::command::SafetyValidator::new(),
+    };
+    let tool_executor = ToolExecutor::new(tool_context);
+
+    self.coordinator = Arc::new(ToolCoordinator::new(
+      Arc::clone(&self.llm_client),
+      tool_executor,
+      message_history,
+      command_suggestions,
+    ));
   }
 }
 

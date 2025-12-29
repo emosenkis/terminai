@@ -5,7 +5,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use crate::llm::{AgUiTerminalContext, Provider};
+use crate::llm::{Provider, TerminalContext};
 
 /// Test configuration for LLM behavior
 #[derive(Debug, Clone)]
@@ -79,7 +79,7 @@ impl MockLLMClient {
   pub async fn send_message(
     &self,
     _user_message: &str,
-    _context: Option<AgUiTerminalContext>,
+    _context: Option<TerminalContext>,
   ) -> Result<String> {
     // Simulate delay if configured
     if self.config.delay_ms > 0 {
