@@ -2,7 +2,6 @@
 
 pub mod client;
 pub mod forwarded_props;
-pub mod integration_example;
 pub mod providers;
 pub mod subscriber;
 pub mod terminal_context;
