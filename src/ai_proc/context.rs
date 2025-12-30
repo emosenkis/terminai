@@ -75,6 +75,7 @@ impl ContextExtractor {
       cwd: cwd.to_string_lossy().to_string(),
       last_exit_code: exit_code,
       os_info: Some(TerminalContext::get_os_info()),
+      shell: TerminalContext::get_shell(),
     }
   }
 
@@ -128,6 +129,7 @@ impl ContextExtractor {
       cwd: cwd.to_string_lossy().to_string(),
       last_exit_code: exit_code,
       os_info: Some(TerminalContext::get_os_info()),
+      shell: TerminalContext::get_shell(),
     }
   }
 

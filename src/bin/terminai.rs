@@ -623,6 +623,7 @@ impl<'a> AppState<'a> {
       cwd,
       last_exit_code: None,
       os_info: Some(TerminalContext::get_os_info()),
+      shell: TerminalContext::get_shell(),
     }
   }
 
@@ -664,7 +665,7 @@ fn render(
   state: &mut AppState,
   ctx: &mut Global,
 ) -> Result<(), Error> {
-  log::debug!(
+  log::trace!(
     "render() called, area={:?}, ai_visible={}",
     area,
     state.ai_visible
@@ -679,7 +680,7 @@ fn render(
     // If total rows increased, content has scrolled into VT100's scrollback buffer
     if current_total_rows > state.last_total_rows {
       let num = current_total_rows - state.last_total_rows;
-      log::debug!(
+      log::trace!(
         "Content scrolled: {} new lines (total rows: {} -> {})",
         num,
         state.last_total_rows,
@@ -707,7 +708,7 @@ fn render(
       // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
       let scrollback_start = current_row0.saturating_sub(num_pending_lines);
 
-      log::debug!(
+      log::trace!(
         "Inserting {} lines into scrollback of possible {}",
         rows_to_scroll,
         num_pending_lines

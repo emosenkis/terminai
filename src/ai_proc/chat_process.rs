@@ -183,6 +183,7 @@ impl AIChatProcess {
       cwd: context.cwd.clone(),
       last_exit_code: context.last_exit_code,
       os_info: context.os_info.clone(),
+      shell: context.shell.clone(),
     };
 
     // Convert terminal context to AG-UI context items

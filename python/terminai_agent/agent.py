@@ -22,6 +22,7 @@ class TerminalContext(BaseModel):
     cwd: str
     last_exit_code: int | None = None
     os_info: str | None = None  # Operating system information (e.g., "Linux", "macOS", "Windows")
+    shell: str | None = None  # User's shell (e.g., "bash", "zsh", "fish")
 
 
 class Message(BaseModel):
@@ -110,6 +111,12 @@ Search through files using regex patterns to find code references, error message
 
 **User:** "How do I list all Python files recursively?"
 **You:** [Use `suggest_command` with `find . -name "*.py" -type f`]
+
+**User:** "Delete all .log files older than 7 days"
+**You:** [Use `suggest_command` with `find . -name "*.log" -mtime +7 -delete`]
+
+**User:** "Show me unique error lines from app.log sorted by frequency"
+**You:** [Use `suggest_command` with `grep -i error app.log | sort | uniq -c | sort -rn`]
 
 **User:** "I'm stuck in vim and can't exit"
 **You:** [Use `suggest_command` with `\u001b:q!\r`]
@@ -296,9 +303,14 @@ class TerminAIAgent:
         """
         context_parts = ["## Current Context\n"]
 
-        # Operating system
+        # Operating system and shell
         if context.os_info:
-            context_parts.append(f"**Operating System:** {context.os_info}\n")
+            os_line = f"**Operating System:** {context.os_info}"
+            if context.shell:
+                os_line += f", **Shell:** {context.shell}"
+            context_parts.append(os_line + "\n")
+        elif context.shell:
+            context_parts.append(f"**Shell:** {context.shell}\n")
 
         # Working directory
         context_parts.append(f"**Working Directory:** `{context.cwd}`\n")

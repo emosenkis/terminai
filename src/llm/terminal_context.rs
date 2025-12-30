@@ -13,12 +13,24 @@ pub struct TerminalContext {
   pub last_exit_code: Option<i32>,
   /// Operating system information
   pub os_info: Option<String>,
+  /// User's shell
+  pub shell: Option<String>,
 }
 
 impl TerminalContext {
   /// Get the operating system information
   pub fn get_os_info() -> String {
     std::env::consts::OS.to_string()
+  }
+
+  /// Get the user's shell from SHELL environment variable
+  pub fn get_shell() -> Option<String> {
+    std::env::var("SHELL").ok().and_then(|path| {
+      std::path::Path::new(&path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|s| s.to_string())
+    })
   }
 
   /// Convert to AG-UI Context items
@@ -30,6 +42,14 @@ impl TerminalContext {
       context_items.push(Context {
         description: "Operating system".to_string(),
         value: os.clone(),
+      });
+    }
+
+    // Add shell info if available
+    if let Some(shell) = &self.shell {
+      context_items.push(Context {
+        description: "Shell".to_string(),
+        value: shell.clone(),
       });
     }
 
