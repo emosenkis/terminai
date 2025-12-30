@@ -11,12 +11,27 @@ pub struct TerminalContext {
   pub cwd: String,
   /// Last command exit code
   pub last_exit_code: Option<i32>,
+  /// Operating system information
+  pub os_info: Option<String>,
 }
 
 impl TerminalContext {
+  /// Get the operating system information
+  pub fn get_os_info() -> String {
+    std::env::consts::OS.to_string()
+  }
+
   /// Convert to AG-UI Context items
   pub fn to_ag_ui_context(&self) -> Vec<Context> {
     let mut context_items = Vec::new();
+
+    // Add operating system info if available
+    if let Some(os) = &self.os_info {
+      context_items.push(Context {
+        description: "Operating system".to_string(),
+        value: os.clone(),
+      });
+    }
 
     // Add terminal history as context
     if !self.history_lines.is_empty() {

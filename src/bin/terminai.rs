@@ -622,6 +622,7 @@ impl<'a> AppState<'a> {
       history_lines,
       cwd,
       last_exit_code: None,
+      os_info: Some(TerminalContext::get_os_info()),
     }
   }
 
@@ -896,6 +897,10 @@ fn event(
           }
           ToolExecutionEvent::ContinuedTextChunk { chunk } => {
             log::debug!("Continued text: {}", chunk);
+            // Ensure streaming response is initialized for continued stream
+            if ai_process.streaming_response().is_none() {
+              ai_process.start_continued_streaming();
+            }
             // Append to AI process streaming response
             ai_process.append_streaming_token(chunk);
             shell_changed = true; // Trigger re-render

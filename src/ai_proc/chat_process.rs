@@ -182,6 +182,7 @@ impl AIChatProcess {
       history_lines: self.privacy_filter.filter_lines(&context.history_lines),
       cwd: context.cwd.clone(),
       last_exit_code: context.last_exit_code,
+      os_info: context.os_info.clone(),
     };
 
     // Convert terminal context to AG-UI context items
@@ -215,6 +216,12 @@ impl AIChatProcess {
       text_stream: response.text_stream,
       tool_rx: dummy_tool_rx,
     })
+  }
+
+  /// Start streaming for continued response after tool execution
+  pub fn start_continued_streaming(&mut self) {
+    self.is_sending = true;
+    self.streaming_response = Some(String::new());
   }
 
   /// Append a token to the streaming response
