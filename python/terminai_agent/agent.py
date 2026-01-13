@@ -143,6 +143,7 @@ def create_agent_adapter(provider_config: ProviderConfig, terminal_context: Term
     Returns:
         Configured ClaudeAgentAdapter instance
     """
+    import os
     from ag_ui_claude_sdk import ClaudeAgentAdapter
 
     # Build system prompt with terminal context
@@ -185,18 +186,30 @@ def create_agent_adapter(provider_config: ProviderConfig, terminal_context: Term
     # Map provider to model name
     model = provider_config.model
 
-    # For non-Anthropic providers, we'll need to use the appropriate configuration
-    # The Claude SDK only supports Anthropic models, so we need to ensure we're using
-    # an Anthropic API key and model
+    # Extract API key from environment
+    # NOTE: Claude SDK only supports Anthropic. For non-Anthropic providers,
+    # we fall back to ANTHROPIC_API_KEY (user must configure this).
+    api_key = None
+    if provider_config.api_key_env:
+        api_key = os.getenv(provider_config.api_key_env)
+        if not api_key and provider_config.provider.value == "anthropic":
+            logger.warning(f"API key environment variable {provider_config.api_key_env} is not set")
+
+    # Warn if non-Anthropic provider requested
     if provider_config.provider.value != "anthropic":
         logger.warning(
             f"Claude SDK only supports Anthropic models. "
-            f"Requested provider: {provider_config.provider.value}. "
-            f"Make sure ANTHROPIC_API_KEY is set."
+            f"Requested provider: {provider_config.provider.value}, model: {model}. "
+            f"Falling back to ANTHROPIC_API_KEY environment variable."
         )
+        # Fall back to ANTHROPIC_API_KEY for non-Anthropic providers
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            logger.error("ANTHROPIC_API_KEY not found. Claude SDK requires Anthropic API key.")
 
     # Create the adapter with system prompt and allowed tools
     adapter = ClaudeAgentAdapter(
+        api_key=api_key,  # Explicitly pass API key
         model=model,
         system_prompt=full_system_prompt,
         cwd=terminal_context.cwd if terminal_context else None,
