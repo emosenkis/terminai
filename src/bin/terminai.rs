@@ -2,6 +2,7 @@
 
 use anyhow::{Error, Result};
 use clap::Parser;
+use crokey::{Combiner, KeyCombination};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
@@ -37,7 +38,9 @@ use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
 use termin::llm::TerminalContext;
 use termin::mouse::MouseEvent;
-use termin::terminai_config::{ChatPosition, TerminAIConfig};
+use termin::terminai_config::{
+  ChatPosition, OneOrMoreBindings, TerminAIConfig,
+};
 use termin::vt100;
 
 use termin::shell::{Shell, ShellEvent};
@@ -229,6 +232,7 @@ async fn initialize_app_components(
   Shell,
   UnboundedReceiver<ShellEvent>,
   Option<AIChatProcess>,
+  Option<TerminAIConfig>,
   ChatPosition,
   Option<String>,
 )> {
@@ -251,21 +255,26 @@ async fn initialize_app_components(
   };
 
   // Initialize AI and get chat position from config
-  let (ai_process, chat_position, config_error) = initialize_ai().await;
+  let (ai_process, config, chat_position, config_error) = initialize_ai().await;
 
   Ok((
     shell,
     shell_event_rx,
     ai_process,
+    config,
     chat_position,
     config_error,
   ))
 }
 
 /// Initialize AI process (extracted from App::new)
-/// Returns (ai_process, chat_position, config_error)
-async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>)
-{
+/// Returns (ai_process, config, chat_position, config_error)
+async fn initialize_ai() -> (
+  Option<AIChatProcess>,
+  Option<TerminAIConfig>,
+  ChatPosition,
+  Option<String>,
+) {
   match TerminAIConfig::load() {
     Ok(config) => {
       log::info!("Configuration loaded successfully");
@@ -315,10 +324,12 @@ async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>
             {
               Ok(process) => {
                 log::info!("AI assistant initialized successfully");
-                return (Some(process), chat_position, None);
+                return (Some(process), Some(config), chat_position, None);
               }
               Err(e) => {
                 log::error!("Failed to initialize AI subprocess: {:?}", e);
+                // Return config even if AI init failed
+                return (None, Some(config), chat_position, None);
               }
             }
           }
@@ -328,6 +339,8 @@ async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>
             "Failed to get default provider/model from config: {:?}",
             e
           );
+          // Return config even if provider/model setup failed
+          return (None, Some(config), chat_position, None);
         }
       }
     }
@@ -337,11 +350,11 @@ async fn initialize_ai() -> (Option<AIChatProcess>, ChatPosition, Option<String>
         "Failed to load configuration file: {}. AI overlay will show config instructions",
         error_msg
       );
-      return (None, ChatPosition::default(), Some(error_msg));
+      return (None, None, ChatPosition::default(), Some(error_msg));
     }
   }
 
-  (None, ChatPosition::default(), None)
+  (None, None, ChatPosition::default(), None)
 }
 
 fn main() -> Result<()> {
@@ -401,13 +414,48 @@ fn main() -> Result<()> {
 
   // Initialize shell and AI asynchronously
   log::debug!("Initializing shell and AI components");
-  let (shell, shell_event_rx, mut ai_process, chat_position, config_error) =
-    tokio_rt.block_on(initialize_app_components(args.command))?;
+  let (
+    shell,
+    shell_event_rx,
+    mut ai_process,
+    config,
+    chat_position,
+    config_error,
+  ) = tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
     "Shell and AI components initialized, ai_present={}, chat_position={:?}",
     ai_process.is_some(),
     chat_position
   );
+
+  // Create keybindings from config (or use defaults if config failed to load)
+  let keybindings = if let Some(ref cfg) = config {
+    KeyBindings::from_config(cfg)
+  } else {
+    log::warn!("No config available, using default keybindings");
+    let default_config = TerminAIConfig {
+      interface: Default::default(),
+      providers: vec![],
+      default_model: String::new(),
+    };
+    KeyBindings::from_config(&default_config)
+  };
+
+  // Create crokey combiner for keyboard event processing
+  let mut key_combiner = Combiner::default();
+  match key_combiner.enable_combining() {
+    Ok(true) => {
+      log::info!("Terminal supports Kitty protocol multi-key combinations");
+    }
+    Ok(false) => {
+      log::info!(
+        "Terminal does not support multi-key combinations (standard ANSI mode)"
+      );
+    }
+    Err(e) => {
+      log::warn!("Failed to enable key combining: {:?}", e);
+    }
+  }
 
   // Create PollShell for rat-salsa event loop integration
   log::debug!("Creating PollShell for event loop");
@@ -443,6 +491,8 @@ fn main() -> Result<()> {
     last_total_rows: rows as usize,
     has_pending_scrollback: false,
     config_error,
+    key_combiner,
+    keybindings,
   };
 
   // Run rat-salsa event loop
@@ -517,6 +567,74 @@ struct AppState<'a> {
   has_pending_scrollback: bool,
   /// Configuration error message (if config failed to load)
   config_error: Option<String>,
+  /// Crokey combiner for processing keyboard events
+  key_combiner: Combiner,
+  /// Configured keybindings
+  keybindings: KeyBindings,
+}
+
+/// Compiled keybindings from config for efficient matching
+#[derive(Debug, Clone)]
+struct KeyBindings {
+  activate_overlay: Vec<KeyCombination>,
+  deactivate_overlay: Vec<KeyCombination>,
+  approve: Vec<KeyCombination>,
+  deny: Vec<KeyCombination>,
+}
+
+impl KeyBindings {
+  /// Compile keybindings from config into Vec for efficient matching
+  fn from_config(config: &TerminAIConfig) -> Self {
+    let kb = &config.interface.key_bindings;
+
+    log::debug!("Compiling keybindings from config");
+
+    Self {
+      activate_overlay: Self::expand_bindings(
+        &kb.activate_overlay,
+        "activate_overlay",
+      ),
+      deactivate_overlay: Self::expand_bindings(
+        &kb.deactivate_overlay,
+        "deactivate_overlay",
+      ),
+      approve: Self::expand_bindings(&kb.approve, "approve"),
+      deny: Self::expand_bindings(&kb.deny, "deny"),
+    }
+  }
+
+  /// Expand OneOrMoreBindings into Vec<KeyCombination>
+  fn expand_bindings(
+    bindings: &OneOrMoreBindings,
+    name: &str,
+  ) -> Vec<KeyCombination> {
+    let result = match bindings {
+      OneOrMoreBindings::Single(key) => vec![*key],
+      OneOrMoreBindings::Multiple(keys) => keys.clone(),
+    };
+    log::debug!("  {}: {:?}", name, result);
+    result
+  }
+
+  /// Check if a key combination matches any of the activate overlay bindings
+  fn matches_activate_overlay(&self, key: KeyCombination) -> bool {
+    self.activate_overlay.contains(&key)
+  }
+
+  /// Check if a key combination matches any of the deactivate overlay bindings
+  fn matches_deactivate_overlay(&self, key: KeyCombination) -> bool {
+    self.deactivate_overlay.contains(&key)
+  }
+
+  /// Check if a key combination matches any of the approve bindings
+  fn matches_approve(&self, key: KeyCombination) -> bool {
+    self.approve.contains(&key)
+  }
+
+  /// Check if a key combination matches any of the deny bindings
+  fn matches_deny(&self, key: KeyCombination) -> bool {
+    self.deny.contains(&key)
+  }
 }
 
 impl<'a> AppState<'a> {
