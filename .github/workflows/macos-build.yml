@@ -46,7 +46,7 @@ jobs:
           ${{ runner.os }}-cargo-
 
     - name: Build Rust binary
-      run: cargo build --release -p termin
+      run: cargo build --release -p termin --bin terminai
 
     - name: Set up Python agent
       run: |
@@ -54,7 +54,7 @@ jobs:
         uv sync --frozen
 
     - name: Run Rust tests
-      run: cargo test --release
+      run: cargo test --release -p termin --lib
 
     - name: Run Python tests
       run: |
