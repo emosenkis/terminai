@@ -32,21 +32,10 @@ class Terminai < Formula
       system "uv", "sync", "--frozen"
     end
 
-    # Create a wrapper script that ensures UV is in PATH and the Python agent can be found
-    (bin/"terminai-wrapped").write <<~EOS
-      #!/bin/bash
-      # Wrapper for terminai that ensures proper environment
-      export PATH="#{HOMEBREW_PREFIX}/bin:$PATH"
-      exec "#{bin}/terminai" "$@"
-    EOS
-
-    chmod 0755, bin/"terminai-wrapped"
-
-    # Rename the wrapper to be the main executable
+    # Move the binary to libexec and create a wrapper script at bin/terminai
     mv bin/"terminai", libexec/"terminai-unwrapped"
-    mv bin/"terminai-wrapped", bin/"terminai"
 
-    # Update the wrapper to call the unwrapped version
+    # Create wrapper script that ensures UV is in PATH
     (bin/"terminai").write <<~EOS
       #!/bin/bash
       # Wrapper for terminai that ensures proper environment
