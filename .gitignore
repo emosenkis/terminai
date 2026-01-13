@@ -27,5 +27,5 @@ __pycache__/
 *.py[cod]
 *$py.class
 .python-version
-python/uv.lock
 python/.venv
+.venv

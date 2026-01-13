@@ -45,12 +45,16 @@ case "$OS_TYPE" in
     ;;
 esac
 
-mkdir -p release/mprocs-$VERSION-$OS_ARCH
+mkdir -p release/terminai-$VERSION-$OS_ARCH
 
-cargo build -p mprocs --release --target=$TRIPLE
+# Build only terminai binary (not termcap test utility)
+cargo build -p termin --bin terminai --release --target=$TRIPLE
 
-cp target/$TRIPLE/release/mprocs release/mprocs-$VERSION-$OS_ARCH/mprocs
+cp target/$TRIPLE/release/terminai release/terminai-$VERSION-$OS_ARCH/terminai
 
-tar -czvf release/mprocs-$VERSION-$OS_ARCH.tar.gz \
-  -C release/mprocs-$VERSION-$OS_ARCH \
-  mprocs
+# Copy Python agent
+cp -r python release/terminai-$VERSION-$OS_ARCH/
+
+tar -czvf release/terminai-$VERSION-$OS_ARCH.tar.gz \
+  -C release/terminai-$VERSION-$OS_ARCH \
+  terminai python

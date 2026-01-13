@@ -35,13 +35,39 @@ Termin.AI wraps your shell (bash, zsh, fish) and adds an AI assistant that can:
 
 ## Installation
 
-### From Source (Rust)
+### macOS (Homebrew - Recommended)
 
 ```bash
-git clone https://github.com/yourusername/termin.ai.git
+# Add the tap and install
+brew tap emosenkis/termin.ai https://github.com/emosenkis/termin.ai.git
+brew install terminai
+```
+
+For other Mac installation methods, see [INSTALL_MACOS.md](INSTALL_MACOS.md).
+
+### macOS (Installation Script)
+
+```bash
+git clone https://github.com/emosenkis/termin.ai.git
 cd termin.ai
-cargo build --release
-sudo cp target/release/termin /usr/local/bin/terminai
+./scripts/install-macos.sh
+```
+
+### Linux / From Source
+
+```bash
+git clone https://github.com/emosenkis/termin.ai.git
+cd termin.ai
+cargo build --release -p termin
+
+# Install binary
+sudo cp target/release/terminai /usr/local/bin/
+
+# Install Python agent
+sudo mkdir -p /usr/local/lib/terminai
+sudo cp -r python /usr/local/lib/terminai/
+cd /usr/local/lib/terminai/python
+uv sync --frozen
 ```
 
 ### Quick Start
