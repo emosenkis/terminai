@@ -442,20 +442,7 @@ fn main() -> Result<()> {
   };
 
   // Create crokey combiner for keyboard event processing
-  let mut key_combiner = Combiner::default();
-  match key_combiner.enable_combining() {
-    Ok(true) => {
-      log::info!("Terminal supports Kitty protocol multi-key combinations");
-    }
-    Ok(false) => {
-      log::info!(
-        "Terminal does not support multi-key combinations (standard ANSI mode)"
-      );
-    }
-    Err(e) => {
-      log::warn!("Failed to enable key combining: {:?}", e);
-    }
-  }
+  let key_combiner = Combiner::default();
 
   // Create PollShell for rat-salsa event loop integration
   log::debug!("Creating PollShell for event loop");
