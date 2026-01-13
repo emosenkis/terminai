@@ -11,8 +11,8 @@ class Terminai < Formula
   depends_on "python@3.11"
 
   def install
-    # Build the Rust binary
-    system "cargo", "install", *std_cargo_args(path: "src")
+    # Build the Rust binary (only terminai, not termcap test utility)
+    system "cargo", "install", "--bin", "terminai", *std_cargo_args(path: "src")
 
     # Install the Python agent alongside the binary
     # The Rust binary expects to find the Python project at ../python relative to itself
