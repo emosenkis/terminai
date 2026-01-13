@@ -47,7 +47,8 @@ esac
 
 mkdir -p release/terminai-$VERSION-$OS_ARCH
 
-cargo build -p termin --release --target=$TRIPLE
+# Build only terminai binary (not termcap test utility)
+cargo build -p termin --bin terminai --release --target=$TRIPLE
 
 cp target/$TRIPLE/release/terminai release/terminai-$VERSION-$OS_ARCH/terminai
 

@@ -72,9 +72,9 @@ fi
 
 echo_info "uv version: $(uv --version)"
 
-# Build the Rust binary
+# Build the Rust binary (only terminai, not termcap test utility)
 echo_info "Building Rust binary..."
-cargo build --release -p termin
+cargo build --release -p termin --bin terminai
 
 # Determine install location
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local}"
