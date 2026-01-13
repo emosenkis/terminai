@@ -79,6 +79,7 @@ impl AgUiClient {
   ///
   /// # Arguments
   /// * `message` - User message to send
+  /// * `message_history` - Optional shared message history (will be updated with tool calls)
   /// * `terminal_context` - Optional terminal context
   ///
   /// # Returns
@@ -86,6 +87,7 @@ impl AgUiClient {
   pub async fn chat_stream(
     &self,
     message: impl Into<String>,
+    message_history: Option<Arc<tokio::sync::Mutex<Vec<Message>>>>,
     terminal_context: Option<&TerminalContext>,
   ) -> Result<ChatStreamResponse> {
     use tokio::sync::mpsc;
@@ -100,8 +102,12 @@ impl AgUiClient {
     // Create channel for tool execution requests
     let (tool_tx, tool_rx) = mpsc::unbounded_channel();
 
-    // Create subscriber
-    let subscriber = StreamingSubscriber::new(tx.clone(), tool_tx);
+    // Create subscriber with optional message history
+    let subscriber = if let Some(history) = message_history {
+      StreamingSubscriber::with_message_history(tx.clone(), tool_tx, history)
+    } else {
+      StreamingSubscriber::new(tx.clone(), tool_tx)
+    };
 
     // Convert terminal context to AG-UI context items and forwarded props
     let (context_items, forwarded_props) = match terminal_context {
@@ -227,8 +233,11 @@ impl AgUiClient {
     let (tool_tx, tool_rx) = mpsc::unbounded_channel();
 
     // Create subscriber with shared message history so it can update it when new tool calls are added
-    let subscriber =
-      StreamingSubscriber::with_message_history(tx.clone(), tool_tx, Arc::clone(&message_history));
+    let subscriber = StreamingSubscriber::with_message_history(
+      tx.clone(),
+      tool_tx,
+      Arc::clone(&message_history),
+    );
 
     // Append tool result to messages
     let mut updated_messages = {

@@ -115,6 +115,14 @@ impl ToolCoordinator {
     let mut history = self.message_history.lock().await;
     history.clear();
   }
+
+  /// Get a reference to the shared message history
+  ///
+  /// This allows external code (like chat_stream) to pass the history
+  /// to subscribers so they can update it when tool calls arrive.
+  pub fn get_history_ref(&self) -> Arc<Mutex<Vec<Message>>> {
+    Arc::clone(&self.message_history)
+  }
 }
 
 /// Tool execution task that runs in the background

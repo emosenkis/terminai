@@ -187,9 +187,11 @@ impl AIChatProcess {
     };
 
     // Get streaming response with text and tool requests from AG-UI client
+    // Pass message history so tool calls can be added to it
+    let message_history = self.coordinator.get_history_ref();
     let response = self
       .llm_client
-      .chat_stream(user_message, Some(&filtered_context))
+      .chat_stream(user_message, Some(message_history), Some(&filtered_context))
       .await?;
 
     // Spawn tool execution loop in background
