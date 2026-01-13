@@ -3,7 +3,7 @@
 use anyhow::{Error, Result};
 use clap::Parser;
 use crokey::{Combiner, KeyCombination};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
@@ -23,8 +23,8 @@ use tui::{
 
 // rat-salsa imports
 use rat_cursor::HasScreenCursor;
-use rat_event::{ConsumedEvent, HandleEvent, Outcome, Regular, event_flow};
-use rat_focus::{FocusBuilder, match_focus};
+use rat_event::{HandleEvent, Outcome, Regular, event_flow};
+use rat_focus::FocusBuilder;
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
   poll::{PollCrossterm, PollEvents, PollRendered, PollTimers, PollTokio},
@@ -1050,28 +1050,37 @@ fn event(
   focus_builder.widget(state.ai_ui.input_state());
   let mut focus = focus_builder.build();
   let result = match event {
-    AppEvent::Crossterm(Event::Key(KeyEvent {
-      code,
-      modifiers,
-      kind: crossterm::event::KeyEventKind::Press,
-      ..
-    })) => 'm: {
-      // Check for hotkeys
-      if matches!(
-        (*code, *modifiers),
-        (KeyCode::Char(' '), KeyModifiers::CONTROL)
-      ) {
-        // Ctrl-Space: toggle AI overlay
-        if state.ai_visible {
-          state.hide_ai_modal()?;
-          log::info!("AI overlay hidden");
-        } else {
-          state.show_ai_modal()?;
-          log::info!("AI overlay shown");
-        }
-        Control::Changed
-      } else if matches!(code, KeyCode::Esc) && state.ai_visible {
-        // ESC: close AI overlay (but only if no error/approval dialog is shown)
+    AppEvent::Crossterm(Event::Key(
+      key_event @ KeyEvent {
+        code,
+        modifiers,
+        kind: crossterm::event::KeyEventKind::Press,
+        ..
+      },
+    )) => 'm: {
+      // Transform KeyEvent into KeyCombination using crokey combiner
+      let key_combo = if let Some(combo) =
+        state.key_combiner.transform(*key_event)
+      {
+        log::trace!("Key event transformed: {:?} -> {:?}", key_event, combo);
+        combo
+      } else {
+        log::trace!("Key event not yet complete (waiting for multi-key combo)");
+        break 'm Control::Continue;
+      };
+
+      // Check for activate/deactivate overlay hotkeys (work in any mode)
+      if state.keybindings.matches_activate_overlay(key_combo)
+        && !state.ai_visible
+      {
+        log::info!("Activate overlay key pressed: {:?}", key_combo);
+        state.show_ai_modal()?;
+        log::info!("AI overlay shown");
+        break 'm Control::Changed;
+      } else if state.keybindings.matches_deactivate_overlay(key_combo)
+        && state.ai_visible
+      {
+        log::info!("Deactivate overlay key pressed: {:?}", key_combo);
         // Check if error or approval dialog is active first
         let has_dialog = if let Some(ref ai_process_arc) = state.ai_process {
           if let Ok(ai_process) = ai_process_arc.try_lock() {
@@ -1086,9 +1095,11 @@ fn event(
 
         if !has_dialog {
           state.hide_ai_modal()?;
-          log::info!("AI overlay closed with Esc");
+          log::info!("AI overlay closed");
+        } else {
+          log::debug!("Deactivate key ignored - dialog is active");
         }
-        Control::Changed
+        break 'm Control::Changed;
       } else if !state.ai_visible {
         // Route to shell when AI overlay not visible
         let key = Key::new(*code, *modifiers);
@@ -1102,11 +1113,12 @@ fn event(
           // Handle approval dialog with highest priority (when pending command exists)
           if let Ok(mut ai_process) = ai_process_arc.try_lock() {
             if ai_process.pending_command().is_some() {
-              // Approval dialog is active - handle 'y' or 'n'
-              if matches!(code, KeyCode::Char('y' | 'Y'))
-                && modifiers.is_empty()
-              {
-                log::info!("Command approved by user");
+              // Approval dialog is active - check for approve/deny keys
+              if state.keybindings.matches_approve(key_combo) {
+                log::info!(
+                  "Command approved by user with key: {:?}",
+                  key_combo
+                );
                 if let Some(cmd) = ai_process.approve_command() {
                   log::info!("Executing approved command: {}", cmd.command);
                   // Send the command to the shell
@@ -1115,21 +1127,30 @@ fn event(
                   }
                 }
                 break 'm Control::Changed;
-              } else if matches!(code, KeyCode::Char('n' | 'N'))
-                && modifiers.is_empty()
-              {
-                log::info!("Command rejected by user");
+              } else if state.keybindings.matches_deny(key_combo) {
+                log::info!(
+                  "Command rejected by user with key: {:?}",
+                  key_combo
+                );
                 ai_process.reject_command();
                 break 'm Control::Changed;
               }
               // Any other key while approval dialog is active is ignored
+              log::trace!(
+                "Key {:?} ignored (approval dialog active)",
+                key_combo
+              );
               break 'm Control::Continue;
             }
 
             // Handle error dialog (second priority after approval dialog)
             if ai_process.error_message().is_some() {
-              if matches!(code, KeyCode::Esc) && modifiers.is_empty() {
-                log::info!("Error dialog dismissed by user");
+              // Error dialog uses deactivate key to close, arrow keys to scroll
+              if state.keybindings.matches_deactivate_overlay(key_combo) {
+                log::info!(
+                  "Error dialog dismissed by user with key: {:?}",
+                  key_combo
+                );
                 ai_process.clear_error();
                 break 'm Control::Changed;
               } else if matches!(code, KeyCode::Up) && modifiers.is_empty() {
@@ -1140,6 +1161,7 @@ fn event(
                 break 'm Control::Changed;
               }
               // Any other key while error dialog is active is ignored
+              log::trace!("Key {:?} ignored (error dialog active)", key_combo);
               break 'm Control::Continue;
             }
           }
