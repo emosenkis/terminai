@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from terminai_agent.agent import TerminalContext, create_agent
-from terminai_agent.config import Provider
+from terminai_agent.agent import TerminalContext, create_agent_adapter
+from terminai_agent.config import Provider, ProviderConfig
 
 
 @pytest.fixture
@@ -54,40 +54,31 @@ def test_terminal_context_optional_fields():
     assert context.last_exit_code is None
 
 
-@pytest.mark.asyncio
-async def test_create_agent_anthropic(mock_env):
-    """Test creating an agent with Anthropic provider."""
-    agent = await create_agent(Provider.ANTHROPIC)
-    assert agent is not None
-    assert agent.provider_config.provider == Provider.ANTHROPIC
-
-
-@pytest.mark.asyncio
-async def test_create_agent_from_string(mock_env):
-    """Test creating an agent from provider string."""
-    agent = await create_agent("anthropic")
-    assert agent.provider_config.provider == Provider.ANTHROPIC
-
-
-@pytest.mark.asyncio
-async def test_create_agent_missing_api_key():
-    """Test that missing API key raises error."""
-    with pytest.raises(ValueError, match="API key environment variable.*not set"):
-        await create_agent(Provider.ANTHROPIC)
-
-
-def test_build_message_with_context(mock_env, terminal_context):
-    """Test context formatting in messages."""
-    from terminai_agent.agent import TerminAIAgent
-    from terminai_agent.config import ProviderConfig
-
+def test_create_agent_adapter_anthropic(mock_env, terminal_context):
+    """Test creating an agent adapter with Anthropic provider."""
     config = ProviderConfig.from_env(Provider.ANTHROPIC)
-    agent = TerminAIAgent(config)
+    adapter = create_agent_adapter(config, terminal_context)
+    assert adapter is not None
+    # The adapter should have the Claude SDK configuration
+    assert hasattr(adapter, "run")
 
-    message = agent._build_message_with_context("Help me debug this", terminal_context)
 
-    assert "/home/user/project" in message
-    assert "Last Exit Code" in message and "0" in message
-    assert "Recent Terminal Output" in message
-    assert "Hello, world!" in message
-    assert "Help me debug this" in message
+def test_create_agent_adapter_no_context(mock_env):
+    """Test creating an agent adapter without terminal context."""
+    config = ProviderConfig.from_env(Provider.ANTHROPIC)
+    adapter = create_agent_adapter(config, None)
+    assert adapter is not None
+
+
+def test_create_agent_adapter_missing_api_key():
+    """Test that missing API key is handled (warning logged)."""
+    # This should create the adapter but log a warning
+    # The actual API call will fail, but adapter creation should work
+    config = ProviderConfig(
+        provider=Provider.ANTHROPIC,
+        model="claude-sonnet-4-5",
+        api_key_env="ANTHROPIC_API_KEY",
+    )
+    # This creates the adapter but doesn't make API calls yet
+    adapter = create_agent_adapter(config, None)
+    assert adapter is not None

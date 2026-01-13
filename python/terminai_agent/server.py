@@ -1,19 +1,19 @@
-"""FastAPI server for AG-UI protocol."""
+"""FastAPI server for AG-UI protocol with Claude Agent SDK."""
 
 import json
 import logging
+import os
 import socket
 from http import HTTPStatus
 
 import uvicorn
+from ag_ui.core import RunAgentInput, EventType, RunErrorEvent
+from ag_ui.encoder import EventEncoder
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
-from pydantic import ValidationError
-from pydantic_ai.ui import SSE_CONTENT_TYPE
-from pydantic_ai.ui.ag_ui import AGUIAdapter
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from .agent import TerminAIAgent
-from .config import ProviderConfig
+from .agent import TerminalContext, create_agent_adapter
+from .config import Provider, ProviderConfig
 from .forwarded_props import TerminAIForwardedProps
 
 logger = logging.getLogger(__name__)
@@ -93,24 +93,18 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/")
-    async def run_agent(request: Request) -> Response:
+    async def run_agent(request: Request) -> StreamingResponse:
         """AG-UI protocol endpoint for running the agent."""
-        accept = request.headers.get("accept", SSE_CONTENT_TYPE)
+        accept = request.headers.get("accept", "text/event-stream")
 
         try:
             # Parse AG-UI RunAgentInput from request body
-            run_input = AGUIAdapter.build_run_input(await request.body())
-        except ValidationError as e:
-            logger.error(f"Invalid AG-UI input: {e}", exc_info=True)
-            return Response(
-                content=json.dumps(e.errors()),
-                media_type="application/json",
-                status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
-            )
+            body = await request.body()
+            run_input = RunAgentInput.model_validate_json(body)
         except Exception as e:
             logger.error(f"Error parsing request: {e}", exc_info=True)
-            return Response(
-                content=json.dumps({"error": str(e)}),
+            return StreamingResponse(
+                iter([json.dumps({"error": str(e)})]),
                 media_type="application/json",
                 status_code=HTTPStatus.BAD_REQUEST,
             )
@@ -123,10 +117,6 @@ def create_app() -> FastAPI:
             )
 
             # Create provider config from forwarded props
-            import os
-            from .config import Provider
-            from .agent import TerminalContext
-
             provider = Provider(forwarded_props.provider.lower())
 
             # API key environment variables
@@ -174,54 +164,36 @@ def create_app() -> FastAPI:
                 f"Falling back to env config: {provider_config.provider.value}/{provider_config.model}"
             )
 
-        # Create the agent with the provider config
-        agent = TerminAIAgent(provider_config)
+        # Create the Claude SDK adapter with the provider config and terminal context
+        adapter = create_agent_adapter(provider_config, terminal_context)
 
-        # DEBUG LOGGING: Log agent tool registration
-        logger.info(f"Created agent: {type(agent.agent).__name__}")
-        if hasattr(agent.agent, "_function_tools"):
-            logger.info(
-                f"Agent has {len(agent.agent._function_tools)} function tool(s) registered:"
-            )
-            for tool_name in agent.agent._function_tools.keys():
-                logger.info(f"  - {tool_name}")
+        logger.info(f"Created Claude SDK adapter with model: {provider_config.model}")
 
-        # Create AG-UI adapter
-        adapter = AGUIAdapter(agent=agent.agent, run_input=run_input, accept=accept)
+        # Create event encoder for AG-UI protocol
+        encoder = EventEncoder(accept=accept)
 
-        # DEBUG LOGGING: Wrapper to log AG-UI events as they stream
-        async def log_event_stream(stream):
-            """Wrapper to log AG-UI events as they stream."""
-            async for event in stream:
-                # Log tool call events
-                event_type = type(event).__name__
+        # Create streaming response
+        async def event_stream():
+            """Stream AG-UI events from Claude SDK adapter."""
+            try:
+                async for event in adapter.run(run_input):
+                    yield encoder.encode(event)
+            except Exception as e:
+                logger.exception(f"Error during agent run: {e}")
+                # Emit error event
+                error_event = RunErrorEvent(
+                    type=EventType.RUN_ERROR,
+                    thread_id=run_input.thread_id or "unknown",
+                    run_id=run_input.run_id or "unknown",
+                    message=str(e),
+                )
+                yield encoder.encode(error_event)
 
-                if "ToolCall" in event_type:
-                    logger.info(f"🔧 EVENT: {event_type}")
-                    logger.debug(f"   Full event: {event}")
-
-                    # Try to extract tool call details
-                    if hasattr(event, "tool_call_id"):
-                        logger.info(f"   Tool Call ID: {event.tool_call_id}")
-                    if hasattr(event, "tool_call_name"):
-                        logger.info(f"   Tool Name: {event.tool_call_name}")
-                    if hasattr(event, "function"):
-                        logger.info(f"   Function: {event.function}")
-                        if hasattr(event.function, "arguments"):
-                            logger.info(f"   Arguments (raw): {event.function.arguments}")
-                    if hasattr(event, "arguments"):
-                        logger.info(f"   Arguments: {event.arguments}")
-                    if hasattr(event, "delta"):
-                        logger.info(f"   Delta: {event.delta}")
-
-                yield event
-
-        # Run the agent and get event stream (with logging wrapper)
-        # Pass terminal context as deps so agent tools can access it
-        event_stream = log_event_stream(adapter.run_stream(deps=terminal_context))
-
-        # Return streaming response (it will handle encoding internally)
-        return adapter.streaming_response(event_stream)
+        return StreamingResponse(
+            event_stream(),
+            media_type=encoder.get_content_type(),
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app
 
