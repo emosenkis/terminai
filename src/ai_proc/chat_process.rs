@@ -186,13 +186,10 @@ impl AIChatProcess {
       shell: context.shell.clone(),
     };
 
-    // Convert terminal context to AG-UI context items
-    let context_items = filtered_context.to_ag_ui_context();
-
     // Get streaming response with text and tool requests from AG-UI client
     let response = self
       .llm_client
-      .chat_stream(user_message, Some(context_items))
+      .chat_stream(user_message, Some(&filtered_context))
       .await?;
 
     // Spawn tool execution loop in background

@@ -16,6 +16,11 @@ def setup_logging() -> None:
         stream=sys.stderr,
     )
 
+    # DEBUG: Enable detailed logging for Pydantic AI
+    logging.getLogger("pydantic_ai").setLevel(logging.DEBUG)
+    logging.getLogger("pydantic_ai.agent").setLevel(logging.DEBUG)
+    logging.getLogger("pydantic_ai.models").setLevel(logging.DEBUG)
+
 
 def main() -> None:
     """Main entry point for the agent subprocess."""

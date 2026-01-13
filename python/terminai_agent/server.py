@@ -101,7 +101,7 @@ def create_app() -> FastAPI:
             # Parse AG-UI RunAgentInput from request body
             run_input = AGUIAdapter.build_run_input(await request.body())
         except ValidationError as e:
-            logger.error(f"Invalid AG-UI input: {e}")
+            logger.error(f"Invalid AG-UI input: {e}", exc_info=True)
             return Response(
                 content=json.dumps(e.errors()),
                 media_type="application/json",
@@ -115,7 +115,7 @@ def create_app() -> FastAPI:
                 status_code=HTTPStatus.BAD_REQUEST,
             )
 
-        # Extract forwarded props for provider/model configuration
+        # Extract forwarded props for provider/model configuration AND terminal context
         try:
             forwarded_props = TerminAIForwardedProps(**run_input.forwarded_props)
             logger.info(
@@ -125,6 +125,7 @@ def create_app() -> FastAPI:
             # Create provider config from forwarded props
             import os
             from .config import Provider
+            from .agent import TerminalContext
 
             provider = Provider(forwarded_props.provider.lower())
 
@@ -149,10 +150,26 @@ def create_app() -> FastAPI:
                 api_key_env=api_key_envs[provider],
                 endpoint=endpoints.get(provider),
             )
+
+            # Extract terminal context from forwarded props (if available)
+            terminal_context = None
+            if forwarded_props.cwd is not None:
+                terminal_context = TerminalContext(
+                    cwd=forwarded_props.cwd,
+                    history_lines=forwarded_props.history_lines or [],
+                    last_exit_code=forwarded_props.last_exit_code,
+                    os_info=forwarded_props.os_info,
+                    shell=forwarded_props.shell,
+                )
+                logger.info(f"Terminal context: cwd={terminal_context.cwd}")
+            else:
+                logger.warning("No terminal context in forwarded_props!")
+
         except Exception as e:
-            logger.error(f"Invalid forwarded props: {e}", exc_info=True)
+            logger.exception(f"Error parsing forwarded props: {e}")
             # Fall back to environment configuration
             provider_config = ProviderConfig.from_env()
+            terminal_context = None
             logger.info(
                 f"Falling back to env config: {provider_config.provider.value}/{provider_config.model}"
             )
@@ -160,11 +177,48 @@ def create_app() -> FastAPI:
         # Create the agent with the provider config
         agent = TerminAIAgent(provider_config)
 
+        # DEBUG LOGGING: Log agent tool registration
+        logger.info(f"Created agent: {type(agent.agent).__name__}")
+        if hasattr(agent.agent, "_function_tools"):
+            logger.info(
+                f"Agent has {len(agent.agent._function_tools)} function tool(s) registered:"
+            )
+            for tool_name in agent.agent._function_tools.keys():
+                logger.info(f"  - {tool_name}")
+
         # Create AG-UI adapter
         adapter = AGUIAdapter(agent=agent.agent, run_input=run_input, accept=accept)
 
-        # Run the agent and get event stream
-        event_stream = adapter.run_stream()
+        # DEBUG LOGGING: Wrapper to log AG-UI events as they stream
+        async def log_event_stream(stream):
+            """Wrapper to log AG-UI events as they stream."""
+            async for event in stream:
+                # Log tool call events
+                event_type = type(event).__name__
+
+                if "ToolCall" in event_type:
+                    logger.info(f"🔧 EVENT: {event_type}")
+                    logger.debug(f"   Full event: {event}")
+
+                    # Try to extract tool call details
+                    if hasattr(event, "tool_call_id"):
+                        logger.info(f"   Tool Call ID: {event.tool_call_id}")
+                    if hasattr(event, "tool_call_name"):
+                        logger.info(f"   Tool Name: {event.tool_call_name}")
+                    if hasattr(event, "function"):
+                        logger.info(f"   Function: {event.function}")
+                        if hasattr(event.function, "arguments"):
+                            logger.info(f"   Arguments (raw): {event.function.arguments}")
+                    if hasattr(event, "arguments"):
+                        logger.info(f"   Arguments: {event.arguments}")
+                    if hasattr(event, "delta"):
+                        logger.info(f"   Delta: {event.delta}")
+
+                yield event
+
+        # Run the agent and get event stream (with logging wrapper)
+        # Pass terminal context as deps so agent tools can access it
+        event_stream = log_event_stream(adapter.run_stream(deps=terminal_context))
 
         # Return streaming response (it will handle encoding internally)
         return adapter.streaming_response(event_stream)
@@ -175,7 +229,7 @@ def create_app() -> FastAPI:
 async def run_server(
     secret: str,
     host: str = "127.0.0.1",
-    port_range: tuple[int, int] = (18080, 18099),
+    port_range: tuple[int, int] = (18080, 18199),
 ) -> None:
     """Run the FastAPI server.
 

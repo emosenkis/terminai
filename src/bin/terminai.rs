@@ -1,5 +1,4 @@
-// Termin.AI - Clean single-shell terminal with AI overlay
-// Uses only the minimal PTY/VT100 code from mprocs, no UI chrome
+// Termin.AI - Clean terminal wrapper with AI overlay
 
 use anyhow::{Error, Result};
 use clap::Parser;
@@ -7,6 +6,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
+use termin::llm::ToolExecutionEvent;
 use tokio::sync::{
   Mutex,
   mpsc::{self, UnboundedReceiver},
@@ -22,7 +22,7 @@ use tui::{
 
 // rat-salsa imports
 use rat_cursor::HasScreenCursor;
-use rat_event::{HandleEvent, Outcome, Regular};
+use rat_event::{ConsumedEvent, HandleEvent, Outcome, Regular, event_flow};
 use rat_focus::{FocusBuilder, match_focus};
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
@@ -182,10 +182,7 @@ struct TerminalWidget<'a> {
 
 impl<'a> TerminalWidget<'a> {
   fn new(screen: &'a vt100::Screen<termin::shell::ReplySender>) -> Self {
-    Self {
-      screen,
-      row_offset: 0,
-    }
+    Self::with_offset(screen, 0)
   }
 
   fn with_offset(
@@ -857,9 +854,6 @@ fn event(
   state: &mut AppState,
   ctx: &mut Global,
 ) -> Result<Control<AppEvent>, Error> {
-  // Shell events now come through PollShell via rat-salsa framework
-  // No need for manual polling - events arrive as AppEvent variants
-
   // Track if any state changed requiring re-render
   let mut shell_changed = false;
 
@@ -870,7 +864,6 @@ fn event(
     if let Ok(mut ai_process) = ai_process_arc.try_lock() {
       // Check for tool execution events (non-blocking)
       if let Some(tool_event) = ai_process.try_recv_tool_event() {
-        use termin::llm::ToolExecutionEvent;
         match tool_event {
           ToolExecutionEvent::ToolExecuted { tool_name } => {
             log::info!("Tool executed: {}", tool_name);
@@ -934,6 +927,10 @@ fn event(
     log::warn!("Failed to get lock on VT")
   }
 
+  let mut focus_builder = FocusBuilder::default();
+  focus_builder.widget(state.ai_ui.conversation_state());
+  focus_builder.widget(state.ai_ui.input_state());
+  let mut focus = focus_builder.build();
   let result = match event {
     AppEvent::Crossterm(Event::Key(KeyEvent {
       code,
@@ -980,47 +977,10 @@ fn event(
         state.shell.send_key(key)?;
         Control::Continue
       } else {
-        // AI overlay is visible - handle focus navigation and input
-        // Handle Tab/Shift-Tab for focus cycling (Phase 5)
-        if matches!(code, KeyCode::Tab) {
-          log::debug!(
-            "Tab pressed - conversation focused: {}, input focused: {}, shift: {}",
-            state.ai_ui.conversation_focus().get(),
-            state.ai_ui.input_focus().get(),
-            modifiers.contains(KeyModifiers::SHIFT)
-          );
-          if modifiers.contains(KeyModifiers::SHIFT) {
-            // Shift-Tab: previous focus
-            match_focus!(
-              state.ai_ui.input_focus() => {
-                log::debug!("Shift-Tab: switching from input to conversation");
-                ctx.focus().focus(state.ai_ui.conversation_focus());
-              },
-              state.ai_ui.conversation_focus() => {
-                log::debug!("Shift-Tab: switching from conversation to input");
-                ctx.focus().focus(state.ai_ui.input_state());
-              }
-            );
-          } else {
-            // Tab: next focus
-            match_focus!(
-              state.ai_ui.conversation_focus() => {
-                log::debug!("Tab: switching from conversation to input");
-                ctx.focus().focus(state.ai_ui.input_state());
-              },
-              state.ai_ui.input_focus() => {
-                log::debug!("Tab: switching from input to conversation");
-                ctx.focus().focus(state.ai_ui.conversation_focus());
-              }
-            );
-          }
-          log::debug!(
-            "After Tab - conversation focused: {}, input focused: {}",
-            state.ai_ui.conversation_focus().get(),
-            state.ai_ui.input_focus().get()
-          );
-          break 'm Control::Changed;
-        } else if let Some(ref ai_process_arc) = state.ai_process {
+        if let AppEvent::Crossterm(cte) = event {
+          event_flow!(break 'm focus.handle(cte, Regular));
+        }
+        if let Some(ref ai_process_arc) = state.ai_process {
           // Handle approval dialog with highest priority (when pending command exists)
           if let Ok(mut ai_process) = ai_process_arc.try_lock() {
             if ai_process.pending_command().is_some() {
@@ -1068,7 +1028,7 @@ fn event(
         }
 
         // Route events based on focus
-        log::debug!(
+        log::trace!(
           "Key event with AI visible - conversation focused: {}, input focused: {}, key: {:?}",
           state.ai_ui.conversation_focus().get(),
           state.ai_ui.input_focus().get(),
@@ -1181,7 +1141,7 @@ fn event(
           }
 
           // Route other keys to input widget
-          log::debug!("Routing key to input widget");
+          log::trace!("Routing key to input widget");
           let key = Key::new(*code, *modifiers);
           state.ai_ui.input_event(key);
           return Ok(Control::Changed);
@@ -1232,114 +1192,6 @@ fn event(
         }
       }
     }
-    // // Ignore other key events (already handled above)
-    // AppEvent::Crossterm(Event::Key(KeyEvent {
-    //   code,
-    //   modifiers,
-    //   kind: crossterm::event::KeyEventKind::Press,
-    //   ..
-    // })) => {
-    //   // Check for hotkeys
-    //   if matches!(
-    //     (*code, *modifiers),
-    //     (KeyCode::Char(' '), KeyModifiers::CONTROL)
-    //   ) {
-    //     // Ctrl-Space: toggle AI overlay
-    //     state.ai_visible = !state.ai_visible;
-    //     log::info!("AI overlay toggled: {}", state.ai_visible);
-    //     return Ok(Control::Changed);
-    //   } else if matches!(code, KeyCode::Esc) && state.ai_visible {
-    //     // ESC: close AI overlay
-    //     state.ai_visible = false;
-    //     return Ok(Control::Changed);
-    //   } else if !state.ai_visible {
-    //     // Route to shell when AI overlay not visible
-    //     let key = Key::new(*code, *modifiers);
-    //     state.shell.send_key(key)?;
-    //   } else {
-    //     // AI overlay is visible - handle focus navigation and input
-    //     // Handle Tab/Shift-Tab for focus cycling (Phase 5)
-    //     if matches!(code, KeyCode::Tab) {
-    //       if modifiers.contains(KeyModifiers::SHIFT) {
-    //         // Shift-Tab: previous focus
-    //         match_focus!(
-    //           state.ai_ui.input_focus() => { state.focus_conversation.focus(); },
-    //           state.focus_conversation => { state.ai_ui.input_focus().focus(); }
-    //         );
-    //       } else {
-    //         // Tab: next focus
-    //         match_focus!(
-    //           state.focus_conversation => { state.ai_ui.input_focus().focus(); },
-    //           state.ai_ui.input_focus() => { state.focus_conversation.focus(); }
-    //         );
-    //       }
-    //       return Ok(Control::Changed);
-    //     }
-
-    //     // Route events based on focus
-    //     if state.focus_conversation.get() {
-    //       // Conversation is focused - handle scrolling
-    //       if matches!(code, KeyCode::Up) && state.ai_process.is_some() {
-    //         if let Some(ref ai_process_arc) = state.ai_process {
-    //           if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-    //             ai_process.scroll_up(1);
-    //           }
-    //         }
-    //         return Ok(Control::Changed);
-    //       } else if matches!(code, KeyCode::Down) && state.ai_process.is_some()
-    //       {
-    //         if let Some(ref ai_process_arc) = state.ai_process {
-    //           if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-    //             ai_process.scroll_down(1);
-    //           }
-    //         }
-    //         return Ok(Control::Changed);
-    //       }
-    //     } else if state.ai_ui.input_focus().get() {
-    //       // Input is focused
-    //       // Handle Enter key to send message
-    //       if matches!(code, KeyCode::Enter) && modifiers.is_empty() {
-    //         log::debug!("Enter pressed - sending message");
-    //         let input = state.ai_ui.get_input_value();
-
-    //         if !input.is_empty() {
-    //           log::info!("Sending message to AI: {}", input);
-
-    //           // Extract terminal context before spawning task
-    //           let context = state.extract_context();
-
-    //           // Spawn async task to send message
-    //           if let Some(ref ai_process_arc) = state.ai_process {
-    //             let ai_process_clone = Arc::clone(ai_process_arc);
-    //             let input_clone = input.clone();
-
-    //             ctx.spawn_async(async move {
-    //               // Async lock (safe to hold across await in async context)
-    //               let mut ai_process = ai_process_clone.lock().await;
-    //               if let Err(e) = ai_process
-    //                 .send_input_with_context(&input_clone, context)
-    //                 .await
-    //               {
-    //                 log::error!("Failed to send message: {:?}", e);
-    //               }
-    //               Ok(Control::Changed)
-    //             });
-    //           }
-
-    //           // Clear input after queuing send
-    //           state.ai_ui.clear_input();
-    //         }
-    //         return Ok(Control::Changed);
-    //       }
-
-    //       // Route other keys to input widget
-    //       let key = Key::new(*code, *modifiers);
-    //       state.ai_ui.input_event(key);
-    //       return Ok(Control::Changed);
-    //     }
-    //   }
-    //   Ok(Control::Continue)
-    // }
     AppEvent::Crossterm(_) => {
       // Ignore other crossterm events (mouse, focus, paste, etc.) for now
       Control::Continue

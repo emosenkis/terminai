@@ -1,4 +1,6 @@
 use anyhow::Result;
+use crokey::KeyCombination;
+use crokey::key;
 use serde::{Deserialize, Serialize};
 
 /// Position of the AI chat overlay
@@ -15,20 +17,46 @@ impl Default for ChatPosition {
   }
 }
 
-/// Interface configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum OneOrMoreBindings {
+  Single(KeyCombination),
+  Multiple(Vec<KeyCombination>),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct KeyBindingsConfig {
+  #[serde(rename = "activate-overlay")]
+  pub activate_overlay: OneOrMoreBindings,
+  #[serde(rename = "deactivate-overlay")]
+  pub deactivate_overlay: OneOrMoreBindings,
+  pub approve: OneOrMoreBindings,
+  pub deny: OneOrMoreBindings,
+}
+
+impl Default for KeyBindingsConfig {
+  fn default() -> Self {
+    Self {
+      activate_overlay: OneOrMoreBindings::Single(key!(ctrl - space)),
+      deactivate_overlay: OneOrMoreBindings::Multiple(vec![
+        key!(ctrl - space),
+        key!(esc),
+      ]),
+      approve: OneOrMoreBindings::Single(key!(y)),
+      deny: OneOrMoreBindings::Single(key!(n)),
+    }
+  }
+}
+
+/// Interface configuration
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct InterfaceConfig {
   /// Position of the AI chat overlay (default: bottom)
   #[serde(default, rename = "chat-position")]
   pub chat_position: ChatPosition,
-}
-
-impl Default for InterfaceConfig {
-  fn default() -> Self {
-    Self {
-      chat_position: ChatPosition::Bottom,
-    }
-  }
+  /// Key bindings
+  #[serde(default)]
+  pub key_bindings: KeyBindingsConfig,
 }
 
 /// Configuration for a specific AI model
@@ -114,6 +142,7 @@ impl TerminAIConfig {
 
     log::info!("Loading configuration from: {}", config_path.display());
     let config_content = std::fs::read_to_string(&config_path)?;
+    // TODO: Switch to HJSON? It's simpler and safer than YAML
     let config: TerminAIConfig = serde_yaml::from_str(&config_content)?;
 
     log::info!(

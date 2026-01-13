@@ -22,6 +22,8 @@ struct PartialToolCall {
   tool_call_id: ToolCallId,
   parent_message_id: Option<MessageId>,
   tool_name: String,
+  /// Accumulated arguments from streaming chunks
+  accumulated_args: HashMap<String, JsonValue>,
 }
 
 /// Subscriber that captures streaming text events and sends them through a channel
@@ -94,6 +96,7 @@ where
       tool_call_id: event.tool_call_id.clone(),
       parent_message_id: event.parent_message_id.clone(),
       tool_name: event.tool_call_name.clone(),
+      accumulated_args: HashMap::new(),
     };
 
     // Store in buffer (use string representation as key)
@@ -112,7 +115,7 @@ where
     partial_tool_call_args: &HashMap<String, JsonValue>,
     _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
   ) -> Result<AgentStateMutation<StateT>, AgentError> {
-    log::debug!(
+    log::info!(
       "Tool call args chunk - id: {:?}, name: {}, delta: {}, buffer_len: {}, partial_args: {:?}",
       event.tool_call_id,
       tool_call_name,
@@ -120,6 +123,66 @@ where
       tool_call_buffer.len(),
       partial_tool_call_args
     );
+
+    // CRITICAL FIX: Parse and accumulate args from the delta or buffer
+    let key = format!("{:?}", event.tool_call_id);
+    let mut buffer = self.current_tool_calls.lock().await;
+
+    if let Some(partial) = buffer.get_mut(&key) {
+      // Try multiple sources for the args:
+
+      // 1. If partial_tool_call_args has data, use it
+      if !partial_tool_call_args.is_empty() {
+        log::info!("Using partial_tool_call_args from SDK");
+        for (k, v) in partial_tool_call_args {
+          partial.accumulated_args.insert(k.clone(), v.clone());
+        }
+      }
+      // 2. Otherwise, try parsing the buffer as complete JSON
+      else if !tool_call_buffer.is_empty() {
+        log::info!("Parsing tool_call_buffer: {}", tool_call_buffer);
+        match serde_json::from_str::<HashMap<String, JsonValue>>(
+          tool_call_buffer,
+        ) {
+          Ok(parsed_args) => {
+            log::info!("Successfully parsed buffer as JSON");
+            partial.accumulated_args = parsed_args;
+          }
+          Err(e) => {
+            log::warn!("Failed to parse tool_call_buffer as JSON: {}", e);
+          }
+        }
+      }
+      // 3. Otherwise, try parsing the delta as JSON (may be incremental or complete)
+      else if !event.delta.is_empty() {
+        log::info!("Parsing delta: {}", event.delta);
+        match serde_json::from_str::<HashMap<String, JsonValue>>(&event.delta) {
+          Ok(delta_args) => {
+            log::info!("Successfully parsed delta as complete JSON");
+            // Merge delta args into accumulated args
+            for (k, v) in delta_args {
+              partial.accumulated_args.insert(k, v);
+            }
+          }
+          Err(e) => {
+            log::debug!("Delta is not complete JSON (may be streaming): {}", e);
+            // Delta might be partial JSON - we'll rely on buffer accumulation
+          }
+        }
+      }
+
+      log::info!(
+        "Accumulated args for {:?}: {:?}",
+        event.tool_call_id,
+        partial.accumulated_args
+      );
+    } else {
+      log::warn!(
+        "Received args event for unknown tool call {:?}",
+        event.tool_call_id
+      );
+    }
+
     Ok(AgentStateMutation::default())
   }
 
@@ -131,7 +194,7 @@ where
     _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
   ) -> Result<AgentStateMutation<StateT>, AgentError> {
     log::info!(
-      "Tool call ended - id: {:?}, name: {}, args: {:?}",
+      "Tool call ended - id: {:?}, SDK provided name: '{}', SDK provided args: {:?}",
       event.tool_call_id,
       tool_call_name,
       tool_call_args
@@ -142,32 +205,42 @@ where
     let mut buffer = self.current_tool_calls.lock().await;
     let partial = buffer.remove(&key);
 
-    // Use tool name from buffer if parameter is empty (AG-UI SDK bug workaround)
-    let final_tool_name = if tool_call_name.is_empty() {
-      if let Some(ref p) = partial {
-        log::warn!(
-          "Tool name parameter is empty, using buffered name: {}",
-          p.tool_name
-        );
-        p.tool_name.clone()
+    // CRITICAL FIX: Use buffered data instead of SDK parameters
+    // The AG-UI SDK doesn't properly provide tool_call_name and tool_call_args in this callback
+    let (final_tool_name, final_args) = if let Some(p) = partial {
+      log::info!(
+        "Using buffered data - name: {}, accumulated_args: {:?}",
+        p.tool_name,
+        p.accumulated_args
+      );
+
+      // Use accumulated args from our buffer (fallback to SDK args if our buffer is empty)
+      let args = if p.accumulated_args.is_empty() {
+        if !tool_call_args.is_empty() {
+          log::info!("Using SDK provided args as fallback");
+          tool_call_args.clone()
+        } else {
+          log::warn!("Both buffered and SDK args are empty!");
+          HashMap::new()
+        }
       } else {
-        log::error!(
-          "Tool name is empty and no buffered info found for {:?}",
-          event.tool_call_id
-        );
-        return Err(AgentError::ExecutionError {
-          message: "Tool call ended but no buffered info found".to_string(),
-        });
-      }
+        p.accumulated_args
+      };
+
+      (p.tool_name, args)
     } else {
-      tool_call_name.to_string()
+      log::error!(
+        "No buffered info found for {:?}, falling back to SDK parameters",
+        event.tool_call_id
+      );
+      (tool_call_name.to_string(), tool_call_args.clone())
     };
 
     // Create tool execution request
     let request = ToolExecutionRequest {
       tool_call_id: event.tool_call_id.clone(),
       tool_name: final_tool_name.clone(),
-      args: tool_call_args.clone(),
+      args: final_args,
     };
 
     // Send to application layer for execution

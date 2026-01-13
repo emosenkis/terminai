@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use crate::llm::subscriber::StreamingSubscriber;
 use crate::llm::tool_executor::ToolExecutionRequest;
+use crate::llm::{TerminAIForwardedProps, TerminalContext};
 use crate::llm_subprocess::{LlmSubprocess, LlmSubprocessConfig};
 
 /// Response from chat_stream containing both text stream and tool requests
@@ -78,14 +79,14 @@ impl AgUiClient {
   ///
   /// # Arguments
   /// * `message` - User message to send
-  /// * `context_items` - Optional terminal context items
+  /// * `terminal_context` - Optional terminal context
   ///
   /// # Returns
   /// ChatStreamResponse containing text stream and tool request receiver
   pub async fn chat_stream(
     &self,
     message: impl Into<String>,
-    context_items: Option<Vec<Context>>,
+    terminal_context: Option<&TerminalContext>,
   ) -> Result<ChatStreamResponse> {
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -102,15 +103,29 @@ impl AgUiClient {
     // Create subscriber
     let subscriber = StreamingSubscriber::new(tx.clone(), tool_tx);
 
+    // Convert terminal context to AG-UI context items and forwarded props
+    let (context_items, forwarded_props) = match terminal_context {
+      Some(ctx) => {
+        let items = ctx.to_ag_ui_context();
+        let props = TerminAIForwardedProps::with_context(
+          &self.provider,
+          &self.model,
+          ctx,
+        );
+        (Some(items), Some(props.to_json()))
+      }
+      None => {
+        let props = TerminAIForwardedProps::new(&self.provider, &self.model);
+        (None, Some(props.to_json()))
+      }
+    };
+
     // Build RunAgentParams (using public fields in v0.1)
     let params = RunAgentParams {
       run_id: None,
       tools: Some(Self::default_tools()),
       context: context_items,
-      forwarded_props: Some(json!({
-          "provider": self.provider,
-          "model": self.model,
-      })),
+      forwarded_props,
       messages: vec![Message::User {
         id: ag_ui_core::types::ids::MessageId::random(),
         content: message_str,
@@ -186,7 +201,7 @@ impl AgUiClient {
   /// # Arguments
   /// * `messages` - Full message history so far
   /// * `tool_result` - Tool execution result to submit
-  /// * `context_items` - Optional terminal context items
+  /// * `terminal_context` - Optional terminal context
   ///
   /// # Returns
   /// ChatStreamResponse containing continued text stream and tool request receiver
@@ -194,7 +209,7 @@ impl AgUiClient {
     &self,
     messages: Vec<Message>,
     tool_result: crate::llm::tool_executor::ToolResult,
-    context_items: Option<Vec<Context>>,
+    terminal_context: Option<&TerminalContext>,
   ) -> Result<ChatStreamResponse> {
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -231,15 +246,29 @@ impl AgUiClient {
       error,
     });
 
+    // Convert terminal context to AG-UI context items and forwarded props
+    let (context_items, forwarded_props) = match terminal_context {
+      Some(ctx) => {
+        let items = ctx.to_ag_ui_context();
+        let props = TerminAIForwardedProps::with_context(
+          &self.provider,
+          &self.model,
+          ctx,
+        );
+        (Some(items), Some(props.to_json()))
+      }
+      None => {
+        let props = TerminAIForwardedProps::new(&self.provider, &self.model);
+        (None, Some(props.to_json()))
+      }
+    };
+
     // Build RunAgentParams with updated messages
     let params = RunAgentParams {
       run_id: None,
       tools: Some(Self::default_tools()),
       context: context_items,
-      forwarded_props: Some(json!({
-          "provider": self.provider,
-          "model": self.model,
-      })),
+      forwarded_props,
       messages: updated_messages,
       state: serde_json::Value::Null,
     };

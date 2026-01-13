@@ -558,6 +558,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "crokey"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51360853ebbeb3df20c76c82aecf43d387a62860f1a59ba65ab51f00eea85aad"
+dependencies = [
+ "crokey-proc_macros",
+ "crossterm 0.29.0",
+ "once_cell",
+ "serde",
+ "strict",
+]
+
+[[package]]
+name = "crokey-proc_macros"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bf1a727caeb5ee5e0a0826a97f205a9cf84ee964b0b48239fef5214a00ae439"
+dependencies = [
+ "crossterm 0.29.0",
+ "proc-macro2",
+ "quote",
+ "strict",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "crossbeam"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3573,6 +3599,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d08889ec5408683408db66ad89e0e1f93dff55c73a4ccc71c427d5b277ee47e6"
 
 [[package]]
+name = "strict"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f42444fea5b87a39db4218d9422087e66a85d0e7a0963a439b07bcdf91804006"
+
+[[package]]
 name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3757,6 +3789,7 @@ dependencies = [
  "clap",
  "clipboard-win 5.4.1",
  "compact_str 0.9.0",
+ "crokey",
  "crossterm 0.29.0",
  "daemonize",
  "dotenvy",
