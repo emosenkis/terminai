@@ -1,0 +1,101 @@
+name: macOS Build and Test
+
+on:
+  push:
+    branches: [ main, claude/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-macos:
+    name: Build on macOS
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Build Rust binary
+      run: cargo build --release -p termin
+
+    - name: Set up Python agent
+      run: |
+        cd python
+        uv sync --frozen
+
+    - name: Run Rust tests
+      run: cargo test --release
+
+    - name: Run Python tests
+      run: |
+        cd python
+        uv run pytest
+
+    - name: Check binary
+      run: |
+        file target/release/terminai
+        otool -L target/release/terminai
+
+    - name: Test installation script
+      run: |
+        INSTALL_DIR=$(mktemp -d)
+        export INSTALL_DIR
+        ./scripts/install-macos.sh
+
+        # Verify installation
+        ls -la "$INSTALL_DIR/bin/terminai"
+        ls -la "$INSTALL_DIR/lib/terminai/python/terminai_agent"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: terminai-macos-${{ github.sha }}
+        path: |
+          target/release/terminai
+          python/
+        retention-days: 30
+
+  test-formula:
+    name: Test Homebrew Formula
+    runs-on: macos-latest
+    needs: build-macos
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Test formula syntax
+      run: |
+        brew tap homebrew/core
+        brew install --build-from-source --formula Formula/terminai.rb --dry-run || true
+        # Note: Full install requires SSH access to private repo
