@@ -1152,24 +1152,24 @@ fn event(
         && state.ai_visible
       {
         log::info!("Deactivate overlay key pressed: {:?}", key_combo);
-        // Check if error or approval dialog is active first
-        let has_dialog = if let Some(ref ai_process_arc) = state.ai_process {
-          if let Ok(ai_process) = ai_process_arc.try_lock() {
-            ai_process.error_message().is_some()
-              || ai_process.pending_command().is_some()
-          } else {
-            false
-          }
-        } else {
-          false
-        };
 
-        if !has_dialog {
-          state.hide_ai_modal()?;
-          log::info!("AI overlay closed");
-        } else {
-          log::debug!("Deactivate key ignored - dialog is active");
+        // Dismiss any active dialogs before closing overlay
+        if let Some(ref ai_process_arc) = state.ai_process {
+          if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+            if ai_process.error_message().is_some() {
+              log::debug!("Dismissing error dialog before closing overlay");
+              ai_process.clear_error();
+            }
+            if ai_process.pending_command().is_some() {
+              log::debug!("Dismissing approval dialog before closing overlay");
+              ai_process.reject_command();
+            }
+          }
         }
+
+        // Always close the overlay when deactivate key is pressed
+        state.hide_ai_modal()?;
+        log::info!("AI overlay closed");
         break 'm Control::Changed;
       } else if !state.ai_visible {
         // Route to shell when AI overlay not visible
