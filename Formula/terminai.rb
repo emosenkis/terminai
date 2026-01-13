@@ -1,7 +1,8 @@
 class Terminai < Formula
   desc "Interactive terminal wrapper with AI assistant"
   homepage "https://github.com/emosenkis/termin.ai"
-  url "git@github.com:emosenkis/termin.ai.git",
+  url "https://github.com/emosenkis/termin.ai.git",
+      using: :git,
       branch: "main"
   version "0.1.0"
   license "MIT"
