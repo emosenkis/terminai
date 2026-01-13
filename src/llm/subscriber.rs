@@ -7,6 +7,7 @@ use ag_ui_core::event::{
   ToolCallResultEvent, ToolCallStartEvent,
 };
 use ag_ui_core::types::ids::{MessageId, ToolCallId};
+use ag_ui_core::types::message::Message;
 use ag_ui_core::types::tool::ToolCall;
 use ag_ui_core::{AgentState, FwdProps};
 use serde_json::Value as JsonValue;
@@ -20,7 +21,6 @@ use crate::llm::tool_executor::ToolExecutionRequest;
 #[derive(Debug, Clone)]
 struct PartialToolCall {
   tool_call_id: ToolCallId,
-  parent_message_id: Option<MessageId>,
   tool_name: String,
   /// Accumulated arguments from streaming chunks
   accumulated_args: HashMap<String, JsonValue>,
@@ -33,6 +33,8 @@ pub struct StreamingSubscriber {
   /// Buffer for accumulating tool call information
   /// Key: tool_call_id string (since we can't use ToolCallId as HashMap key directly)
   current_tool_calls: Arc<Mutex<HashMap<String, PartialToolCall>>>,
+  /// Shared message history that needs to be updated when SDK adds tool calls
+  message_history: Option<Arc<Mutex<Vec<Message>>>>,
 }
 
 impl StreamingSubscriber {
@@ -44,6 +46,20 @@ impl StreamingSubscriber {
       text_sender,
       tool_sender,
       current_tool_calls: Arc::new(Mutex::new(HashMap::new())),
+      message_history: None,
+    }
+  }
+
+  pub fn with_message_history(
+    text_sender: mpsc::UnboundedSender<anyhow::Result<String>>,
+    tool_sender: mpsc::UnboundedSender<ToolExecutionRequest>,
+    message_history: Arc<Mutex<Vec<Message>>>,
+  ) -> Self {
+    Self {
+      text_sender,
+      tool_sender,
+      current_tool_calls: Arc::new(Mutex::new(HashMap::new())),
+      message_history: Some(message_history),
     }
   }
 }
@@ -94,7 +110,6 @@ where
     // Buffer tool call information
     let partial = PartialToolCall {
       tool_call_id: event.tool_call_id.clone(),
-      parent_message_id: event.parent_message_id.clone(),
       tool_name: event.tool_call_name.clone(),
       accumulated_args: HashMap::new(),
     };
@@ -236,7 +251,6 @@ where
       (tool_call_name.to_string(), tool_call_args.clone())
     };
 
-    // Create tool execution request
     let request = ToolExecutionRequest {
       tool_call_id: event.tool_call_id.clone(),
       tool_name: final_tool_name.clone(),
@@ -273,7 +287,7 @@ where
   async fn on_new_tool_call(
     &self,
     tool_call: &ToolCall,
-    _params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
+    params: AgentSubscriberParams<'async_trait, StateT, FwdPropsT>,
   ) -> Result<(), AgentError> {
     log::info!(
       "🔧 New tool call added to messages - id: {:?}, name: {}, args: {:?}",
@@ -281,6 +295,43 @@ where
       tool_call.function.name,
       tool_call.function.arguments
     );
+
+    // If we have access to message history, add the Assistant message with this tool call
+    // This is critical for submit_tool_result to work correctly - the tool result must
+    // reference a tool call that exists in an Assistant message in the history
+    if let Some(history) = &self.message_history {
+      let mut history = history.lock().await;
+
+      // Check if we already have an Assistant message with this tool call
+      let has_tool_call = history.iter().any(|msg| {
+        if let Message::Assistant { tool_calls, .. } = msg {
+          if let Some(calls) = tool_calls {
+            return calls.iter().any(|tc| tc.id == tool_call.id);
+          }
+        }
+        false
+      });
+
+      if !has_tool_call {
+        // Generate a random message ID (AG-UI SDK manages the canonical IDs internally)
+        let message_id = MessageId::random();
+
+        log::debug!(
+          "Adding Assistant message with tool_call {:?} to history (message_id: {:?})",
+          tool_call.id,
+          message_id
+        );
+
+        // Add Assistant message with this tool call
+        history.push(Message::Assistant {
+          id: message_id,
+          content: None, // Tool calls typically don't have text content
+          name: None,
+          tool_calls: Some(vec![tool_call.clone()]),
+        });
+      }
+    }
+
     Ok(())
   }
 
