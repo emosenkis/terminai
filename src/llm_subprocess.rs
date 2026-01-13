@@ -85,30 +85,107 @@ impl LlmSubprocess {
     // Find the Python project directory
     let python_dir = if let Some(dir) = config.python_dir {
       // Explicit directory provided (typically for tests)
+      log::info!("Using explicit Python directory: {}", dir.display());
       dir
     } else {
-      // Auto-detect: try relative to executable, then current dir
-      std::env::current_exe()?
+      // Auto-detect: try multiple strategies
+      let exe_path = std::env::current_exe()?;
+      let exe_dir = exe_path
         .parent()
-        .context("Could not determine executable directory")?
-        .join("../python")
-        .canonicalize()
-        .or_else(|_| {
-          // Fallback to workspace-relative path for development
-          std::env::current_dir()?
-            .join("python")
-            .canonicalize()
-            .context("Could not find Python project directory")
-        })?
+        .context("Could not determine executable directory")?;
+
+      log::debug!("Executable path: {}", exe_path.display());
+      log::debug!("Executable directory: {}", exe_dir.display());
+
+      // Strategy 1: Same directory as executable (Homebrew libexec layout)
+      let strategy1 = exe_dir.join("python");
+      log::debug!(
+        "Trying strategy 1 (same dir as exe): {}",
+        strategy1.display()
+      );
+
+      if let Ok(canonical) = strategy1.canonicalize() {
+        log::info!(
+          "Found Python directory via strategy 1: {}",
+          canonical.display()
+        );
+        canonical
+      } else {
+        log::debug!(
+          "Strategy 1 failed: directory does not exist or is not accessible"
+        );
+
+        // Strategy 2: One level up from executable (standard install layout)
+        let strategy2 = exe_dir.join("../python");
+        log::debug!(
+          "Trying strategy 2 (one level up): {}",
+          strategy2.display()
+        );
+
+        if let Ok(canonical) = strategy2.canonicalize() {
+          log::info!(
+            "Found Python directory via strategy 2: {}",
+            canonical.display()
+          );
+          canonical
+        } else {
+          log::debug!(
+            "Strategy 2 failed: directory does not exist or is not accessible"
+          );
+
+          // Strategy 3: Current working directory (development)
+          let strategy3 = std::env::current_dir()?.join("python");
+          log::debug!(
+            "Trying strategy 3 (current dir): {}",
+            strategy3.display()
+          );
+
+          if let Ok(canonical) = strategy3.canonicalize() {
+            log::info!(
+              "Found Python directory via strategy 3: {}",
+              canonical.display()
+            );
+            canonical
+          } else {
+            log::error!(
+              "Strategy 3 failed: directory does not exist or is not accessible"
+            );
+            log::error!("All Python directory discovery strategies failed:");
+            log::error!("  Strategy 1: {}", strategy1.display());
+            log::error!("  Strategy 2: {}", strategy2.display());
+            log::error!("  Strategy 3: {}", strategy3.display());
+            log::error!("Current directory: {:?}", std::env::current_dir());
+            log::error!("Executable: {}", exe_path.display());
+
+            anyhow::bail!(
+              "Could not find Python project directory. Tried:\n  1. {}\n  2. {}\n  3. {}\n\
+              Executable: {}\nCurrent dir: {:?}",
+              strategy1.display(),
+              strategy2.display(),
+              strategy3.display(),
+              exe_path.display(),
+              std::env::current_dir()
+            );
+          }
+        }
+      }
     };
 
-    log::info!("Python project directory: {}", python_dir.display());
+    log::info!("Using Python project directory: {}", python_dir.display());
 
     // Spawn the subprocess
     // NOTE: The subprocess inherits ALL environment variables from the parent process,
     // including those loaded from ~/.config/terminai/terminai.env
     // This allows users to configure API keys and other settings via standard env vars
     log::info!("Spawning LLM agent subprocess");
+    log::debug!("Python command: {}", config.python_command);
+    log::debug!(
+      "Port range: {}-{}",
+      config.port_range.0,
+      config.port_range.1
+    );
+    log::debug!("Host: {}", config.host);
+
     let mut command = Command::new("uv");
     command
       .arg("run")
@@ -134,8 +211,22 @@ impl LlmSubprocess {
       command.env(key, value);
     }
 
+    log::debug!("Spawning command: uv run python -m terminai_agent");
+    log::debug!("Working directory: {}", python_dir.display());
+
     let mut child = command
       .spawn()
+      .map_err(|e| {
+        log::error!("Failed to spawn subprocess: {}", e);
+        log::error!("Command: uv run python -m terminai_agent");
+        log::error!("Working directory: {}", python_dir.display());
+        log::error!("Make sure 'uv' is installed and in your PATH");
+        log::error!(
+          "Check that the Python project exists at: {}",
+          python_dir.display()
+        );
+        e
+      })
       .context("Failed to spawn Python subprocess")?;
 
     // Read stdout and stderr concurrently
@@ -161,10 +252,11 @@ impl LlmSubprocess {
 
     let port = timeout(Duration::from_secs(10), async {
       while let Some(line) = stdout_reader.next_line().await? {
-        log::debug!("Subprocess stdout: {}", line);
+        log::debug!("[Python stdout] {}", line);
         if let Some(port_str) = line.strip_prefix("AG_UI_PORT=") {
           let port: u16 =
             port_str.parse().context("Failed to parse port number")?;
+          log::info!("Subprocess reported port: {}", port);
           return Ok::<u16, anyhow::Error>(port);
         }
       }
@@ -175,6 +267,10 @@ impl LlmSubprocess {
         // Process exited - wait a moment for stderr to be captured
         tokio::time::sleep(Duration::from_millis(100)).await;
         let stderr_output = stderr_lines.lock().await.join("\n");
+        log::error!("Subprocess exited with status: {}", exit_status);
+        if !stderr_output.is_empty() {
+          log::error!("Subprocess stderr:\n{}", stderr_output);
+        }
         if stderr_output.is_empty() {
           anyhow::bail!("Subprocess terminated with status {} without providing port", exit_status);
         } else {
@@ -186,10 +282,19 @@ impl LlmSubprocess {
         }
       }
 
+      log::error!("Subprocess terminated without providing port and without exit status");
       anyhow::bail!("Subprocess terminated without providing port")
     })
     .await
-    .context("Timeout waiting for subprocess to start")??;
+    .map_err(|_| {
+      log::error!("Timeout (10s) waiting for subprocess to start");
+      log::error!("The subprocess may have failed to start or is taking too long");
+      log::error!("Check that:");
+      log::error!("  1. uv is installed and in PATH");
+      log::error!("  2. Python dependencies are installed at: {}", python_dir.display());
+      log::error!("  3. terminai_agent module can be imported");
+      anyhow::anyhow!("Timeout waiting for subprocess to start (waited 10 seconds)")
+    })??;
 
     log::info!("LLM agent subprocess started on port {}", port);
 
