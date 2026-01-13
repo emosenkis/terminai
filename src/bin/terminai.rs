@@ -23,7 +23,7 @@ use tui::{
 
 // rat-salsa imports
 use rat_cursor::HasScreenCursor;
-use rat_event::{HandleEvent, Outcome, Regular, event_flow};
+use rat_event::{ConsumedEvent, HandleEvent, Outcome, Regular, event_flow};
 use rat_focus::FocusBuilder;
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
@@ -638,6 +638,77 @@ impl KeyBindings {
 }
 
 impl<'a> AppState<'a> {
+  /// Handle approval dialog key events
+  /// Returns Outcome::Changed if the key was consumed, Outcome::Continue otherwise
+  fn handle_approval_dialog_key(
+    &mut self,
+    key_combo: KeyCombination,
+  ) -> Outcome {
+    if let Some(ref ai_process_arc) = self.ai_process
+      && let Ok(mut ai_process) = ai_process_arc.try_lock()
+    {
+      if ai_process.pending_command().is_none() {
+        return Outcome::Continue;
+      }
+
+      // Approval dialog is active - check for approve/deny keys
+      if self.keybindings.matches_approve(key_combo) {
+        log::info!("Command approved by user with key: {:?}", key_combo);
+        if let Some(cmd) = ai_process.approve_command() {
+          log::info!("Executing approved command: {}", cmd.command);
+          // Send the command to the shell
+          if let Err(e) = self.shell.send_command(&cmd.command) {
+            log::error!("Failed to send command to shell: {:?}", e);
+          }
+        }
+        return Outcome::Changed;
+      } else if self.keybindings.matches_deny(key_combo) {
+        log::info!("Command rejected by user with key: {:?}", key_combo);
+        ai_process.reject_command();
+        return Outcome::Changed;
+      }
+
+      // Any other key while approval dialog is active is consumed but ignored
+      log::trace!("Key {:?} ignored (approval dialog active)", key_combo);
+      return Outcome::Unchanged;
+    }
+    Outcome::Continue
+  }
+
+  /// Handle error dialog key events
+  /// Returns Outcome::Changed if the key was consumed, Outcome::Continue otherwise
+  fn handle_error_dialog_key(
+    &mut self,
+    key_combo: KeyCombination,
+    code: KeyCode,
+  ) -> Outcome {
+    if let Some(ref ai_process_arc) = self.ai_process
+      && let Ok(mut ai_process) = ai_process_arc.try_lock()
+    {
+      if ai_process.error_message().is_none() {
+        return Outcome::Continue;
+      }
+
+      // Error dialog uses deactivate key to close, arrow keys to scroll
+      if self.keybindings.matches_deactivate_overlay(key_combo) {
+        log::info!("Error dialog dismissed by user with key: {:?}", key_combo);
+        ai_process.clear_error();
+        return Outcome::Changed;
+      } else if matches!(code, KeyCode::Up) {
+        ai_process.error_scroll_up(1);
+        return Outcome::Changed;
+      } else if matches!(code, KeyCode::Down) {
+        ai_process.error_scroll_down(1);
+        return Outcome::Changed;
+      }
+
+      // Any other key while error dialog is active is consumed but ignored
+      log::trace!("Key {:?} ignored (error dialog active)", key_combo);
+      return Outcome::Unchanged;
+    }
+    Outcome::Continue
+  }
+
   /// Show the AI modal and enable mouse tracking
   fn show_ai_modal(&mut self) -> std::io::Result<()> {
     if !self.ai_visible {
@@ -1106,65 +1177,21 @@ fn event(
         state.shell.send_key(key)?;
         Control::Continue
       } else {
+        // Try handling focus events first (for tab navigation, etc.)
         if let AppEvent::Crossterm(cte) = event {
           event_flow!(break 'm focus.handle(cte, Regular));
         }
-        if let Some(ref ai_process_arc) = state.ai_process {
-          // Handle approval dialog with highest priority (when pending command exists)
-          if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-            if ai_process.pending_command().is_some() {
-              // Approval dialog is active - check for approve/deny keys
-              if state.keybindings.matches_approve(key_combo) {
-                log::info!(
-                  "Command approved by user with key: {:?}",
-                  key_combo
-                );
-                if let Some(cmd) = ai_process.approve_command() {
-                  log::info!("Executing approved command: {}", cmd.command);
-                  // Send the command to the shell
-                  if let Err(e) = state.shell.send_command(&cmd.command) {
-                    log::error!("Failed to send command to shell: {:?}", e);
-                  }
-                }
-                break 'm Control::Changed;
-              } else if state.keybindings.matches_deny(key_combo) {
-                log::info!(
-                  "Command rejected by user with key: {:?}",
-                  key_combo
-                );
-                ai_process.reject_command();
-                break 'm Control::Changed;
-              }
-              // Any other key while approval dialog is active is ignored
-              log::trace!(
-                "Key {:?} ignored (approval dialog active)",
-                key_combo
-              );
-              break 'm Control::Continue;
-            }
 
-            // Handle error dialog (second priority after approval dialog)
-            if ai_process.error_message().is_some() {
-              // Error dialog uses deactivate key to close, arrow keys to scroll
-              if state.keybindings.matches_deactivate_overlay(key_combo) {
-                log::info!(
-                  "Error dialog dismissed by user with key: {:?}",
-                  key_combo
-                );
-                ai_process.clear_error();
-                break 'm Control::Changed;
-              } else if matches!(code, KeyCode::Up) && modifiers.is_empty() {
-                ai_process.error_scroll_up(1);
-                break 'm Control::Changed;
-              } else if matches!(code, KeyCode::Down) && modifiers.is_empty() {
-                ai_process.error_scroll_down(1);
-                break 'm Control::Changed;
-              }
-              // Any other key while error dialog is active is ignored
-              log::trace!("Key {:?} ignored (error dialog active)", key_combo);
-              break 'm Control::Continue;
-            }
-          }
+        // Handle approval dialog with highest priority (when pending command exists)
+        let approval_outcome = state.handle_approval_dialog_key(key_combo);
+        if approval_outcome.is_consumed() {
+          break 'm Control::from(approval_outcome);
+        }
+
+        // Handle error dialog (second priority after approval dialog)
+        let error_outcome = state.handle_error_dialog_key(key_combo, *code);
+        if error_outcome.is_consumed() {
+          break 'm Control::from(error_outcome);
         }
 
         // Route events based on focus
