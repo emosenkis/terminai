@@ -97,6 +97,7 @@ chmod +x "$BIN_DIR/terminai"
 echo_info "Installing Python agent to $PYTHON_DIR..."
 cp -r python/terminai_agent "$PYTHON_DIR/"
 cp python/pyproject.toml "$PYTHON_DIR/"
+cp python/uv.lock "$PYTHON_DIR/"
 [ -f python/README.md ] && cp python/README.md "$PYTHON_DIR/"
 
 # Install Python dependencies

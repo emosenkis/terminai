@@ -22,6 +22,7 @@ class Terminai < Formula
     # Copy Python project files
     cp_r "python/terminai_agent", python_dir/"terminai_agent"
     cp "python/pyproject.toml", python_dir/"pyproject.toml"
+    cp "python/uv.lock", python_dir/"uv.lock"
     cp "python/README.md", python_dir/"README.md" if File.exist?("python/README.md")
 
     # Sync Python dependencies using uv
@@ -83,6 +84,7 @@ class Terminai < Formula
     # Verify Python agent is installed
     assert_predicate libexec/"python/terminai_agent/__init__.py", :exist?
     assert_predicate libexec/"python/pyproject.toml", :exist?
+    assert_predicate libexec/"python/uv.lock", :exist?
 
     # Verify UV can find the Python project
     cd libexec/"python" do
