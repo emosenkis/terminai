@@ -35,11 +35,12 @@ class Terminai < Formula
     # Move the binary to libexec and create a wrapper script at bin/terminai
     mv bin/"terminai", libexec/"terminai-unwrapped"
 
-    # Create wrapper script that ensures UV is in PATH
+    # Create wrapper script that ensures UV is in PATH and sets Python directory
     (bin/"terminai").write <<~EOS
       #!/bin/bash
       # Wrapper for terminai that ensures proper environment
       export PATH="#{HOMEBREW_PREFIX}/bin:$PATH"
+      export TERMINAI_PYTHON_DIR="#{libexec}/python"
       exec "#{libexec}/terminai-unwrapped" "$@"
     EOS
 

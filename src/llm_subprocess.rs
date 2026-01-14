@@ -85,8 +85,24 @@ impl LlmSubprocess {
     // Find the Python project directory
     let python_dir = if let Some(dir) = config.python_dir {
       // Explicit directory provided (typically for tests)
-      log::info!("Using explicit Python directory: {}", dir.display());
+      log::info!(
+        "Using explicit Python directory from config: {}",
+        dir.display()
+      );
       dir
+    } else if let Ok(env_dir) = std::env::var("TERMINAI_PYTHON_DIR") {
+      // Environment variable takes precedence (set by package manager wrappers)
+      let path = std::path::PathBuf::from(&env_dir);
+      log::info!(
+        "Using Python directory from TERMINAI_PYTHON_DIR: {}",
+        path.display()
+      );
+      path.canonicalize().with_context(|| {
+        format!(
+          "TERMINAI_PYTHON_DIR is set to '{}' but that path does not exist or is not accessible",
+          env_dir
+        )
+      })?
     } else {
       // Auto-detect: try multiple strategies
       let exe_path = std::env::current_exe()?;
@@ -96,8 +112,11 @@ impl LlmSubprocess {
 
       log::debug!("Executable path: {}", exe_path.display());
       log::debug!("Executable directory: {}", exe_dir.display());
+      log::debug!(
+        "TERMINAI_PYTHON_DIR not set, trying auto-detection strategies"
+      );
 
-      // Strategy 1: Same directory as executable (Homebrew libexec layout)
+      // Strategy 1: Same directory as executable (some install layouts)
       let strategy1 = exe_dir.join("python");
       log::debug!(
         "Trying strategy 1 (same dir as exe): {}",
@@ -156,10 +175,14 @@ impl LlmSubprocess {
             log::error!("  Strategy 3: {}", strategy3.display());
             log::error!("Current directory: {:?}", std::env::current_dir());
             log::error!("Executable: {}", exe_path.display());
+            log::error!(
+              "Hint: Package managers should set TERMINAI_PYTHON_DIR in wrapper scripts"
+            );
 
             anyhow::bail!(
               "Could not find Python project directory. Tried:\n  1. {}\n  2. {}\n  3. {}\n\
-              Executable: {}\nCurrent dir: {:?}",
+              Executable: {}\nCurrent dir: {:?}\n\
+              Hint: Set TERMINAI_PYTHON_DIR environment variable to specify the location",
               strategy1.display(),
               strategy2.display(),
               strategy3.display(),
