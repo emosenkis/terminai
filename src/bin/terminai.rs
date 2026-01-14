@@ -1271,6 +1271,54 @@ fn event(
         } else {
           Control::Continue
         });
+      } else {
+        // Combiner returned None - handle Press and Repeat events directly
+        // This is critical for key repeat to work on Mac, where the combiner
+        // may filter out Repeat events for special keys like Backspace
+        log::trace!(
+          "Key event not transformed by combiner (likely Repeat event): {:?}",
+          key_event
+        );
+
+        if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+          if !state.ai_visible {
+            // Route to shell when AI overlay not visible
+            let key = Key::new(*code, *modifiers);
+            state.shell.send_key(key)?;
+            break 'm Control::Continue;
+          } else {
+            // AI overlay is visible - route to appropriate widget
+            if state.ai_ui.conversation_focus().get() {
+              // Conversation is focused - use Clipper's built-in event handler
+              log::debug!(
+                "Conversation is focused (unfiltered key), dispatching to Clipper: {:?}",
+                code
+              );
+              let outcome = HandleEvent::handle(
+                state.ai_ui.conversation_state(),
+                &Event::Key(KeyEvent::new(*code, *modifiers)),
+                Regular,
+              );
+
+              return Ok(match outcome {
+                Outcome::Changed => Control::Changed,
+                _ => {
+                  if shell_changed {
+                    Control::Changed
+                  } else {
+                    Control::Continue
+                  }
+                }
+              });
+            } else if state.ai_ui.input_focus().get() {
+              // Input is focused - route key to input widget
+              log::trace!("Routing unfiltered key to input widget");
+              let key = Key::new(*code, *modifiers);
+              state.ai_ui.input_event(key);
+              return Ok(Control::Changed);
+            }
+          }
+        }
       }
       Control::Continue
     }
