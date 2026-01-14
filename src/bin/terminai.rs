@@ -328,6 +328,22 @@ async fn initialize_ai() -> (
               }
               Err(e) => {
                 log::error!("Failed to initialize AI subprocess: {:?}", e);
+                eprintln!("\n⚠️  Failed to initialize AI subprocess:");
+                eprintln!("{}", e);
+                let log_dir = xdg::BaseDirectories::with_prefix("terminai")
+                  .get_cache_home()
+                  .map(|path| path.to_string_lossy().to_string())
+                  .unwrap_or_else(|| {
+                    std::env::temp_dir()
+                      .join("terminai")
+                      .to_string_lossy()
+                      .to_string()
+                  });
+                let log_path = format!("{}/terminai.log", log_dir);
+                eprintln!("\n📝 Check detailed logs at: {}", log_path);
+                eprintln!(
+                  "   You can also set RUST_LOG=debug for verbose output.\n"
+                );
                 // Return config even if AI init failed
                 return (None, Some(config), chat_position, None);
               }

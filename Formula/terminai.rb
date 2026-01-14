@@ -2,14 +2,14 @@ class Terminai < Formula
   desc "Interactive terminal wrapper with AI assistant"
   homepage "https://github.com/emosenkis/termin.ai"
   url "git@github.com:emosenkis/termin.ai.git",
-      using: :git,
+      using:  :git,
       branch: "main"
   version "0.1.0"
   license "MIT"
 
   depends_on "rust" => :build
-  depends_on "uv"
   depends_on "python@3.11"
+  depends_on "uv"
 
   def install
     # Build the Rust binary (only terminai, not termcap test utility)
@@ -35,11 +35,12 @@ class Terminai < Formula
     # Move the binary to libexec and create a wrapper script at bin/terminai
     mv bin/"terminai", libexec/"terminai-unwrapped"
 
-    # Create wrapper script that ensures UV is in PATH
+    # Create wrapper script that ensures UV is in PATH and sets Python directory
     (bin/"terminai").write <<~EOS
       #!/bin/bash
       # Wrapper for terminai that ensures proper environment
       export PATH="#{HOMEBREW_PREFIX}/bin:$PATH"
+      export TERMINAI_PYTHON_DIR="#{libexec}/python"
       exec "#{libexec}/terminai-unwrapped" "$@"
     EOS
 
@@ -72,9 +73,9 @@ class Terminai < Formula
       shell_output("#{bin}/terminai --help")
 
     # Verify Python agent is installed
-    assert_predicate libexec/"python/terminai_agent/__init__.py", :exist?
-    assert_predicate libexec/"python/pyproject.toml", :exist?
-    assert_predicate libexec/"python/uv.lock", :exist?
+    assert_path_exists libexec/"python/terminai_agent/__init__.py"
+    assert_path_exists libexec/"python/pyproject.toml"
+    assert_path_exists libexec/"python/uv.lock"
 
     # Verify UV can find the Python project
     cd libexec/"python" do
