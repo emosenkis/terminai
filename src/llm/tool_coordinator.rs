@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::{
   AgUiClient, ChatStreamResponse, CommandSuggestion, ToolExecutionRequest,
-  ToolExecutor, ToolResult,
+  ToolExecutor,
 };
 
 /// Tool coordinator that manages the tool execution lifecycle
@@ -44,58 +44,16 @@ impl ToolCoordinator {
     &self,
     request: ToolExecutionRequest,
   ) -> Result<ChatStreamResponse> {
-    use ag_ui_core::types::message::FunctionCall;
-    use ag_ui_core::types::tool::ToolCall;
-
     log::info!(
       "Processing tool request: {} (id: {:?})",
       request.tool_name,
       request.tool_call_id
     );
 
-    // CRITICAL: Add the Assistant message with tool_calls to history BEFORE executing
-    // This is required by AG-UI protocol - the tool result must reference a tool call
-    // that exists in an Assistant message in the history
-    {
-      let mut history = self.message_history.lock().await;
-
-      // Check if we already have this assistant message (to avoid duplicates)
-      let has_assistant_with_tool_call = history.iter().any(|msg| {
-        if let Message::Assistant { tool_calls, .. } = msg {
-          if let Some(calls) = tool_calls {
-            return calls.iter().any(|tc| tc.id == request.tool_call_id);
-          }
-        }
-        false
-      });
-
-      if !has_assistant_with_tool_call {
-        log::info!(
-          "Adding Assistant message with tool_call {:?} to history",
-          request.tool_call_id
-        );
-
-        // Create a tool call object
-        let function_call = FunctionCall {
-          name: request.tool_name.clone(),
-          arguments: serde_json::to_string(&request.args).unwrap_or_default(),
-        };
-
-        let tool_call = ToolCall {
-          id: request.tool_call_id.clone(),
-          call_type: "function".to_string(),
-          function: function_call,
-        };
-
-        // Add Assistant message with this tool call
-        history.push(Message::Assistant {
-          id: ag_ui_core::types::ids::MessageId::random(),
-          content: None, // Tool calls don't have text content
-          name: None,
-          tool_calls: Some(vec![tool_call]),
-        });
-      }
-    }
+    // NOTE: We do NOT manually add Assistant messages with tool_calls to history.
+    // The AG-UI SDK already adds these through its event stream (via on_new_tool_call).
+    // Manually adding them would create duplicates without corresponding tool_results,
+    // which violates the Anthropic API protocol.
 
     // 1. Execute the tool
     let result = self.executor.execute_tool(request).await;
@@ -111,14 +69,9 @@ impl ToolCoordinator {
     }
 
     // 2. Submit result back to LLM and get continued response
-    let messages = {
-      let history = self.message_history.lock().await;
-      history.clone()
-    };
-
     let continued_response = self
       .client
-      .submit_tool_result(messages, result, None)
+      .submit_tool_result(Arc::clone(&self.message_history), result, None)
       .await?;
 
     Ok(continued_response)
@@ -158,6 +111,14 @@ impl ToolCoordinator {
   pub async fn clear_history(&self) {
     let mut history = self.message_history.lock().await;
     history.clear();
+  }
+
+  /// Get a reference to the shared message history
+  ///
+  /// This allows external code (like chat_stream) to pass the history
+  /// to subscribers so they can update it when tool calls arrive.
+  pub fn get_history_ref(&self) -> Arc<Mutex<Vec<Message>>> {
+    Arc::clone(&self.message_history)
   }
 }
 

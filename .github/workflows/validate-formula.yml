@@ -1,0 +1,40 @@
+name: Validate Homebrew Formula
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Formula/**'
+      - '.github/workflows/validate-formula.yml'
+
+jobs:
+  validate-formula:
+    name: Validate Homebrew Formula
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install dependencies for formula testing
+      run: |
+        brew install uv
+
+    - name: Create temporary tap for testing
+      run: |
+        # Create a temporary tap structure
+        mkdir -p $(brew --repository)/Library/Taps/terminai/homebrew-tap
+        cp Formula/terminai.rb $(brew --repository)/Library/Taps/terminai/homebrew-tap/terminai.rb
+
+    - name: Validate formula syntax
+      run: |
+        # Audit the formula for common issues
+        brew audit --strict terminai/tap/terminai
+
+        # Check formula style
+        brew style terminai/tap/terminai
+
+    - name: Test formula can be parsed
+      run: |
+        # Verify brew can read the formula
+        brew info terminai/tap/terminai

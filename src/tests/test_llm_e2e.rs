@@ -143,7 +143,7 @@ async fn test_llm_e2e_with_mock_server() -> Result<()> {
   log::info!("Step 4: Sending test message...");
   let test_message = "Hello from Rust test!";
 
-  let response = client.chat_stream(test_message, None).await?;
+  let response = client.chat_stream(test_message, None, None).await?;
   let mut stream = response.text_stream;
 
   // 5. Collect streamed response
@@ -220,7 +220,7 @@ async fn test_llm_e2e_multiple_messages() -> Result<()> {
   for (i, message) in test_messages.iter().enumerate() {
     log::info!("Sending message {}: {}", i + 1, message);
 
-    let chat_response = client.chat_stream(*message, None).await?;
+    let chat_response = client.chat_stream(*message, None, None).await?;
     let mut stream = chat_response.text_stream;
     let mut response = String::new();
 
@@ -280,7 +280,7 @@ async fn test_llm_e2e_error_handling() -> Result<()> {
 
   // Try to send a message - this should fail gracefully
   log::info!("Attempting to send message with server down...");
-  let result = client.chat_stream("test", None).await;
+  let result = client.chat_stream("test", None, None).await;
 
   // The agent spawn might succeed, but streaming should fail
   // or we might get an immediate error - either is acceptable
@@ -345,7 +345,7 @@ async fn test_llm_e2e_client_side_tool_call() -> Result<()> {
   log::info!("Step 4: Sending message that triggers tool call...");
   let test_message = "Please help me list files [TOOL:suggest_command|ls -la|List all files in current directory]";
 
-  let response = client.chat_stream(test_message, None).await?;
+  let response = client.chat_stream(test_message, None, None).await?;
   let mut stream = response.text_stream;
 
   // 5. Collect streamed response
@@ -450,7 +450,7 @@ async fn test_llm_e2e_tool_call_suggest_command() -> Result<()> {
   log::info!("Sending message that triggers suggest_command tool call...");
   let test_message = "[TOOL:suggest_command|pwd|Show current directory]";
 
-  let response = client.chat_stream(test_message, None).await?;
+  let response = client.chat_stream(test_message, None, None).await?;
   let mut stream = response.text_stream;
 
   // Collect with timeout
@@ -511,7 +511,7 @@ async fn test_llm_e2e_tool_call_read_scrollback() -> Result<()> {
   log::info!("Sending message that triggers read_scrollback tool call...");
   let test_message = "[TOOL:read_scrollback|50]";
 
-  let response = client.chat_stream(test_message, None).await?;
+  let response = client.chat_stream(test_message, None, None).await?;
   let mut stream = response.text_stream;
 
   // Collect with timeout
@@ -577,7 +577,7 @@ async fn test_llm_e2e_tool_execution_with_history() -> Result<()> {
   log::info!("Sending message that triggers tool call...");
   let test_message = "[TOOL:suggest_command|ls -la|List files in directory]";
 
-  let response = client.chat_stream(test_message, None).await?;
+  let response = client.chat_stream(test_message, None, None).await?;
   let mut text_stream = response.text_stream;
   let mut tool_rx = response.tool_rx;
 

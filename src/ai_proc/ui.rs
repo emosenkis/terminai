@@ -111,7 +111,7 @@ impl<'a> AIChatUI<'a> {
 
       // Add each message as a widget
       for (idx, msg) in messages.iter().enumerate() {
-        let (prefix, style) = match msg.role {
+        match msg.role {
           MessageRole::User => (
             "You: ",
             Style::default()
@@ -133,7 +133,6 @@ impl<'a> AIChatUI<'a> {
         };
 
         // Calculate height needed for this message
-        let width = area.width.saturating_sub(4) as usize; // Account for borders and scrollbar
         let prefix_lines = 1;
         let content_lines = if matches!(msg.role, MessageRole::Assistant) {
           // Markdown rendering

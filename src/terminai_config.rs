@@ -24,6 +24,15 @@ pub enum OneOrMoreBindings {
   Multiple(Vec<KeyCombination>),
 }
 
+impl OneOrMoreBindings {
+  pub fn matches(&self, key_combo: KeyCombination) -> bool {
+    match self {
+      OneOrMoreBindings::Single(key) => *key == key_combo,
+      OneOrMoreBindings::Multiple(keys) => keys.contains(&key_combo),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyBindingsConfig {
   #[serde(rename = "activate-overlay")]
@@ -109,7 +118,7 @@ impl ProviderConfig {
 }
 
 /// Top-level Termin.AI configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminAIConfig {
   /// Interface configuration
   #[serde(default)]

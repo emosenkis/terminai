@@ -7,7 +7,7 @@ import socket
 from http import HTTPStatus
 
 import uvicorn
-from ag_ui.core import RunAgentInput, EventType, RunErrorEvent
+from ag_ui.core import EventType, RunAgentInput, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
