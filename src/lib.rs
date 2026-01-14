@@ -36,6 +36,7 @@ pub mod yaml_val;
 // TERMIN.AI: AI assistant modules
 pub mod ai_proc;
 pub mod command;
+pub mod deno; // NEW: Deno runtime for TypeScript agent
 pub mod env_loader;
 pub mod llm;
 pub mod llm_subprocess;

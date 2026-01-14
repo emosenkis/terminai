@@ -221,7 +221,12 @@ impl<'a> AIChatUI<'a> {
 
         if matches!(msg.role, MessageRole::Assistant) {
           let md_text = from_str(&msg.content);
-          lines.extend(md_text.lines.into_iter().map(Line::from));
+          // Convert markdown lines to local ratatui Lines (handle version mismatch)
+          for md_line in md_text.lines {
+            let line_str: String =
+              md_line.spans.iter().map(|s| s.content.as_ref()).collect();
+            lines.push(Line::from(line_str));
+          }
         } else {
           lines.push(Line::from(Span::raw(&msg.content)));
         }
@@ -244,7 +249,12 @@ impl<'a> AIChatUI<'a> {
         let mut lines = vec![Line::from(Span::styled(prefix, style))];
 
         let md_text = from_str(streaming);
-        lines.extend(md_text.lines.into_iter().map(Line::from));
+        // Convert markdown lines to local ratatui Lines (handle version mismatch)
+        for md_line in md_text.lines {
+          let line_str: String =
+            md_line.spans.iter().map(|s| s.content.as_ref()).collect();
+          lines.push(Line::from(line_str));
+        }
 
         lines.push(Line::from("")); // Separator
         lines.push(Line::from(Span::styled(
