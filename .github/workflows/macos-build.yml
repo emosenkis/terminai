@@ -91,9 +91,28 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-    - name: Test formula syntax
+    - name: Install dependencies for formula testing
       run: |
-        brew tap homebrew/core
-        brew install --build-from-source --formula Formula/terminai.rb --dry-run || true
-        # Note: Full install requires SSH access to private repo
+        brew install uv
+
+    - name: Create temporary tap for testing
+      run: |
+        # Create a temporary tap structure
+        mkdir -p $(brew --repository)/Library/Taps/terminai/homebrew-tap
+        cp Formula/terminai.rb $(brew --repository)/Library/Taps/terminai/homebrew-tap/terminai.rb
+
+    - name: Validate formula syntax
+      run: |
+        # Audit the formula for common issues
+        brew audit --strict terminai/tap/terminai
+
+        # Check formula style
+        brew style terminai/tap/terminai
+
+    - name: Test formula can be parsed
+      run: |
+        # Verify brew can read the formula
+        brew info terminai/tap/terminai
