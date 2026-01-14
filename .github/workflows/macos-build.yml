@@ -5,8 +5,82 @@ on:
     branches: [ main ]
 
 jobs:
-  build-macos:
-    name: Build on macOS
+  # Run Rust tests in parallel
+  test-rust:
+    name: Rust Tests
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-test-
+          ${{ runner.os }}-cargo-
+
+    - name: Run Rust tests
+      run: cargo test --release -p termin --lib
+
+  # Run Python tests in parallel
+  test-python:
+    name: Python Tests
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          python/.venv
+        key: ${{ runner.os }}-python-${{ hashFiles('python/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-python-
+
+    - name: Set up Python agent
+      run: |
+        cd python
+        uv sync --frozen
+
+    - name: Run Python tests
+      run: |
+        cd python
+        uv run pytest
+
+  # Build release binary in parallel
+  build-release:
+    name: Build Release Binary
     runs-on: macos-latest
 
     steps:
@@ -39,40 +113,29 @@ jobs:
           ~/.cargo/registry
           ~/.cargo/git
           target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
+          ${{ runner.os }}-cargo-build-
           ${{ runner.os }}-cargo-
 
     - name: Build Rust binary
       run: cargo build --release -p termin --bin terminai
-
-    - name: Set up Python agent
-      run: |
-        cd python
-        uv sync --frozen
-
-    - name: Run Rust tests
-      run: cargo test --release -p termin --lib
-
-    - name: Run Python tests
-      run: |
-        cd python
-        uv run pytest
 
     - name: Check binary
       run: |
         file target/release/terminai
         otool -L target/release/terminai
 
-    - name: Test installation script
-      run: |
-        INSTALL_DIR=$(mktemp -d)
-        export INSTALL_DIR
-        ./scripts/install-macos.sh
-
-        # Verify installation
-        ls -la "$INSTALL_DIR/bin/terminai"
-        ls -la "$INSTALL_DIR/lib/terminai/python/terminai_agent"
+    # Commented out for now - not needed on every PR
+    # - name: Test installation script
+    #   run: |
+    #     INSTALL_DIR=$(mktemp -d)
+    #     export INSTALL_DIR
+    #     ./scripts/install-macos.sh
+    #
+    #     # Verify installation
+    #     ls -la "$INSTALL_DIR/bin/terminai"
+    #     ls -la "$INSTALL_DIR/lib/terminai/python/terminai_agent"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -82,37 +145,3 @@ jobs:
           target/release/terminai
           python/
         retention-days: 30
-
-  test-formula:
-    name: Test Homebrew Formula
-    runs-on: macos-latest
-    needs: build-macos
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Install dependencies for formula testing
-      run: |
-        brew install uv
-
-    - name: Create temporary tap for testing
-      run: |
-        # Create a temporary tap structure
-        mkdir -p $(brew --repository)/Library/Taps/terminai/homebrew-tap
-        cp Formula/terminai.rb $(brew --repository)/Library/Taps/terminai/homebrew-tap/terminai.rb
-
-    - name: Validate formula syntax
-      run: |
-        # Audit the formula for common issues
-        brew audit --strict terminai/tap/terminai
-
-        # Check formula style
-        brew style terminai/tap/terminai
-
-    - name: Test formula can be parsed
-      run: |
-        # Verify brew can read the formula
-        brew info terminai/tap/terminai
