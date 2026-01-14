@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::{
   AgUiClient, ChatStreamResponse, CommandSuggestion, ToolExecutionRequest,
-  ToolExecutor, ToolResult,
+  ToolExecutor,
 };
 
 /// Tool coordinator that manages the tool execution lifecycle
@@ -44,9 +44,6 @@ impl ToolCoordinator {
     &self,
     request: ToolExecutionRequest,
   ) -> Result<ChatStreamResponse> {
-    use ag_ui_core::types::message::FunctionCall;
-    use ag_ui_core::types::tool::ToolCall;
-
     log::info!(
       "Processing tool request: {} (id: {:?})",
       request.tool_name,

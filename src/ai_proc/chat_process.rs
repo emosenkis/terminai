@@ -150,7 +150,6 @@ impl AIChatProcess {
     context: TerminalContext,
   ) -> Result<crate::llm::ChatStreamResponse> {
     use ag_ui_core::types::ids::MessageId;
-    use futures::StreamExt;
 
     if user_message.is_empty() {
       return Err(anyhow::anyhow!("Empty message"));

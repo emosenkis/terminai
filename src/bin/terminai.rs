@@ -3,7 +3,7 @@
 use anyhow::{Error, Result};
 use clap::Parser;
 use crokey::{Combiner, KeyCombination};
-use crossterm::event::{Event, KeyCode, KeyEvent};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use tui::{
 
 // rat-salsa imports
 use rat_cursor::HasScreenCursor;
-use rat_event::{ConsumedEvent, HandleEvent, Outcome, Regular, event_flow};
+use rat_event::{HandleEvent, Outcome, Regular, event_flow};
 use rat_focus::FocusBuilder;
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
@@ -38,9 +38,7 @@ use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
 use termin::llm::TerminalContext;
 use termin::mouse::MouseEvent;
-use termin::terminai_config::{
-  ChatPosition, OneOrMoreBindings, TerminAIConfig,
-};
+use termin::terminai_config::{ChatPosition, TerminAIConfig};
 use termin::vt100;
 
 use termin::shell::{Shell, ShellEvent};
@@ -184,10 +182,6 @@ struct TerminalWidget<'a> {
 }
 
 impl<'a> TerminalWidget<'a> {
-  fn new(screen: &'a vt100::Screen<termin::shell::ReplySender>) -> Self {
-    Self::with_offset(screen, 0)
-  }
-
   fn with_offset(
     screen: &'a vt100::Screen<termin::shell::ReplySender>,
     row_offset: u16,
@@ -232,7 +226,7 @@ async fn initialize_app_components(
   Shell,
   UnboundedReceiver<ShellEvent>,
   Option<AIChatProcess>,
-  Option<TerminAIConfig>,
+  TerminAIConfig,
   ChatPosition,
   Option<String>,
 )> {
@@ -271,7 +265,7 @@ async fn initialize_app_components(
 /// Returns (ai_process, config, chat_position, config_error)
 async fn initialize_ai() -> (
   Option<AIChatProcess>,
-  Option<TerminAIConfig>,
+  TerminAIConfig,
   ChatPosition,
   Option<String>,
 ) {
@@ -324,7 +318,7 @@ async fn initialize_ai() -> (
             {
               Ok(process) => {
                 log::info!("AI assistant initialized successfully");
-                return (Some(process), Some(config), chat_position, None);
+                return (Some(process), config, chat_position, None);
               }
               Err(e) => {
                 log::error!("Failed to initialize AI subprocess: {:?}", e);
@@ -345,7 +339,7 @@ async fn initialize_ai() -> (
                   "   You can also set RUST_LOG=debug for verbose output.\n"
                 );
                 // Return config even if AI init failed
-                return (None, Some(config), chat_position, None);
+                return (None, config, chat_position, None);
               }
             }
           }
@@ -356,7 +350,7 @@ async fn initialize_ai() -> (
             e
           );
           // Return config even if provider/model setup failed
-          return (None, Some(config), chat_position, None);
+          return (None, config, chat_position, None);
         }
       }
     }
@@ -366,11 +360,21 @@ async fn initialize_ai() -> (
         "Failed to load configuration file: {}. AI overlay will show config instructions",
         error_msg
       );
-      return (None, None, ChatPosition::default(), Some(error_msg));
+      return (
+        None,
+        TerminAIConfig::default(),
+        ChatPosition::default(),
+        Some(error_msg),
+      );
     }
   }
 
-  (None, None, ChatPosition::default(), None)
+  (
+    None,
+    TerminAIConfig::default(),
+    ChatPosition::default(),
+    None,
+  )
 }
 
 fn main() -> Result<()> {
@@ -444,19 +448,6 @@ fn main() -> Result<()> {
     chat_position
   );
 
-  // Create keybindings from config (or use defaults if config failed to load)
-  let keybindings = if let Some(ref cfg) = config {
-    KeyBindings::from_config(cfg)
-  } else {
-    log::warn!("No config available, using default keybindings");
-    let default_config = TerminAIConfig {
-      interface: Default::default(),
-      providers: vec![],
-      default_model: String::new(),
-    };
-    KeyBindings::from_config(&default_config)
-  };
-
   // Create crokey combiner for keyboard event processing
   let key_combiner = Combiner::default();
 
@@ -493,9 +484,9 @@ fn main() -> Result<()> {
     chat_position,
     last_total_rows: rows as usize,
     has_pending_scrollback: false,
+    config,
     config_error,
     key_combiner,
-    keybindings,
   };
 
   // Run rat-salsa event loop
@@ -568,76 +559,12 @@ struct AppState<'a> {
   last_total_rows: usize,
   /// Has pending scrollback lines:
   has_pending_scrollback: bool,
+  /// Termin.AI configuration
+  config: TerminAIConfig,
   /// Configuration error message (if config failed to load)
   config_error: Option<String>,
   /// Crokey combiner for processing keyboard events
   key_combiner: Combiner,
-  /// Configured keybindings
-  keybindings: KeyBindings,
-}
-
-/// Compiled keybindings from config for efficient matching
-#[derive(Debug, Clone)]
-struct KeyBindings {
-  activate_overlay: Vec<KeyCombination>,
-  deactivate_overlay: Vec<KeyCombination>,
-  approve: Vec<KeyCombination>,
-  deny: Vec<KeyCombination>,
-}
-
-impl KeyBindings {
-  /// Compile keybindings from config into Vec for efficient matching
-  fn from_config(config: &TerminAIConfig) -> Self {
-    let kb = &config.interface.key_bindings;
-
-    log::debug!("Compiling keybindings from config");
-
-    Self {
-      activate_overlay: Self::expand_bindings(
-        &kb.activate_overlay,
-        "activate_overlay",
-      ),
-      deactivate_overlay: Self::expand_bindings(
-        &kb.deactivate_overlay,
-        "deactivate_overlay",
-      ),
-      approve: Self::expand_bindings(&kb.approve, "approve"),
-      deny: Self::expand_bindings(&kb.deny, "deny"),
-    }
-  }
-
-  /// Expand OneOrMoreBindings into Vec<KeyCombination>
-  fn expand_bindings(
-    bindings: &OneOrMoreBindings,
-    name: &str,
-  ) -> Vec<KeyCombination> {
-    let result = match bindings {
-      OneOrMoreBindings::Single(key) => vec![*key],
-      OneOrMoreBindings::Multiple(keys) => keys.clone(),
-    };
-    log::debug!("  {}: {:?}", name, result);
-    result
-  }
-
-  /// Check if a key combination matches any of the activate overlay bindings
-  fn matches_activate_overlay(&self, key: KeyCombination) -> bool {
-    self.activate_overlay.contains(&key)
-  }
-
-  /// Check if a key combination matches any of the deactivate overlay bindings
-  fn matches_deactivate_overlay(&self, key: KeyCombination) -> bool {
-    self.deactivate_overlay.contains(&key)
-  }
-
-  /// Check if a key combination matches any of the approve bindings
-  fn matches_approve(&self, key: KeyCombination) -> bool {
-    self.approve.contains(&key)
-  }
-
-  /// Check if a key combination matches any of the deny bindings
-  fn matches_deny(&self, key: KeyCombination) -> bool {
-    self.deny.contains(&key)
-  }
 }
 
 impl<'a> AppState<'a> {
@@ -655,7 +582,13 @@ impl<'a> AppState<'a> {
       }
 
       // Approval dialog is active - check for approve/deny keys
-      if self.keybindings.matches_approve(key_combo) {
+      if self
+        .config
+        .interface
+        .key_bindings
+        .approve
+        .matches(key_combo)
+      {
         log::info!("Command approved by user with key: {:?}", key_combo);
         if let Some(cmd) = ai_process.approve_command() {
           log::info!("Executing approved command: {}", cmd.command);
@@ -665,7 +598,7 @@ impl<'a> AppState<'a> {
           }
         }
         return Outcome::Changed;
-      } else if self.keybindings.matches_deny(key_combo) {
+      } else if self.config.interface.key_bindings.deny.matches(key_combo) {
         log::info!("Command rejected by user with key: {:?}", key_combo);
         ai_process.reject_command();
         return Outcome::Changed;
@@ -693,7 +626,13 @@ impl<'a> AppState<'a> {
       }
 
       // Error dialog uses deactivate key to close, arrow keys to scroll
-      if self.keybindings.matches_deactivate_overlay(key_combo) {
+      if self
+        .config
+        .interface
+        .key_bindings
+        .deactivate_overlay
+        .matches(key_combo)
+      {
         log::info!("Error dialog dismissed by user with key: {:?}", key_combo);
         ai_process.clear_error();
         return Outcome::Changed;
@@ -1128,74 +1067,83 @@ fn event(
       key_event @ KeyEvent {
         code,
         modifiers,
-        kind: crossterm::event::KeyEventKind::Press,
+        kind,
         ..
       },
     )) => 'm: {
       // Transform KeyEvent into KeyCombination using crokey combiner
-      let key_combo = if let Some(combo) =
-        state.key_combiner.transform(*key_event)
-      {
-        log::trace!("Key event transformed: {:?} -> {:?}", key_event, combo);
-        combo
-      } else {
-        log::trace!("Key event not yet complete (waiting for multi-key combo)");
-        break 'm Control::Continue;
-      };
+      let key_combo = state.key_combiner.transform(*key_event);
+      if let Some(key_combo) = key_combo {
+        log::trace!(
+          "Key event transformed: {:?} -> {:?}",
+          key_event,
+          key_combo
+        );
 
-      // Check for activate/deactivate overlay hotkeys (work in any mode)
-      if state.keybindings.matches_activate_overlay(key_combo)
-        && !state.ai_visible
-      {
-        log::info!("Activate overlay key pressed: {:?}", key_combo);
-        state.show_ai_modal()?;
-        log::info!("AI overlay shown");
-        break 'm Control::Changed;
-      } else if state.keybindings.matches_deactivate_overlay(key_combo)
-        && state.ai_visible
-      {
-        log::info!("Deactivate overlay key pressed: {:?}", key_combo);
+        // Check for activate/deactivate overlay hotkeys (work in any mode)
+        if state
+          .config
+          .interface
+          .key_bindings
+          .activate_overlay
+          .matches(key_combo)
+          && !state.ai_visible
+        {
+          log::info!("Activate overlay key pressed: {:?}", key_combo);
+          state.show_ai_modal()?;
+          log::info!("AI overlay shown");
+          break 'm Control::Changed;
+        }
+        if state
+          .config
+          .interface
+          .key_bindings
+          .deactivate_overlay
+          .matches(key_combo)
+          && state.ai_visible
+        {
+          log::info!("Deactivate overlay key pressed: {:?}", key_combo);
 
-        // Dismiss any active dialogs before closing overlay
-        if let Some(ref ai_process_arc) = state.ai_process {
-          if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-            if ai_process.error_message().is_some() {
-              log::debug!("Dismissing error dialog before closing overlay");
-              ai_process.clear_error();
-            }
-            if ai_process.pending_command().is_some() {
-              log::debug!("Dismissing approval dialog before closing overlay");
-              ai_process.reject_command();
+          // Dismiss any active dialogs before closing overlay
+          if let Some(ref ai_process_arc) = state.ai_process {
+            if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+              if ai_process.error_message().is_some() {
+                log::debug!("Dismissing error dialog before closing overlay");
+                ai_process.clear_error();
+              }
+              if ai_process.pending_command().is_some() {
+                log::debug!(
+                  "Dismissing approval dialog before closing overlay"
+                );
+                ai_process.reject_command();
+              }
             }
           }
-        }
 
-        // Always close the overlay when deactivate key is pressed
-        state.hide_ai_modal()?;
-        log::info!("AI overlay closed");
-        break 'm Control::Changed;
-      } else if !state.ai_visible {
-        // Route to shell when AI overlay not visible
-        let key = Key::new(*code, *modifiers);
-        state.shell.send_key(key)?;
-        Control::Continue
-      } else {
+          // Always close the overlay when deactivate key is pressed
+          state.hide_ai_modal()?;
+          log::info!("AI overlay closed");
+          break 'm Control::Changed;
+        }
+        if !state.ai_visible {
+          // TODO: Kitty enhanced keyboard capability mode support?
+          if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            // Route to shell when AI overlay not visible
+            let key = Key::new(*code, *modifiers);
+            state.shell.send_key(key)?;
+          }
+          break 'm Control::Continue;
+        }
         // Try handling focus events first (for tab navigation, etc.)
         if let AppEvent::Crossterm(cte) = event {
           event_flow!(break 'm focus.handle(cte, Regular));
         }
 
         // Handle approval dialog with highest priority (when pending command exists)
-        let approval_outcome = state.handle_approval_dialog_key(key_combo);
-        if approval_outcome.is_consumed() {
-          break 'm Control::from(approval_outcome);
-        }
+        event_flow!(break 'm state.handle_approval_dialog_key(key_combo));
 
         // Handle error dialog (second priority after approval dialog)
-        let error_outcome = state.handle_error_dialog_key(key_combo, *code);
-        if error_outcome.is_consumed() {
-          break 'm Control::from(error_outcome);
-        }
+        event_flow!(break 'm state.handle_error_dialog_key(key_combo, *code));
 
         // Route events based on focus
         log::trace!(
@@ -1324,6 +1272,7 @@ fn event(
           Control::Continue
         });
       }
+      Control::Continue
     }
     AppEvent::Crossterm(Event::Resize(cols, rows)) => {
       state.shell.resize(*rows, *cols)?;

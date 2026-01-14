@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import socket
 from http import HTTPStatus
 
@@ -12,8 +13,8 @@ from pydantic import ValidationError
 from pydantic_ai.ui import SSE_CONTENT_TYPE
 from pydantic_ai.ui.ag_ui import AGUIAdapter
 
-from .agent import TerminAIAgent
-from .config import ProviderConfig
+from .agent import TerminAIAgent, TerminalContext
+from .config import Provider, ProviderConfig
 from .forwarded_props import TerminAIForwardedProps
 
 logger = logging.getLogger(__name__)
@@ -123,9 +124,6 @@ def create_app() -> FastAPI:
             )
 
             # Create provider config from forwarded props
-            import os
-            from .config import Provider
-            from .agent import TerminalContext
 
             provider = Provider(forwarded_props.provider.lower())
 

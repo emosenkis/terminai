@@ -5,7 +5,6 @@
 
 use ag_ui_client::agent::RunAgentParams;
 use ag_ui_client::{Agent, HttpAgent};
-use ag_ui_core::types::context::Context;
 use ag_ui_core::types::message::Message;
 use ag_ui_core::types::tool::Tool;
 use anyhow::Result;
