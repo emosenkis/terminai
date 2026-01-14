@@ -1128,7 +1128,7 @@ fn event(
       key_event @ KeyEvent {
         code,
         modifiers,
-        kind: crossterm::event::KeyEventKind::Press,
+        kind: crossterm::event::KeyEventKind::Press | crossterm::event::KeyEventKind::Repeat,
         ..
       },
     )) => 'm: {
