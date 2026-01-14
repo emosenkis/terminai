@@ -23,6 +23,16 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
     - name: Cache Rust dependencies
       uses: actions/cache@v4
       with:
@@ -34,6 +44,20 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-test-
           ${{ runner.os }}-cargo-
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          python/.venv
+        key: ${{ runner.os }}-python-${{ hashFiles('python/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-python-
+
+    - name: Set up Python agent
+      run: |
+        cd python
+        uv sync --frozen
 
     - name: Run Rust tests
       run: cargo test --release -p termin --lib
