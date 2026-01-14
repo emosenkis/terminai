@@ -67,6 +67,12 @@ impl TermDriver {
       stdout.write_all(b"\x1B[?1006h")?;
     }
 
+    // Disable bracketed paste mode. Modern shells (e.g., zsh 5.1+) enable this by default,
+    // which causes iTerm2 to wrap pastes with escape sequences that our input parser doesn't
+    // recognize. We leave it disabled on exit; shells that use it will re-enable it themselves.
+    // See: https://archive.zhimingwang.org/blog/2015-09-21-zsh-51-and-bracketed-paste.html
+    stdout.write_all(b"\x1B[?2004l")?;
+
     // Query kitty keyboard protocol.
     stdout.write_all(b"\x1B[?u")?;
     // Query device.
