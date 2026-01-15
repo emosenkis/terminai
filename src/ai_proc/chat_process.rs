@@ -36,7 +36,6 @@ pub struct AIChatProcess {
   error_message: Option<String>,
   error_scroll_offset: u16,
   is_sending: bool,
-  scroll_offset: u16,
   /// Streaming response in progress (not yet in conversation history)
   streaming_response: Option<String>,
   /// Tool execution coordinator
@@ -121,7 +120,6 @@ impl AIChatProcess {
       error_message: None,
       error_scroll_offset: 0,
       is_sending: false,
-      scroll_offset: 0,
       streaming_response: None,
       coordinator,
       command_suggestions,
@@ -347,29 +345,9 @@ impl AIChatProcess {
     self.error_scroll_offset = self.error_scroll_offset.saturating_sub(amount);
   }
 
-  /// Get the current scroll offset
-  pub fn scroll_offset(&self) -> u16 {
-    self.scroll_offset
-  }
-
   /// Get the streaming response in progress (if any)
   pub fn streaming_response(&self) -> Option<&str> {
     self.streaming_response.as_deref()
-  }
-
-  /// Scroll up in the conversation
-  pub fn scroll_up(&mut self, amount: u16) {
-    self.scroll_offset = self.scroll_offset.saturating_add(amount);
-  }
-
-  /// Scroll down in the conversation
-  pub fn scroll_down(&mut self, amount: u16) {
-    self.scroll_offset = self.scroll_offset.saturating_sub(amount);
-  }
-
-  /// Reset scroll to bottom (most recent messages)
-  pub fn scroll_to_bottom(&mut self) {
-    self.scroll_offset = 0;
   }
 
   /// Check for pending command suggestions from tool calls

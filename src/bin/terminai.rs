@@ -1192,7 +1192,7 @@ fn event(
           && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
         {
           log::debug!("Enter pressed - sending message");
-          let input = state.ai_ui.get_input_value();
+          let input = state.ai_ui.get_input_value().trim().to_string();
 
           if !input.is_empty() {
             log::info!("Sending message to AI: {}", input);

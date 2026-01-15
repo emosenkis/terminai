@@ -5,6 +5,7 @@ use rat_text::text_area::{TextArea, TextAreaState};
 use rat_widget::clipper::{Clipper, ClipperState};
 use rat_widget::layout::GenericLayout;
 use rat_widget::scrolled::{SCROLLBAR_VERTICAL, Scroll};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tui::{
   buffer::Buffer,
   layout::{Constraint, Direction, Layout, Rect},
@@ -15,9 +16,23 @@ use tui::{
     ScrollbarState, StatefulWidget, Widget, Wrap,
   },
 };
-use tui_markdown::from_str;
 
 use super::chat_process::{AIChatProcess, MessageRole};
+
+/// Moon phases spinner frames for the loading animation
+const SPINNER_FRAMES: &[char] =
+  &['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+
+/// Get the current spinner frame based on system time
+fn get_spinner_frame() -> char {
+  let millis = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|d| d.as_millis())
+    .unwrap_or(0);
+  // Change frame every 100ms
+  let frame_index = (millis / 100) as usize % SPINNER_FRAMES.len();
+  SPINNER_FRAMES[frame_index]
+}
 
 /// Render the AI chat interface
 pub struct AIChatUI<'a> {
@@ -97,23 +112,18 @@ impl<'a> AIChatUI<'a> {
     // Build layout for clipper if needed
     let messages = process.conversation();
     let has_streaming = process.streaming_response().is_some();
-    let total_widgets = messages.len() + if has_streaming { 1 } else { 0 };
+    let total_widgets = messages.len();
 
     // Check if layout needs rebuild (message count changed)
-    let needs_rebuild = {
-      let layout = self.conversation_state.layout();
-      layout.widget_len() != total_widgets
-    };
+    let needs_rebuild = has_streaming
+      || process.is_sending()
+      || total_widgets != self.conversation_state.layout().widget_len();
 
     // Check if we're at the bottom BEFORE rebuilding layout
     // (so we can auto-scroll to the new bottom after adding content)
-    let was_at_bottom = if needs_rebuild {
-      let current_offset = self.conversation_state.vscroll.offset();
-      let current_max = self.conversation_state.vscroll.max_offset();
-      current_offset >= current_max
-    } else {
-      false
-    };
+    let was_at_bottom = needs_rebuild
+      && self.conversation_state.vscroll.offset()
+        >= self.conversation_state.vscroll.max_offset();
 
     if needs_rebuild {
       let mut layout = GenericLayout::new();
@@ -146,7 +156,7 @@ impl<'a> AIChatUI<'a> {
         let prefix_lines = 1;
         let content_lines = if matches!(msg.role, MessageRole::Assistant) {
           // Markdown rendering
-          let md_text = from_str(&msg.content);
+          let md_text = tui_markdown::from_str(&msg.content);
           md_text.lines.len()
         } else {
           // Plain text, count wrapped lines
@@ -229,7 +239,7 @@ impl<'a> AIChatUI<'a> {
         let mut lines = vec![Line::from(Span::styled(prefix, style))];
 
         if matches!(msg.role, MessageRole::Assistant) {
-          let md_text = from_str(&msg.content);
+          let md_text = tui_markdown::from_str(&msg.content);
           lines.extend(md_text.lines.into_iter().map(Line::from));
         } else {
           lines.push(Line::from(Span::raw(&msg.content)));
@@ -242,7 +252,10 @@ impl<'a> AIChatUI<'a> {
     }
 
     // Render streaming response if present
-    if let Some(streaming) = process.streaming_response() {
+    if let Some(streaming) = process
+      .streaming_response()
+      .or_else(|| if process.is_sending() { Some("") } else { None })
+    {
       let idx = messages.len();
       clip_buf.render_widget(idx, || {
         let prefix = "AI: ";
@@ -252,12 +265,12 @@ impl<'a> AIChatUI<'a> {
 
         let mut lines = vec![Line::from(Span::styled(prefix, style))];
 
-        let md_text = from_str(streaming);
+        let md_text = tui_markdown::from_str(streaming);
         lines.extend(md_text.lines.into_iter().map(Line::from));
 
         lines.push(Line::from("")); // Separator
         lines.push(Line::from(Span::styled(
-          "▌",
+          get_spinner_frame().to_string(),
           Style::default()
             .fg(Color::Green)
             .add_modifier(Modifier::BOLD),
