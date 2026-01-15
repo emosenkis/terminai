@@ -74,11 +74,16 @@ impl Shell {
       pixel_height: 0,
     })?;
 
+    // Get current working directory to pass to child shell
+    let cwd = std::env::current_dir()?;
+    log::debug!("Setting child shell CWD to: {:?}", cwd);
+
     // Build command
     let mut command = CommandBuilder::new(cmd);
     for arg in args {
       command.arg(arg);
     }
+    command.cwd(cwd);
     command.env("TERM", "xterm-256color");
     command.env("TERMINAI", "1");
 

@@ -1128,7 +1128,8 @@ fn event(
       }
       if !state.ai_visible {
         // TODO: Kitty enhanced keyboard capability mode support?
-        if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+        if *kind == KeyEventKind::Press {
+          // TODO: Handle repeat events?
           // Route to shell when AI overlay not visible
           let key = Key::new(*code, *modifiers);
           state.shell.send_key(key)?;
