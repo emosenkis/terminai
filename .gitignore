@@ -19,6 +19,7 @@ terminai_*.log
 .*.swp
 
 # Dependencies for reference
+/tmp-deps
 /deps
 
 # Python
