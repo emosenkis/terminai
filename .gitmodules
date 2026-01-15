@@ -4,3 +4,9 @@
 [submodule "rat-salsa"]
 	path = rat-salsa
 	url = https://github.com/emosenkis/rat-salsa.git
+[submodule "tmp-deps/deno"]
+	path = tmp-deps/deno
+	url = https://github.com/denoland/deno.git
+[submodule "tmp-deps/claude-agent-sdk-demos"]
+	path = tmp-deps/claude-agent-sdk-demos
+	url = https://github.com/anthropics/claude-agent-sdk-demos.git
