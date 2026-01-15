@@ -8,7 +8,9 @@ pub mod providers;
 pub mod terminal_context;
 pub mod tool_executor;
 
-pub use deno_client::{DenoChatStreamResponse, DenoLlmClient, ToolCallNotification};
+pub use deno_client::{
+  DenoChatStreamResponse, DenoLlmClient, ToolCallNotification,
+};
 pub use terminal_context::TerminalContext;
 pub use tool_executor::{
   CommandSuggestion, ToolCallId, ToolExecutionContext, ToolExecutionRequest,

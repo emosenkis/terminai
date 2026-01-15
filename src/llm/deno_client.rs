@@ -8,10 +8,11 @@
 
 use crate::deno::runtime::DenoAgent;
 use crate::deno::types::{
-  ChatOptions as DenoChatOptions, StreamMessage, TerminalContext as DenoTerminalContext,
+  ChatOptions as DenoChatOptions, StreamMessage,
+  TerminalContext as DenoTerminalContext,
 };
-use crate::llm::tool_executor::ToolExecutor;
 use crate::llm::TerminalContext;
+use crate::llm::tool_executor::ToolExecutor;
 use anyhow::{Context, Result};
 use futures::stream::Stream;
 use std::pin::Pin;
@@ -113,18 +114,14 @@ impl DenoLlmClient {
   /// Get the API key for the configured provider
   fn get_api_key(&self) -> Result<String> {
     match self.provider.as_str() {
-      "anthropic" => {
-        std::env::var("ANTHROPIC_API_KEY").context(
-          "ANTHROPIC_API_KEY environment variable not set. \
+      "anthropic" => std::env::var("ANTHROPIC_API_KEY").context(
+        "ANTHROPIC_API_KEY environment variable not set. \
                      Please set it to use the Anthropic provider.",
-        )
-      }
-      "openai" => {
-        std::env::var("OPENAI_API_KEY").context(
-          "OPENAI_API_KEY environment variable not set. \
+      ),
+      "openai" => std::env::var("OPENAI_API_KEY").context(
+        "OPENAI_API_KEY environment variable not set. \
                      Please set it to use the OpenAI provider.",
-        )
-      }
+      ),
       other => Err(anyhow::anyhow!(
         "Unsupported provider: {}. Currently only 'anthropic' is supported with the Deno backend.",
         other
@@ -288,7 +285,11 @@ async fn run_deno_agent_task(
                     tool_name,
                     tool_input,
                   } => {
-                    log::debug!("Tool call: {} with {:?}", tool_name, tool_input);
+                    log::debug!(
+                      "Tool call: {} with {:?}",
+                      tool_name,
+                      tool_input
+                    );
                     let _ = tool_tx.send(ToolCallNotification {
                       tool_name,
                       tool_input,
@@ -394,7 +395,11 @@ mod tests {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
     let version = client.version().await;
-    assert!(version.is_ok(), "Failed to get version: {:?}", version.err());
+    assert!(
+      version.is_ok(),
+      "Failed to get version: {:?}",
+      version.err()
+    );
     println!("Client version: {}", version.unwrap());
   }
 

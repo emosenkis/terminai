@@ -4,12 +4,15 @@
  * These operations are registered with deno_core and can be called
  * from JavaScript via `Deno.core.ops.op_name(args)`.
  */
-
 // Import everything from deno_core for macro support
 use deno_core::*;
 
-use crate::deno::types::{FetchOptions, FetchResponse, ReadScrollbackArgs, SuggestCommandArgs};
-use crate::llm::tool_executor::{ToolCallId, ToolExecutionRequest, ToolExecutor};
+use crate::deno::types::{
+  FetchOptions, FetchResponse, ReadScrollbackArgs, SuggestCommandArgs,
+};
+use crate::llm::tool_executor::{
+  ToolCallId, ToolExecutionRequest, ToolExecutor,
+};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -131,7 +134,10 @@ pub async fn op_fetch(
 
   let status = response.status().as_u16();
   let body = response.text().await.map_err(|e| {
-    deno_error::JsErrorBox::generic(format!("Failed to read response body: {}", e))
+    deno_error::JsErrorBox::generic(format!(
+      "Failed to read response body: {}",
+      e
+    ))
   })?;
 
   Ok(FetchResponse { status, body })
