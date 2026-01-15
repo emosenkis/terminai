@@ -1,19 +1,53 @@
-// TERMIN.AI: Client-side tool execution for AG-UI tools
+// TERMIN.AI: Client-side tool execution
 //
 // This module handles executing tools (suggest_command, read_scrollback) on the Rust side
-// when the LLM requests them via AG-UI protocol.
+// when the LLM requests them via the embedded Deno agent.
 
-use ag_ui_core::types::ids::ToolCallId;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::SystemTime;
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use crate::command::{CommandExecutor, RiskLevel, SafetyValidator};
 use crate::shell::ReplySender;
 use crate::vt100;
+
+/// Unique identifier for a tool call
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ToolCallId(String);
+
+impl ToolCallId {
+  /// Create a new random tool call ID
+  pub fn new() -> Self {
+    Self(Uuid::new_v4().to_string())
+  }
+
+  /// Create a tool call ID from a string
+  pub fn from_string(s: impl Into<String>) -> Self {
+    Self(s.into())
+  }
+
+  /// Get the string representation
+  pub fn as_str(&self) -> &str {
+    &self.0
+  }
+}
+
+impl Default for ToolCallId {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
+impl std::fmt::Display for ToolCallId {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
 
 /// Request to execute a tool (sent from StreamingSubscriber to application layer)
 #[derive(Debug, Clone)]
@@ -281,7 +315,7 @@ mod tests {
     );
 
     let request = ToolExecutionRequest {
-      tool_call_id: ToolCallId::random(),
+      tool_call_id: ToolCallId::new(),
       tool_name: "suggest_command".to_string(),
       args,
     };
@@ -320,7 +354,7 @@ mod tests {
     );
 
     let request = ToolExecutionRequest {
-      tool_call_id: ToolCallId::random(),
+      tool_call_id: ToolCallId::new(),
       tool_name: "suggest_command".to_string(),
       args,
     };
@@ -345,7 +379,7 @@ mod tests {
     let executor = ToolExecutor::new(context);
 
     let request = ToolExecutionRequest {
-      tool_call_id: ToolCallId::random(),
+      tool_call_id: ToolCallId::new(),
       tool_name: "read_scrollback".to_string(),
       args: HashMap::new(),
     };
@@ -368,7 +402,7 @@ mod tests {
     let executor = ToolExecutor::new(context);
 
     let request = ToolExecutionRequest {
-      tool_call_id: ToolCallId::random(),
+      tool_call_id: ToolCallId::new(),
       tool_name: "unknown_tool".to_string(),
       args: HashMap::new(),
     };

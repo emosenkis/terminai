@@ -4,10 +4,9 @@ use tokio::sync::Mutex;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
 use crate::llm::{
-  AgUiClient, CommandSuggestion, Message as AgUiMessage, TerminalContext,
-  ToolCoordinator, ToolExecutionContext, ToolExecutionEvent, ToolExecutor,
+  CommandSuggestion, DenoChatStreamResponse, DenoLlmClient, TerminalContext,
+  ToolCallNotification, ToolExecutionContext, ToolExecutor,
 };
-use crate::llm_subprocess::LlmSubprocessConfig;
 use crate::privacy::PrivacyFilter;
 
 /// Message in the chat conversation
@@ -26,7 +25,7 @@ pub enum MessageRole {
 
 /// AI chat process state
 pub struct AIChatProcess {
-  llm_client: Arc<AgUiClient>,
+  llm_client: DenoLlmClient,
   conversation: Vec<Message>,
   command_parser: CommandParser,
   safety_validator: SafetyValidator,
@@ -39,13 +38,21 @@ pub struct AIChatProcess {
   scroll_offset: u16,
   /// Streaming response in progress (not yet in conversation history)
   streaming_response: Option<String>,
-  /// Tool execution coordinator
-  coordinator: Arc<ToolCoordinator>,
   /// Command suggestions from LLM tool calls
   command_suggestions: Arc<Mutex<Vec<CommandSuggestion>>>,
-  /// Tool execution event receiver
-  tool_event_rx:
-    Option<tokio::sync::mpsc::UnboundedReceiver<ToolExecutionEvent>>,
+  /// Tool notification receiver (for UI feedback about tool calls)
+  tool_notification_rx:
+    Option<tokio::sync::mpsc::UnboundedReceiver<ToolCallNotification>>,
+  /// Provider name
+  provider: String,
+  /// Model name
+  model: String,
+  /// VT parser for scrollback (stored for recreating client)
+  vt_parser: Option<
+    std::sync::Arc<
+      std::sync::RwLock<crate::vt100::Parser<crate::shell::ReplySender>>,
+    >,
+  >,
 }
 
 #[derive(Debug, Clone)]
@@ -58,39 +65,28 @@ pub struct PendingCommand {
 impl AIChatProcess {
   /// Create a new AI chat process
   ///
-  /// This spawns a Python subprocess running the LLM agent.
+  /// Uses the embedded Deno runtime with TypeScript agent.
   /// Provider and model must be explicitly provided.
   ///
   /// **Deprecated**: Use `new_with_provider()` instead.
   pub async fn new() -> Result<Self> {
-    // Default to ollama/functiongemma for backward compatibility
-    Self::new_with_provider("ollama".to_string(), "functiongemma".to_string())
-      .await
+    // Default to anthropic/claude-sonnet-4-5 for the Deno backend
+    Self::new_with_provider(
+      "anthropic".to_string(),
+      "claude-sonnet-4-5".to_string(),
+    )
+    .await
   }
 
   /// Create a new AI chat process with provider and model
   ///
-  /// This spawns a Python subprocess with the specified provider and model.
+  /// Uses the embedded Deno runtime with TypeScript agent.
   pub async fn new_with_provider(
     provider: String,
     model: String,
   ) -> Result<Self> {
-    let config = LlmSubprocessConfig::default();
-    Self::new_with_config(config, provider, model).await
-  }
-
-  /// Create a new AI chat process with custom subprocess configuration
-  pub async fn new_with_config(
-    config: LlmSubprocessConfig,
-    provider: String,
-    model: String,
-  ) -> Result<Self> {
-    let llm_client =
-      Arc::new(AgUiClient::spawn(config, provider, model).await?);
-
-    // Create shared state for tool execution
+    // Create shared state for command suggestions
     let command_suggestions = Arc::new(Mutex::new(Vec::new()));
-    let message_history = Arc::new(Mutex::new(Vec::new()));
 
     // Create tool executor
     let tool_context = ToolExecutionContext {
@@ -99,15 +95,11 @@ impl AIChatProcess {
       command_executor: crate::command::CommandExecutor::new(),
       safety_validator: crate::command::SafetyValidator::new(),
     };
-    let tool_executor = ToolExecutor::new(tool_context);
+    let tool_executor = Arc::new(ToolExecutor::new(tool_context));
 
-    // Create tool coordinator
-    let coordinator = Arc::new(ToolCoordinator::new(
-      Arc::clone(&llm_client),
-      tool_executor,
-      message_history,
-      Arc::clone(&command_suggestions),
-    ));
+    // Create Deno LLM client
+    let llm_client =
+      DenoLlmClient::new(tool_executor, &provider, &model).await?;
 
     Ok(Self {
       llm_client,
@@ -122,9 +114,11 @@ impl AIChatProcess {
       is_sending: false,
       scroll_offset: 0,
       streaming_response: None,
-      coordinator,
       command_suggestions,
-      tool_event_rx: None,
+      tool_notification_rx: None,
+      provider,
+      model,
+      vt_parser: None,
     })
   }
 
@@ -148,9 +142,7 @@ impl AIChatProcess {
     &mut self,
     user_message: &str,
     context: TerminalContext,
-  ) -> Result<crate::llm::ChatStreamResponse> {
-    use ag_ui_core::types::ids::MessageId;
-
+  ) -> Result<DenoChatStreamResponse> {
     if user_message.is_empty() {
       return Err(anyhow::anyhow!("Empty message"));
     }
@@ -166,16 +158,6 @@ impl AIChatProcess {
       content: user_message.to_string(),
     });
 
-    // Add user message to AG-UI message history for tool execution
-    self
-      .coordinator
-      .add_message(AgUiMessage::User {
-        id: MessageId::random(),
-        content: user_message.to_string(),
-        name: None,
-      })
-      .await;
-
     // Filter sensitive information from context
     let filtered_context = TerminalContext {
       history_lines: self.privacy_filter.filter_lines(&context.history_lines),
@@ -185,35 +167,22 @@ impl AIChatProcess {
       shell: context.shell.clone(),
     };
 
-    // Get streaming response with text and tool requests from AG-UI client
-    // Pass message history so tool calls can be added to it
-    let message_history = self.coordinator.get_history_ref();
+    // Get streaming response from Deno client
     let response = self
       .llm_client
-      .chat_stream(user_message, Some(message_history), Some(&filtered_context))
+      .chat_stream(user_message, Some(&filtered_context))
       .await?;
 
-    // Spawn tool execution loop in background
-    let coordinator = Arc::clone(&self.coordinator);
-    let tool_rx = response.tool_rx;
-    let (event_tx, event_rx) =
-      tokio::sync::mpsc::unbounded_channel::<ToolExecutionEvent>();
+    // Store tool notification receiver for UI feedback
+    self.tool_notification_rx = Some(response.tool_notifications);
 
-    tokio::spawn(async move {
-      crate::llm::run_tool_execution_loop(coordinator, tool_rx, event_tx).await;
-    });
+    // Return a new response with the text stream
+    // (tool_notifications are consumed above, so create a dummy channel)
+    let (_dummy_tx, dummy_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    // Store the event receiver for checking tool events
-    self.tool_event_rx = Some(event_rx);
-
-    // Return just the text stream in ChatStreamResponse format
-    // (tool_rx is consumed by background loop, so create a dummy channel)
-    let (_dummy_tool_tx, dummy_tool_rx) =
-      tokio::sync::mpsc::unbounded_channel();
-
-    Ok(crate::llm::ChatStreamResponse {
+    Ok(DenoChatStreamResponse {
       text_stream: response.text_stream,
-      tool_rx: dummy_tool_rx,
+      tool_notifications: dummy_rx,
     })
   }
 
@@ -285,7 +254,7 @@ impl AIChatProcess {
     });
 
     // Clear suggestions after converting to pending
-    self.coordinator.clear_suggestions().await;
+    self.clear_suggestions().await;
   }
 
   /// Approve the pending command
@@ -373,24 +342,27 @@ impl AIChatProcess {
 
   /// Check for pending command suggestions from tool calls
   pub async fn has_command_suggestions(&self) -> bool {
-    self.coordinator.has_suggestions().await
+    let suggestions = self.command_suggestions.lock().await;
+    !suggestions.is_empty()
   }
 
   /// Get the latest command suggestion from tool calls
   pub async fn get_latest_suggestion(&self) -> Option<CommandSuggestion> {
-    self.coordinator.get_latest_suggestion().await
+    let suggestions = self.command_suggestions.lock().await;
+    suggestions.last().cloned()
   }
 
   /// Clear all command suggestions
   pub async fn clear_suggestions(&mut self) {
-    self.coordinator.clear_suggestions().await
+    let mut suggestions = self.command_suggestions.lock().await;
+    suggestions.clear();
   }
 
-  /// Check for tool execution events (non-blocking)
+  /// Check for tool call notifications (non-blocking, for UI feedback)
   ///
-  /// Returns the next tool event if one is available.
-  pub fn try_recv_tool_event(&mut self) -> Option<ToolExecutionEvent> {
-    if let Some(ref mut rx) = self.tool_event_rx {
+  /// Returns the next tool notification if one is available.
+  pub fn try_recv_tool_notification(&mut self) -> Option<ToolCallNotification> {
+    if let Some(ref mut rx) = self.tool_notification_rx {
       rx.try_recv().ok()
     } else {
       None
@@ -400,32 +372,35 @@ impl AIChatProcess {
   /// Set the VT parser for scrollback reading
   ///
   /// This should be called after initialization with the shell's VT parser.
+  /// It recreates the Deno client with the new parser in the tool executor.
   pub async fn set_vt_parser(
     &mut self,
     vt_parser: std::sync::Arc<
       std::sync::RwLock<crate::vt100::Parser<crate::shell::ReplySender>>,
     >,
   ) {
-    // Update the coordinator's tool executor context
-    // Note: We need to reconstruct the coordinator with the new VT parser
-    let command_suggestions = Arc::clone(&self.command_suggestions);
-    let message_history =
-      Arc::new(Mutex::new(self.coordinator.get_history().await));
+    // Store the parser for potential future recreation
+    self.vt_parser = Some(vt_parser.clone());
 
+    // Create new tool executor with VT parser
     let tool_context = ToolExecutionContext {
       vt_parser: Some(vt_parser),
-      command_suggestions: Arc::clone(&command_suggestions),
+      command_suggestions: Arc::clone(&self.command_suggestions),
       command_executor: crate::command::CommandExecutor::new(),
       safety_validator: crate::command::SafetyValidator::new(),
     };
-    let tool_executor = ToolExecutor::new(tool_context);
+    let tool_executor = Arc::new(ToolExecutor::new(tool_context));
 
-    self.coordinator = Arc::new(ToolCoordinator::new(
-      Arc::clone(&self.llm_client),
-      tool_executor,
-      message_history,
-      command_suggestions,
-    ));
+    // Recreate the Deno client with the new tool executor
+    match DenoLlmClient::new(tool_executor, &self.provider, &self.model).await {
+      Ok(new_client) => {
+        self.llm_client = new_client;
+        log::info!("Recreated Deno LLM client with VT parser");
+      }
+      Err(e) => {
+        log::error!("Failed to recreate Deno LLM client with VT parser: {}", e);
+      }
+    }
   }
 }
 
@@ -435,13 +410,9 @@ mod tests {
 
   #[tokio::test]
   async fn test_activation() {
-    use crate::llm_subprocess::LlmSubprocessConfig;
-
-    let config = LlmSubprocessConfig::for_testing();
-    let mut process = AIChatProcess::new_with_config(
-      config,
-      "ollama".to_string(),
-      "functiongemma".to_string(),
+    let mut process = AIChatProcess::new_with_provider(
+      "anthropic".to_string(),
+      "claude-sonnet-4-5".to_string(),
     )
     .await
     .expect("Failed to create AI chat process");
@@ -453,5 +424,44 @@ mod tests {
 
     process.deactivate();
     assert!(!process.is_active());
+  }
+
+  #[tokio::test]
+  async fn test_conversation_management() {
+    let mut process = AIChatProcess::new_with_provider(
+      "anthropic".to_string(),
+      "claude-sonnet-4-5".to_string(),
+    )
+    .await
+    .expect("Failed to create AI chat process");
+
+    // Initially empty
+    assert!(process.conversation().is_empty());
+
+    // Simulate adding messages
+    process.conversation.push(Message {
+      role: MessageRole::User,
+      content: "Hello".to_string(),
+    });
+
+    assert_eq!(process.conversation().len(), 1);
+
+    // Clear conversation
+    process.clear_conversation();
+    assert!(process.conversation().is_empty());
+  }
+
+  #[tokio::test]
+  async fn test_command_suggestions() {
+    let process = AIChatProcess::new_with_provider(
+      "anthropic".to_string(),
+      "claude-sonnet-4-5".to_string(),
+    )
+    .await
+    .expect("Failed to create AI chat process");
+
+    // Initially no suggestions
+    assert!(!process.has_command_suggestions().await);
+    assert!(process.get_latest_suggestion().await.is_none());
   }
 }

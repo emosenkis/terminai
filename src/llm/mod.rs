@@ -1,29 +1,19 @@
 // TERMIN.AI: LLM-related types and utilities
+//
+// This module provides the Deno-based LLM client for communication with
+// Claude and other LLMs via the embedded TypeScript agent.
 
-pub mod client;
-pub mod forwarded_props;
+pub mod deno_client;
 pub mod providers;
-pub mod subscriber;
 pub mod terminal_context;
-pub mod tool_coordinator;
 pub mod tool_executor;
 
-pub use client::{AgUiClient, ChatStreamResponse};
-pub use forwarded_props::TerminAIForwardedProps;
+pub use deno_client::{DenoChatStreamResponse, DenoLlmClient, ToolCallNotification};
 pub use terminal_context::TerminalContext;
-pub use tool_coordinator::{
-  ToolCoordinator, ToolExecutionEvent, run_tool_execution_loop,
-};
 pub use tool_executor::{
-  CommandSuggestion, ToolExecutionContext, ToolExecutionRequest, ToolExecutor,
-  ToolResult,
+  CommandSuggestion, ToolCallId, ToolExecutionContext, ToolExecutionRequest,
+  ToolExecutor, ToolResult,
 };
-
-// Re-export official AG-UI types
-pub use ag_ui_core::event::Event as AgUiEvent;
-pub use ag_ui_core::types::context::Context;
-pub use ag_ui_core::types::message::Message;
-pub use ag_ui_core::types::tool::Tool;
 
 // Re-export Provider enum
 pub use providers::Provider;

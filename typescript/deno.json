@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.ns"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "imports": {
+    "@anthropic-ai/claude-agent-sdk": "npm:@anthropic-ai/claude-agent-sdk@^0.2.0",
+    "zod": "npm:zod@^3.22.0"
+  },
+  "tasks": {
+    "test": "deno test --allow-all",
+    "check": "deno check agent/*.ts"
+  },
+  "fmt": {
+    "semiColons": true,
+    "singleQuote": false
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

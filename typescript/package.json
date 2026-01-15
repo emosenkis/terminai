@@ -1,0 +1,23 @@
+{
+  "name": "terminai-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "build:debug": "vite build --mode development",
+    "build:release": "vite build --mode production",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "stream-browserify": "^3.0.0",
+    "typescript": "^5.7.0",
+    "unenv": "^1.10.0",
+    "vite": "^6.1.0",
+    "vite-plugin-node-polyfills": "^0.23.0"
+  }
+}

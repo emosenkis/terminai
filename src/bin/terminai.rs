@@ -7,7 +7,6 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
-use termin::llm::ToolExecutionEvent;
 use tokio::sync::{
   Mutex,
   mpsc::{self, UnboundedReceiver},
@@ -988,62 +987,34 @@ fn event(
   // Track if any state changed requiring re-render
   let mut shell_changed = false;
 
-  // Process tool execution events from AI
-  // Check for tool events and handle command suggestions
+  // Process tool call notifications from AI (for UI feedback)
+  // Tool execution happens internally in the Deno agent, but we get notifications
   if let Some(ref ai_process_arc) = state.ai_process {
     // Use try_lock to avoid blocking - this is a synchronous event loop
     if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-      // Check for tool execution events (non-blocking)
-      if let Some(tool_event) = ai_process.try_recv_tool_event() {
-        match tool_event {
-          ToolExecutionEvent::ToolExecuted { tool_name } => {
-            log::info!("Tool executed: {}", tool_name);
+      // Check for tool call notifications (non-blocking)
+      if let Some(notification) = ai_process.try_recv_tool_notification() {
+        log::info!("Tool called: {}", notification.tool_name);
 
-            // Check if it was a suggest_command tool
-            if tool_name == "suggest_command" {
-              log::info!("Command suggested, spawning checker task");
+        // Check if it was a suggest_command tool - retrieve the suggestion
+        if notification.tool_name == "suggest_command" {
+          log::info!("Command suggested, spawning checker task");
 
-              // Spawn async task to retrieve and display the suggestion
-              let ai_process_clone = Arc::clone(ai_process_arc);
-              ctx.spawn_async(async move {
-                let mut ai = ai_process_clone.lock().await;
-                if let Some(suggestion) = ai.get_latest_suggestion().await {
-                  log::info!(
-                    "Retrieved suggestion: {} (risk: {:?})",
-                    suggestion.command,
-                    suggestion.risk_level
-                  );
-                  // Convert to pending command for approval UI
-                  ai.set_pending_command(suggestion).await;
-                }
-                Ok(Control::Changed)
-              });
+          // Spawn async task to retrieve and display the suggestion
+          let ai_process_clone = Arc::clone(ai_process_arc);
+          ctx.spawn_async(async move {
+            let mut ai = ai_process_clone.lock().await;
+            if let Some(suggestion) = ai.get_latest_suggestion().await {
+              log::info!(
+                "Retrieved suggestion: {} (risk: {:?})",
+                suggestion.command,
+                suggestion.risk_level
+              );
+              // Convert to pending command for approval UI
+              ai.set_pending_command(suggestion).await;
             }
-          }
-          ToolExecutionEvent::ContinuedTextChunk { chunk } => {
-            log::debug!("Continued text: {}", chunk);
-            // Ensure streaming response is initialized for continued stream
-            if ai_process.streaming_response().is_none() {
-              ai_process.start_continued_streaming();
-            }
-            // Append to AI process streaming response
-            ai_process.append_streaming_token(chunk);
-            shell_changed = true; // Trigger re-render
-          }
-          ToolExecutionEvent::ContinuedStreamComplete { full_response } => {
-            log::info!(
-              "Continued response complete: {} chars",
-              full_response.len()
-            );
-            // Complete the streaming with the full response
-            ai_process.complete_streaming(full_response);
-            shell_changed = true; // Trigger re-render
-          }
-          ToolExecutionEvent::Error { message } => {
-            log::error!("Tool execution error: {}", message);
-            ai_process.set_error(format!("Tool execution failed: {}", message));
-            shell_changed = true; // Trigger re-render
-          }
+            Ok(Control::Changed)
+          });
         }
       }
     }
