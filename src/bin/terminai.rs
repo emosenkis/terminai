@@ -1073,7 +1073,9 @@ fn event(
     )) => 'm: {
       // Transform KeyEvent into KeyCombination using crokey combiner
       let key_combo = state.key_combiner.transform(*key_event);
-      if let Some(key_combo) = key_combo {
+      if let Some(key_combo) = key_combo
+        && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+      {
         log::trace!(
           "Key event transformed: {:?} -> {:?}",
           key_event,
@@ -1128,8 +1130,7 @@ fn event(
       }
       if !state.ai_visible {
         // TODO: Kitty enhanced keyboard capability mode support?
-        if *kind == KeyEventKind::Press {
-          // TODO: Handle repeat events?
+        if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
           // Route to shell when AI overlay not visible
           let key = Key::new(*code, *modifiers);
           state.shell.send_key(key)?;
