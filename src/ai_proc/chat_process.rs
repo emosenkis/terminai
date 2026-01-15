@@ -1,11 +1,15 @@
 use anyhow::Result;
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
 use crate::command::{CommandParser, RiskLevel, SafetyValidator};
 use crate::llm::{
   AgUiClient, CommandSuggestion, Message as AgUiMessage, TerminalContext,
-  ToolCoordinator, ToolExecutionContext, ToolExecutionEvent, ToolExecutor,
+  ToolCallDisplay, ToolCallStatus, ToolCoordinator, ToolExecutionContext,
+  ToolExecutionEvent, ToolExecutor,
 };
 use crate::llm_subprocess::LlmSubprocessConfig;
 use crate::privacy::PrivacyFilter;
@@ -24,10 +28,19 @@ pub enum MessageRole {
   System,
 }
 
+/// An entry in the conversation - either a message or a tool call
+#[derive(Debug, Clone)]
+pub enum ConversationEntry {
+  /// A text message from user/assistant/system
+  Message(Message),
+  /// A tool call with its status and results
+  ToolCall(ToolCallDisplay),
+}
+
 /// AI chat process state
 pub struct AIChatProcess {
   llm_client: Arc<AgUiClient>,
-  conversation: Vec<Message>,
+  conversation: Vec<ConversationEntry>,
   command_parser: CommandParser,
   safety_validator: SafetyValidator,
   privacy_filter: PrivacyFilter,
@@ -158,10 +171,10 @@ impl AIChatProcess {
     self.streaming_response = Some(String::new());
 
     // Add user message to conversation (for local UI display)
-    self.conversation.push(Message {
+    self.conversation.push(ConversationEntry::Message(Message {
       role: MessageRole::User,
       content: user_message.to_string(),
-    });
+    }));
 
     // NOTE: User message is added to AG-UI message history in client.rs chat_stream()
     // to avoid duplication. Don't add it here.
@@ -226,10 +239,10 @@ impl AIChatProcess {
     self.is_sending = false;
 
     // Add assistant response to local conversation (for UI display)
-    self.conversation.push(Message {
+    self.conversation.push(ConversationEntry::Message(Message {
       role: MessageRole::Assistant,
       content: full_response.clone(),
-    });
+    }));
 
     // Add assistant response to AG-UI message history (for LLM context)
     // This ensures the LLM knows about previous assistant responses
@@ -262,10 +275,10 @@ impl AIChatProcess {
     self.is_sending = false;
 
     // Add assistant response to local conversation (for UI display)
-    self.conversation.push(Message {
+    self.conversation.push(ConversationEntry::Message(Message {
       role: MessageRole::Assistant,
       content: full_response.clone(),
-    });
+    }));
 
     // Check for commands in response
     self.check_for_commands(&full_response, None);
@@ -319,7 +332,7 @@ impl AIChatProcess {
   }
 
   /// Get the conversation history
-  pub fn conversation(&self) -> &[Message] {
+  pub fn conversation(&self) -> &[ConversationEntry] {
     &self.conversation
   }
 
@@ -327,6 +340,57 @@ impl AIChatProcess {
   pub fn clear_conversation(&mut self) {
     self.conversation.clear();
     self.awaiting_approval = None;
+  }
+
+  /// Handle a tool call starting
+  pub fn add_tool_call_started(
+    &mut self,
+    tool_call_id: String,
+    tool_name: String,
+    args: HashMap<String, JsonValue>,
+  ) {
+    let display = ToolCallDisplay::new(tool_call_id, tool_name, args);
+    self.conversation.push(ConversationEntry::ToolCall(display));
+  }
+
+  /// Handle a tool call completing successfully
+  pub fn complete_tool_call(
+    &mut self,
+    tool_call_id: &str,
+    result_content: String,
+    duration_ms: u64,
+  ) {
+    // Find the tool call and update it
+    for entry in self.conversation.iter_mut().rev() {
+      if let ConversationEntry::ToolCall(display) = entry {
+        if display.id == tool_call_id {
+          display.status = ToolCallStatus::Success;
+          display.result_content = Some(result_content);
+          display.duration = Some(Duration::from_millis(duration_ms));
+          return;
+        }
+      }
+    }
+  }
+
+  /// Handle a tool call failing
+  pub fn fail_tool_call(
+    &mut self,
+    tool_call_id: &str,
+    error_message: String,
+    duration_ms: u64,
+  ) {
+    // Find the tool call and update it
+    for entry in self.conversation.iter_mut().rev() {
+      if let ConversationEntry::ToolCall(display) = entry {
+        if display.id == tool_call_id {
+          display.status = ToolCallStatus::Failed;
+          display.error_message = Some(error_message);
+          display.duration = Some(Duration::from_millis(duration_ms));
+          return;
+        }
+      }
+    }
   }
 
   /// Get the current error message, if any

@@ -13,6 +13,16 @@ use crate::llm::{
   ToolExecutor,
 };
 
+/// Result of processing a tool request
+pub struct ToolProcessingResult {
+  /// The tool execution result content
+  pub result_content: String,
+  /// Whether the tool execution failed
+  pub is_error: bool,
+  /// The continued response stream from the LLM
+  pub continued_response: ChatStreamResponse,
+}
+
 /// Tool coordinator that manages the tool execution lifecycle
 pub struct ToolCoordinator {
   client: Arc<AgUiClient>,
@@ -39,11 +49,11 @@ impl ToolCoordinator {
   /// Process a single tool execution request
   ///
   /// Executes the tool and submits the result back to the LLM.
-  /// Returns the continued response stream for further processing.
+  /// Returns the tool result and continued response stream for further processing.
   pub async fn process_tool_request(
     &self,
     request: ToolExecutionRequest,
-  ) -> Result<ChatStreamResponse> {
+  ) -> Result<ToolProcessingResult> {
     log::info!(
       "Processing tool request: {} (id: {:?})",
       request.tool_name,
@@ -58,11 +68,14 @@ impl ToolCoordinator {
     // 1. Execute the tool
     let result = self.executor.execute_tool(request).await;
 
-    if result.is_error {
+    let result_content = result.content.clone();
+    let is_error = result.is_error;
+
+    if is_error {
       log::error!(
         "Tool execution failed: {:?} - {}",
         result.tool_call_id,
-        result.content
+        result_content
       );
     } else {
       log::info!("Tool execution complete: {:?}", result.tool_call_id);
@@ -74,7 +87,11 @@ impl ToolCoordinator {
       .submit_tool_result(Arc::clone(&self.message_history), result, None)
       .await?;
 
-    Ok(continued_response)
+    Ok(ToolProcessingResult {
+      result_content,
+      is_error,
+      continued_response,
+    })
   }
 
   /// Check if there are pending command suggestions
@@ -130,23 +147,54 @@ pub async fn run_tool_execution_loop(
   mut tool_rx: tokio::sync::mpsc::UnboundedReceiver<ToolExecutionRequest>,
   event_sender: tokio::sync::mpsc::UnboundedSender<ToolExecutionEvent>,
 ) {
+  use std::time::Instant;
+
   log::info!("Tool execution loop started");
 
   while let Some(request) = tool_rx.recv().await {
     let tool_name = request.tool_name.clone();
+    let tool_call_id = format!("{:?}", request.tool_call_id);
+    let args = request.args.clone();
     log::info!("Received tool request: {}", tool_name);
+
+    // Notify UI that tool execution is starting
+    let _ = event_sender.send(ToolExecutionEvent::ToolCallStarted {
+      tool_call_id: tool_call_id.clone(),
+      tool_name: tool_name.clone(),
+      args: args.clone(),
+    });
+
+    // Track execution time
+    let start_time = Instant::now();
 
     // Process the tool request
     match coordinator.process_tool_request(request).await {
-      Ok(continued_response) => {
+      Ok(processing_result) => {
+        let duration_ms = start_time.elapsed().as_millis() as u64;
+
         // Notify UI that tool execution completed
-        let _ = event_sender.send(ToolExecutionEvent::ToolExecuted {
-          tool_name: tool_name.clone(),
-        });
+        if processing_result.is_error {
+          let _ = event_sender.send(ToolExecutionEvent::ToolFailed {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            args: args.clone(),
+            error_message: processing_result.result_content.clone(),
+            duration_ms,
+          });
+        } else {
+          let _ = event_sender.send(ToolExecutionEvent::ToolExecuted {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            args: args.clone(),
+            result_content: processing_result.result_content.clone(),
+            duration_ms,
+          });
+        }
 
         // Handle continued response stream
-        let mut text_stream = continued_response.text_stream;
-        let mut continued_tool_rx = continued_response.tool_rx;
+        let mut text_stream = processing_result.continued_response.text_stream;
+        let mut continued_tool_rx =
+          processing_result.continued_response.tool_rx;
 
         // Collect continued text response
         let coordinator_clone = Arc::clone(&coordinator);
@@ -225,9 +273,14 @@ pub async fn run_tool_execution_loop(
         });
       }
       Err(e) => {
+        let duration_ms = start_time.elapsed().as_millis() as u64;
         log::error!("Error processing tool request: {}", e);
-        let _ = event_sender.send(ToolExecutionEvent::Error {
-          message: format!("{}", e),
+        let _ = event_sender.send(ToolExecutionEvent::ToolFailed {
+          tool_call_id,
+          tool_name,
+          args,
+          error_message: format!("{}", e),
+          duration_ms,
         });
       }
     }
@@ -239,12 +292,32 @@ pub async fn run_tool_execution_loop(
 /// Events emitted by the tool execution system
 #[derive(Debug, Clone)]
 pub enum ToolExecutionEvent {
-  /// A tool was executed
-  ToolExecuted { tool_name: String },
+  /// A tool call has started (for UI to show "running" state)
+  ToolCallStarted {
+    tool_call_id: String,
+    tool_name: String,
+    args: std::collections::HashMap<String, serde_json::Value>,
+  },
+  /// A tool was executed successfully
+  ToolExecuted {
+    tool_call_id: String,
+    tool_name: String,
+    args: std::collections::HashMap<String, serde_json::Value>,
+    result_content: String,
+    duration_ms: u64,
+  },
+  /// A tool execution failed
+  ToolFailed {
+    tool_call_id: String,
+    tool_name: String,
+    args: std::collections::HashMap<String, serde_json::Value>,
+    error_message: String,
+    duration_ms: u64,
+  },
   /// Continued text chunk from LLM after tool result
   ContinuedTextChunk { chunk: String },
   /// Continued response stream completed
   ContinuedStreamComplete { full_response: String },
-  /// Error during tool execution
+  /// Error during tool execution (not specific to a tool call)
   Error { message: String },
 }

@@ -996,8 +996,40 @@ fn event(
       // Check for tool execution events (non-blocking)
       if let Some(tool_event) = ai_process.try_recv_tool_event() {
         match tool_event {
-          ToolExecutionEvent::ToolExecuted { tool_name } => {
-            log::info!("Tool executed: {}", tool_name);
+          ToolExecutionEvent::ToolCallStarted {
+            tool_call_id,
+            tool_name,
+            args,
+          } => {
+            log::info!(
+              "Tool call started: {} (id: {})",
+              tool_name,
+              tool_call_id
+            );
+            // Add tool call to conversation in "running" state
+            ai_process.add_tool_call_started(tool_call_id, tool_name, args);
+            shell_changed = true;
+          }
+          ToolExecutionEvent::ToolExecuted {
+            tool_call_id,
+            tool_name,
+            args: _,
+            result_content,
+            duration_ms,
+          } => {
+            log::info!(
+              "Tool executed: {} (id: {}, {}ms)",
+              tool_name,
+              tool_call_id,
+              duration_ms
+            );
+            // Update tool call in conversation to "success" state
+            ai_process.complete_tool_call(
+              &tool_call_id,
+              result_content,
+              duration_ms,
+            );
+            shell_changed = true;
 
             // Check if it was a suggest_command tool
             if tool_name == "suggest_command" {
@@ -1019,6 +1051,28 @@ fn event(
                 Ok(Control::Changed)
               });
             }
+          }
+          ToolExecutionEvent::ToolFailed {
+            tool_call_id,
+            tool_name,
+            args: _,
+            error_message,
+            duration_ms,
+          } => {
+            log::error!(
+              "Tool failed: {} (id: {}, {}ms): {}",
+              tool_name,
+              tool_call_id,
+              duration_ms,
+              error_message
+            );
+            // Update tool call in conversation to "failed" state
+            ai_process.fail_tool_call(
+              &tool_call_id,
+              error_message,
+              duration_ms,
+            );
+            shell_changed = true;
           }
           ToolExecutionEvent::ContinuedTextChunk { chunk } => {
             log::debug!("Continued text: {}", chunk);

@@ -6,7 +6,9 @@ pub mod ui;
 
 // Re-exports will be used once AI integration is complete
 #[allow(unused_imports)]
-pub use chat_process::{AIChatProcess, Message, MessageRole, PendingCommand};
+pub use chat_process::{
+  AIChatProcess, ConversationEntry, Message, MessageRole, PendingCommand,
+};
 #[allow(unused_imports)]
 pub use context::ContextExtractor;
 #[allow(unused_imports)]

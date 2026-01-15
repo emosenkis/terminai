@@ -17,7 +17,8 @@ use tui::{
   },
 };
 
-use super::chat_process::{AIChatProcess, MessageRole};
+use super::chat_process::{AIChatProcess, ConversationEntry, MessageRole};
+use crate::llm::ToolCallDisplay;
 
 /// Moon phases spinner frames for the loading animation
 const SPINNER_FRAMES: &[char] =
@@ -110,11 +111,11 @@ impl<'a> AIChatUI<'a> {
     buf: &mut Buffer,
   ) {
     // Build layout for clipper if needed
-    let messages = process.conversation();
+    let entries = process.conversation();
     let has_streaming = process.streaming_response().is_some();
-    let total_widgets = messages.len();
+    let total_widgets = entries.len();
 
-    // Check if layout needs rebuild (message count changed)
+    // Check if layout needs rebuild (entry count changed)
     let needs_rebuild = has_streaming
       || process.is_sending()
       || total_widgets != self.conversation_state.layout().widget_len();
@@ -129,48 +130,33 @@ impl<'a> AIChatUI<'a> {
       let mut layout = GenericLayout::new();
       let mut y_offset = 0u16;
 
-      // Add each message as a widget
-      for (idx, msg) in messages.iter().enumerate() {
-        match msg.role {
-          MessageRole::User => (
-            "You: ",
-            Style::default()
-              .fg(Color::Cyan)
-              .add_modifier(Modifier::BOLD),
-          ),
-          MessageRole::Assistant => (
-            "AI: ",
-            Style::default()
-              .fg(Color::Green)
-              .add_modifier(Modifier::BOLD),
-          ),
-          MessageRole::System => (
-            "System: ",
-            Style::default()
-              .fg(Color::Yellow)
-              .add_modifier(Modifier::BOLD),
-          ),
+      // Add each conversation entry as a widget
+      for (idx, entry) in entries.iter().enumerate() {
+        let height = match entry {
+          ConversationEntry::Message(msg) => {
+            // Calculate height for message
+            let prefix_lines = 1;
+            let content_lines = if matches!(msg.role, MessageRole::Assistant) {
+              let md_text = tui_markdown::from_str(&msg.content);
+              md_text.lines.len()
+            } else {
+              msg.content.lines().count()
+            };
+            let separator_lines = 1;
+            (prefix_lines + content_lines + separator_lines) as u16
+          }
+          ConversationEntry::ToolCall(tool_call) => {
+            // Calculate height for tool call display
+            let rendered_lines = tool_call.render();
+            rendered_lines.len() as u16
+          }
         };
 
-        // Calculate height needed for this message
-        let prefix_lines = 1;
-        let content_lines = if matches!(msg.role, MessageRole::Assistant) {
-          // Markdown rendering
-          let md_text = tui_markdown::from_str(&msg.content);
-          md_text.lines.len()
-        } else {
-          // Plain text, count wrapped lines
-          msg.content.lines().count()
-        };
-        let separator_lines = 1;
-        let height = (prefix_lines + content_lines + separator_lines) as u16;
-
-        // Add widget to layout
         layout.add(
-          idx,                                        // widget ID
-          Rect::new(0, y_offset, area.width, height), // widget area
-          None,                                       // no label
-          Rect::default(),                            // no label area
+          idx,
+          Rect::new(0, y_offset, area.width, height),
+          None,
+          Rect::default(),
         );
 
         y_offset += height;
@@ -178,15 +164,13 @@ impl<'a> AIChatUI<'a> {
 
       // Add streaming response widget if present
       if has_streaming {
-        let idx = messages.len();
-        // Calculate height based on actual streaming content
-        // Structure: prefix line + markdown content + separator + spinner
+        let idx = entries.len();
         let streaming_content = process.streaming_response().unwrap_or("");
         let md_text = tui_markdown::from_str(streaming_content);
-        let prefix_lines = 1u16; // "AI: " prefix
-        let content_lines = md_text.lines.len().max(1) as u16; // At least 1 line
-        let separator_lines = 1u16; // Empty separator
-        let spinner_lines = 1u16; // Spinner animation
+        let prefix_lines = 1u16;
+        let content_lines = md_text.lines.len().max(1) as u16;
+        let separator_lines = 1u16;
+        let spinner_lines = 1u16;
         let height =
           prefix_lines + content_lines + separator_lines + spinner_lines;
 
@@ -221,42 +205,13 @@ impl<'a> AIChatUI<'a> {
 
     let mut clip_buf = clipper.into_buffer(area, &mut self.conversation_state);
 
-    // Render each message widget (using render_widget for stateless widgets)
-    for (idx, msg) in messages.iter().enumerate() {
-      clip_buf.render_widget(idx, || {
-        let (prefix, style) = match msg.role {
-          MessageRole::User => (
-            "You: ",
-            Style::default()
-              .fg(Color::Cyan)
-              .add_modifier(Modifier::BOLD),
-          ),
-          MessageRole::Assistant => (
-            "AI: ",
-            Style::default()
-              .fg(Color::Green)
-              .add_modifier(Modifier::BOLD),
-          ),
-          MessageRole::System => (
-            "System: ",
-            Style::default()
-              .fg(Color::Yellow)
-              .add_modifier(Modifier::BOLD),
-          ),
-        };
-
-        let mut lines = vec![Line::from(Span::styled(prefix, style))];
-
-        if matches!(msg.role, MessageRole::Assistant) {
-          let md_text = tui_markdown::from_str(&msg.content);
-          lines.extend(md_text.lines.into_iter().map(Line::from));
-        } else {
-          lines.push(Line::from(Span::raw(&msg.content)));
+    // Render each conversation entry
+    for (idx, entry) in entries.iter().enumerate() {
+      clip_buf.render_widget(idx, || match entry {
+        ConversationEntry::Message(msg) => Self::render_message_widget(msg),
+        ConversationEntry::ToolCall(tool_call) => {
+          Self::render_tool_call_widget(tool_call)
         }
-
-        lines.push(Line::from("")); // Separator
-
-        Paragraph::new(lines).wrap(Wrap { trim: false })
       });
     }
 
@@ -265,7 +220,7 @@ impl<'a> AIChatUI<'a> {
       .streaming_response()
       .or_else(|| if process.is_sending() { Some("") } else { None })
     {
-      let idx = messages.len();
+      let idx = entries.len();
       clip_buf.render_widget(idx, || {
         let prefix = "AI: ";
         let style = Style::default()
@@ -293,10 +248,67 @@ impl<'a> AIChatUI<'a> {
     clip_buf.finish(buf, &mut self.conversation_state);
 
     // Auto-scroll to bottom if we were at the bottom before adding content
-    if was_at_bottom && (messages.len() > 0 || has_streaming) {
+    if was_at_bottom && (!entries.is_empty() || has_streaming) {
       let max_offset = self.conversation_state.vscroll.max_offset();
       self.conversation_state.set_vertical_offset(max_offset);
     }
+  }
+
+  /// Render a message as a Paragraph widget
+  fn render_message_widget(
+    msg: &super::chat_process::Message,
+  ) -> Paragraph<'static> {
+    let (prefix, style) = match msg.role {
+      MessageRole::User => (
+        "You: ".to_string(),
+        Style::default()
+          .fg(Color::Cyan)
+          .add_modifier(Modifier::BOLD),
+      ),
+      MessageRole::Assistant => (
+        "AI: ".to_string(),
+        Style::default()
+          .fg(Color::Green)
+          .add_modifier(Modifier::BOLD),
+      ),
+      MessageRole::System => (
+        "System: ".to_string(),
+        Style::default()
+          .fg(Color::Yellow)
+          .add_modifier(Modifier::BOLD),
+      ),
+    };
+
+    let mut lines = vec![Line::from(Span::styled(prefix, style))];
+
+    if matches!(msg.role, MessageRole::Assistant) {
+      // Clone content to get an owned String for 'static lifetime
+      let content = msg.content.clone();
+      let md_text = tui_markdown::from_str(&content);
+      // Convert each line to owned Spans to avoid lifetime issues
+      for line in md_text.lines {
+        let owned_spans: Vec<Span<'static>> = line
+          .spans
+          .into_iter()
+          .map(|span| Span::styled(span.content.to_string(), span.style))
+          .collect();
+        lines.push(Line::from(owned_spans));
+      }
+    } else {
+      lines.push(Line::from(Span::raw(msg.content.clone())));
+    }
+
+    lines.push(Line::from("")); // Separator
+
+    Paragraph::new(lines).wrap(Wrap { trim: false })
+  }
+
+  /// Render a tool call as a Paragraph widget
+  fn render_tool_call_widget(
+    tool_call: &ToolCallDisplay,
+  ) -> Paragraph<'static> {
+    let lines = tool_call.render();
+    Paragraph::new(lines).wrap(Wrap { trim: false })
   }
 
   fn render_input(

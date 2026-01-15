@@ -6,14 +6,17 @@ pub mod providers;
 pub mod subscriber;
 pub mod terminal_context;
 pub mod tool_coordinator;
+pub mod tool_display;
 pub mod tool_executor;
 
 pub use client::{AgUiClient, ChatStreamResponse};
 pub use forwarded_props::TerminAIForwardedProps;
 pub use terminal_context::TerminalContext;
 pub use tool_coordinator::{
-  ToolCoordinator, ToolExecutionEvent, run_tool_execution_loop,
+  ToolCoordinator, ToolExecutionEvent, ToolProcessingResult,
+  run_tool_execution_loop,
 };
+pub use tool_display::{ToolCallDisplay, ToolCallStatus};
 pub use tool_executor::{
   CommandSuggestion, ToolExecutionContext, ToolExecutionRequest, ToolExecutor,
   ToolResult,
