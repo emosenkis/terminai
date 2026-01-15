@@ -102,11 +102,38 @@ impl AgUiClient {
     let (tool_tx, tool_rx) = mpsc::unbounded_channel();
 
     // Create subscriber with optional message history
-    let subscriber = if let Some(history) = message_history {
-      StreamingSubscriber::with_message_history(tx.clone(), tool_tx, history)
+    let subscriber = if let Some(ref history) = message_history {
+      StreamingSubscriber::with_message_history(
+        tx.clone(),
+        tool_tx,
+        Arc::clone(history),
+      )
     } else {
       StreamingSubscriber::new(tx.clone(), tool_tx)
     };
+
+    // Build messages: include full history if provided, then add new user message
+    let user_message = Message::User {
+      id: ag_ui_core::types::ids::MessageId::random(),
+      content: message_str.clone(),
+      name: None,
+    };
+
+    let messages = if let Some(ref history) = message_history {
+      let mut history_guard = history.lock().await;
+      // Add user message to shared history
+      history_guard.push(user_message.clone());
+      // Return full history including new message
+      history_guard.clone()
+    } else {
+      vec![user_message]
+    };
+
+    log::debug!(
+      "Sending {} messages to LLM (history included: {})",
+      messages.len(),
+      message_history.is_some()
+    );
 
     // Convert terminal context to AG-UI context items and forwarded props
     let (context_items, forwarded_props) = match terminal_context {
@@ -131,11 +158,7 @@ impl AgUiClient {
       tools: Some(Self::default_tools()),
       context: context_items,
       forwarded_props,
-      messages: vec![Message::User {
-        id: ag_ui_core::types::ids::MessageId::random(),
-        content: message_str,
-        name: None,
-      }],
+      messages,
       state: serde_json::Value::Null,
     };
 
@@ -238,12 +261,6 @@ impl AgUiClient {
       Arc::clone(&message_history),
     );
 
-    // Append tool result to messages
-    let mut updated_messages = {
-      let history = message_history.lock().await;
-      history.clone()
-    };
-
     // Convert is_error boolean to Option<String> error field
     let error = if tool_result.is_error {
       Some("Tool execution failed".to_string())
@@ -251,12 +268,20 @@ impl AgUiClient {
       None
     };
 
-    updated_messages.push(Message::Tool {
+    // Create tool result message
+    let tool_message = Message::Tool {
       id: ag_ui_core::types::ids::MessageId::random(),
       tool_call_id: tool_result.tool_call_id.clone(),
       content: tool_result.content.clone(),
       error,
-    });
+    };
+
+    // Append tool result to shared history and get updated messages
+    let updated_messages = {
+      let mut history = message_history.lock().await;
+      history.push(tool_message);
+      history.clone()
+    };
 
     log::debug!(
       "Added tool result for {:?} to message history ({} total messages)",

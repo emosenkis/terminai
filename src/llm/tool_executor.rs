@@ -44,6 +44,8 @@ pub struct CommandSuggestion {
 pub struct ToolExecutionContext {
   /// Optional VT100 parser for reading scrollback
   pub vt_parser: Option<Arc<RwLock<vt100::Parser<ReplySender>>>>,
+  /// Fallback scrollback lines (used when vt_parser is None, e.g., in tests)
+  pub fallback_scrollback: Option<Vec<String>>,
   /// Shared storage for command suggestions
   pub command_suggestions: Arc<Mutex<Vec<CommandSuggestion>>>,
   /// Command executor (reuse existing infrastructure)
@@ -160,41 +162,57 @@ impl ToolExecutor {
       .and_then(|v| v.as_i64())
       .unwrap_or(100) as usize;
 
-    log::info!("Reading {} lines from scrollback", num_lines);
+    log::info!("Executing read_scrollback: {} lines", num_lines);
 
-    // Access VT100 parser if available
-    let vt_parser = match &self.context.vt_parser {
-      Some(parser) => parser,
-      None => {
-        return ToolResult {
-          tool_call_id: request.tool_call_id,
-          content: "VT100 parser not available".to_string(),
-          is_error: true,
-        };
-      }
-    };
-
-    // Extract scrollback text
-    match self.extract_scrollback(vt_parser, num_lines) {
-      Ok(text) => {
-        log::debug!(
-          "Successfully extracted {} characters of scrollback",
-          text.len()
-        );
-        ToolResult {
-          tool_call_id: request.tool_call_id,
-          content: text,
-          is_error: false,
+    // Try VT100 parser first, then fallback to pre-set scrollback
+    if let Some(vt_parser) = &self.context.vt_parser {
+      // Extract scrollback text from VT100 parser
+      match self.extract_scrollback(vt_parser, num_lines) {
+        Ok(text) => {
+          log::debug!(
+            "Successfully extracted {} characters of scrollback from VT parser",
+            text.len()
+          );
+          return ToolResult {
+            tool_call_id: request.tool_call_id,
+            content: text,
+            is_error: false,
+          };
+        }
+        Err(e) => {
+          log::error!("Failed to extract scrollback from VT parser: {}", e);
+          return ToolResult {
+            tool_call_id: request.tool_call_id,
+            content: format!("Failed to read scrollback: {}", e),
+            is_error: true,
+          };
         }
       }
-      Err(e) => {
-        log::error!("Failed to extract scrollback: {}", e);
-        ToolResult {
-          tool_call_id: request.tool_call_id,
-          content: format!("Failed to read scrollback: {}", e),
-          is_error: true,
-        }
-      }
+    }
+
+    // Fall back to pre-set scrollback (for testing)
+    if let Some(fallback) = &self.context.fallback_scrollback {
+      let start_idx = fallback.len().saturating_sub(num_lines);
+      let lines: Vec<_> = fallback[start_idx..].to_vec();
+      let text = lines.join("\n");
+      log::info!(
+        "Using fallback scrollback: {} lines, {} chars",
+        lines.len(),
+        text.len()
+      );
+      return ToolResult {
+        tool_call_id: request.tool_call_id,
+        content: text,
+        is_error: false,
+      };
+    }
+
+    // No scrollback source available
+    log::info!("No VT parser available, returning empty scrollback");
+    ToolResult {
+      tool_call_id: request.tool_call_id,
+      content: "No scrollback history available".to_string(),
+      is_error: false, // Not an error, just empty
     }
   }
 
@@ -249,6 +267,7 @@ mod tests {
   async fn test_executor_creation() {
     let context = ToolExecutionContext {
       vt_parser: None,
+      fallback_scrollback: None,
       command_suggestions: Arc::new(Mutex::new(Vec::new())),
       command_executor: CommandExecutor::new(),
       safety_validator: SafetyValidator::new(),
@@ -263,6 +282,7 @@ mod tests {
 
     let context = ToolExecutionContext {
       vt_parser: None,
+      fallback_scrollback: None,
       command_suggestions: Arc::clone(&suggestions),
       command_executor: CommandExecutor::new(),
       safety_validator: SafetyValidator::new(),
@@ -305,6 +325,7 @@ mod tests {
 
     let context = ToolExecutionContext {
       vt_parser: None,
+      fallback_scrollback: None,
       command_suggestions: Arc::clone(&suggestions),
       command_executor: CommandExecutor::new(),
       safety_validator: SafetyValidator::new(),
@@ -334,9 +355,14 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn test_read_scrollback_requires_vt_parser() {
+  async fn test_read_scrollback_uses_fallback() {
     let context = ToolExecutionContext {
       vt_parser: None, // No parser available
+      fallback_scrollback: Some(vec![
+        "$ pwd".to_string(),
+        "/home/user".to_string(),
+        "$ ls".to_string(),
+      ]),
       command_suggestions: Arc::new(Mutex::new(Vec::new())),
       command_executor: CommandExecutor::new(),
       safety_validator: SafetyValidator::new(),
@@ -352,14 +378,41 @@ mod tests {
 
     let result = executor.execute_tool(request).await;
 
-    assert!(result.is_error);
-    assert!(result.content.contains("not available"));
+    assert!(!result.is_error);
+    assert!(result.content.contains("$ pwd"));
+    assert!(result.content.contains("$ ls"));
+  }
+
+  #[tokio::test]
+  async fn test_read_scrollback_empty_when_no_source() {
+    let context = ToolExecutionContext {
+      vt_parser: None,           // No parser available
+      fallback_scrollback: None, // No fallback either
+      command_suggestions: Arc::new(Mutex::new(Vec::new())),
+      command_executor: CommandExecutor::new(),
+      safety_validator: SafetyValidator::new(),
+    };
+
+    let executor = ToolExecutor::new(context);
+
+    let request = ToolExecutionRequest {
+      tool_call_id: ToolCallId::random(),
+      tool_name: "read_scrollback".to_string(),
+      args: HashMap::new(),
+    };
+
+    let result = executor.execute_tool(request).await;
+
+    // Now returns success with "No scrollback history available"
+    assert!(!result.is_error);
+    assert!(result.content.contains("No scrollback"));
   }
 
   #[tokio::test]
   async fn test_unknown_tool() {
     let context = ToolExecutionContext {
       vt_parser: None,
+      fallback_scrollback: None,
       command_suggestions: Arc::new(Mutex::new(Vec::new())),
       command_executor: CommandExecutor::new(),
       safety_validator: SafetyValidator::new(),

@@ -149,10 +149,12 @@ class TerminAIAgent:
 
         logger.info(f"Creating agent with model: {model_name}")
 
-        # Create agent with system prompt
+        # Create agent with system prompt and sufficient max_tokens
+        # to prevent tool call truncation
         agent = Agent(
             model_name,
             system_prompt=SYSTEM_PROMPT,
+            model_settings={"max_tokens": 4096},
         )
 
         # Register Python-side tools

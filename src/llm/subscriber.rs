@@ -22,8 +22,10 @@ use crate::llm::tool_executor::ToolExecutionRequest;
 struct PartialToolCall {
   tool_call_id: ToolCallId,
   tool_name: String,
-  /// Accumulated arguments from streaming chunks
+  /// Accumulated arguments from streaming chunks (parsed JSON)
   accumulated_args: HashMap<String, JsonValue>,
+  /// Raw string buffer for accumulating argument deltas (for streaming)
+  raw_args_buffer: String,
 }
 
 /// Subscriber that captures streaming text events and sends them through a channel
@@ -112,6 +114,7 @@ where
       tool_call_id: event.tool_call_id.clone(),
       tool_name: event.tool_call_name.clone(),
       accumulated_args: HashMap::new(),
+      raw_args_buffer: String::new(),
     };
 
     // Store in buffer (use string representation as key)
@@ -139,57 +142,45 @@ where
       partial_tool_call_args
     );
 
-    // CRITICAL FIX: Parse and accumulate args from the delta or buffer
+    // Accumulate args using multiple strategies
     let key = format!("{:?}", event.tool_call_id);
     let mut buffer = self.current_tool_calls.lock().await;
 
     if let Some(partial) = buffer.get_mut(&key) {
-      // Try multiple sources for the args:
-
-      // 1. If partial_tool_call_args has data, use it
+      // Strategy 1: If SDK provides parsed args, use them
       if !partial_tool_call_args.is_empty() {
         log::info!("Using partial_tool_call_args from SDK");
         for (k, v) in partial_tool_call_args {
           partial.accumulated_args.insert(k.clone(), v.clone());
         }
       }
-      // 2. Otherwise, try parsing the buffer as complete JSON
+      // Strategy 2: If SDK provides complete buffer, parse it
       else if !tool_call_buffer.is_empty() {
-        log::info!("Parsing tool_call_buffer: {}", tool_call_buffer);
-        match serde_json::from_str::<HashMap<String, JsonValue>>(
-          tool_call_buffer,
-        ) {
-          Ok(parsed_args) => {
-            log::info!("Successfully parsed buffer as JSON");
-            partial.accumulated_args = parsed_args;
-          }
-          Err(e) => {
-            log::warn!("Failed to parse tool_call_buffer as JSON: {}", e);
-          }
-        }
-      }
-      // 3. Otherwise, try parsing the delta as JSON (may be incremental or complete)
-      else if !event.delta.is_empty() {
-        log::info!("Parsing delta: {}", event.delta);
-        match serde_json::from_str::<HashMap<String, JsonValue>>(&event.delta) {
-          Ok(delta_args) => {
-            log::info!("Successfully parsed delta as complete JSON");
-            // Merge delta args into accumulated args
-            for (k, v) in delta_args {
-              partial.accumulated_args.insert(k, v);
-            }
-          }
-          Err(e) => {
-            log::debug!("Delta is not complete JSON (may be streaming): {}", e);
-            // Delta might be partial JSON - we'll rely on buffer accumulation
-          }
+        log::debug!("Tool call buffer available: {}", tool_call_buffer);
+        if let Ok(parsed_args) =
+          serde_json::from_str::<HashMap<String, JsonValue>>(tool_call_buffer)
+        {
+          log::info!("Parsed complete buffer as JSON");
+          partial.accumulated_args = parsed_args;
         }
       }
 
-      log::info!(
-        "Accumulated args for {:?}: {:?}",
+      // Strategy 3: Always accumulate the raw delta for later parsing
+      // This handles streaming where args come in chunks
+      if !event.delta.is_empty() {
+        partial.raw_args_buffer.push_str(&event.delta);
+        log::debug!(
+          "Accumulated raw args buffer ({} chars): {}",
+          partial.raw_args_buffer.len(),
+          partial.raw_args_buffer
+        );
+      }
+
+      log::debug!(
+        "Args state for {:?}: parsed={:?}, raw_buffer_len={}",
         event.tool_call_id,
-        partial.accumulated_args
+        partial.accumulated_args.len(),
+        partial.raw_args_buffer.len()
       );
     } else {
       log::warn!(
@@ -224,22 +215,49 @@ where
     // The AG-UI SDK doesn't properly provide tool_call_name and tool_call_args in this callback
     let (final_tool_name, final_args) = if let Some(p) = partial {
       log::info!(
-        "Using buffered data - name: {}, accumulated_args: {:?}",
+        "Using buffered data - name: {}, accumulated_args: {:?}, raw_buffer_len: {}",
         p.tool_name,
-        p.accumulated_args
+        p.accumulated_args,
+        p.raw_args_buffer.len()
       );
 
-      // Use accumulated args from our buffer (fallback to SDK args if our buffer is empty)
-      let args = if p.accumulated_args.is_empty() {
-        if !tool_call_args.is_empty() {
-          log::info!("Using SDK provided args as fallback");
-          tool_call_args.clone()
-        } else {
-          log::warn!("Both buffered and SDK args are empty!");
-          HashMap::new()
-        }
-      } else {
+      // Determine args using multiple fallback strategies:
+      // 1. Use pre-parsed accumulated_args if available
+      // 2. Try to parse the raw_args_buffer (accumulated from streaming deltas)
+      // 3. Use SDK provided args
+      // 4. Fall back to empty HashMap
+      let args = if !p.accumulated_args.is_empty() {
+        log::info!("Using pre-parsed accumulated_args");
         p.accumulated_args
+      } else if !p.raw_args_buffer.is_empty() {
+        // Try to parse the accumulated raw buffer as JSON
+        log::info!("Parsing raw_args_buffer: {}", p.raw_args_buffer);
+        match serde_json::from_str::<HashMap<String, JsonValue>>(
+          &p.raw_args_buffer,
+        ) {
+          Ok(parsed) => {
+            log::info!(
+              "Successfully parsed raw_args_buffer as JSON: {:?}",
+              parsed
+            );
+            parsed
+          }
+          Err(e) => {
+            log::warn!("Failed to parse raw_args_buffer as JSON: {}", e);
+            if !tool_call_args.is_empty() {
+              log::info!("Using SDK provided args as fallback");
+              tool_call_args.clone()
+            } else {
+              HashMap::new()
+            }
+          }
+        }
+      } else if !tool_call_args.is_empty() {
+        log::info!("Using SDK provided args as fallback");
+        tool_call_args.clone()
+      } else {
+        log::warn!("No args available from any source!");
+        HashMap::new()
       };
 
       (p.tool_name, args)
@@ -250,6 +268,51 @@ where
       );
       (tool_call_name.to_string(), tool_call_args.clone())
     };
+
+    // CRITICAL FIX: Add AssistantMessage with tool_call to history BEFORE sending request.
+    // This fixes a race condition where on_new_tool_call is called by the SDK AFTER
+    // on_tool_call_end_event, but submit_tool_result needs the AssistantMessage to be
+    // in history when it's called.
+    if let Some(history) = &self.message_history {
+      let mut history = history.lock().await;
+
+      // Check if we already have an Assistant message with this tool call
+      let has_tool_call = history.iter().any(|msg| {
+        if let Message::Assistant { tool_calls, .. } = msg {
+          if let Some(calls) = tool_calls {
+            return calls.iter().any(|tc| tc.id == event.tool_call_id);
+          }
+        }
+        false
+      });
+
+      if !has_tool_call {
+        // Construct a ToolCall from our buffered data
+        // Use ToolCall::new() to properly construct with call_type="function"
+        let args_string =
+          serde_json::to_string(&final_args).unwrap_or_default();
+        let function_call = ag_ui_core::types::message::FunctionCall {
+          name: final_tool_name.clone(),
+          arguments: args_string,
+        };
+        let tool_call =
+          ToolCall::new(event.tool_call_id.clone(), function_call);
+
+        let message_id = MessageId::random();
+        log::info!(
+          "Adding Assistant message with tool_call {:?} to history BEFORE sending request (message_id: {:?})",
+          event.tool_call_id,
+          message_id
+        );
+
+        history.push(Message::Assistant {
+          id: message_id,
+          content: None,
+          name: None,
+          tool_calls: Some(vec![tool_call]),
+        });
+      }
+    }
 
     let request = ToolExecutionRequest {
       tool_call_id: event.tool_call_id.clone(),

@@ -95,6 +95,7 @@ impl AIChatProcess {
     // Create tool executor
     let tool_context = ToolExecutionContext {
       vt_parser: None, // Will be set later if needed
+      fallback_scrollback: None,
       command_suggestions: Arc::clone(&command_suggestions),
       command_executor: crate::command::CommandExecutor::new(),
       safety_validator: crate::command::SafetyValidator::new(),
@@ -414,6 +415,7 @@ impl AIChatProcess {
 
     let tool_context = ToolExecutionContext {
       vt_parser: Some(vt_parser),
+      fallback_scrollback: None, // Not needed when VT parser is available
       command_suggestions: Arc::clone(&command_suggestions),
       command_executor: crate::command::CommandExecutor::new(),
       safety_validator: crate::command::SafetyValidator::new(),
