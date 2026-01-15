@@ -148,8 +148,6 @@ impl AIChatProcess {
     user_message: &str,
     context: TerminalContext,
   ) -> Result<crate::llm::ChatStreamResponse> {
-    use ag_ui_core::types::ids::MessageId;
-
     if user_message.is_empty() {
       return Err(anyhow::anyhow!("Empty message"));
     }
@@ -159,21 +157,14 @@ impl AIChatProcess {
     self.is_sending = true;
     self.streaming_response = Some(String::new());
 
-    // Add user message to conversation
+    // Add user message to conversation (for local UI display)
     self.conversation.push(Message {
       role: MessageRole::User,
       content: user_message.to_string(),
     });
 
-    // Add user message to AG-UI message history for tool execution
-    self
-      .coordinator
-      .add_message(AgUiMessage::User {
-        id: MessageId::random(),
-        content: user_message.to_string(),
-        name: None,
-      })
-      .await;
+    // NOTE: User message is added to AG-UI message history in client.rs chat_stream()
+    // to avoid duplication. Don't add it here.
 
     // Filter sensitive information from context
     let filtered_context = TerminalContext {
@@ -230,15 +221,27 @@ impl AIChatProcess {
   }
 
   /// Complete the streaming response and add to conversation
-  pub fn complete_streaming(&mut self, full_response: String) {
+  pub async fn complete_streaming(&mut self, full_response: String) {
     self.streaming_response = None;
     self.is_sending = false;
 
-    // Add assistant response to conversation
+    // Add assistant response to local conversation (for UI display)
     self.conversation.push(Message {
       role: MessageRole::Assistant,
       content: full_response.clone(),
     });
+
+    // Add assistant response to AG-UI message history (for LLM context)
+    // This ensures the LLM knows about previous assistant responses
+    self
+      .coordinator
+      .add_message(AgUiMessage::Assistant {
+        id: ag_ui_core::types::ids::MessageId::random(),
+        content: Some(full_response.clone()),
+        name: None,
+        tool_calls: None,
+      })
+      .await;
 
     // Check for commands in response
     self.check_for_commands(&full_response, None);
@@ -248,6 +251,24 @@ impl AIChatProcess {
   pub fn abort_streaming(&mut self) {
     self.is_sending = false;
     self.streaming_response = None;
+  }
+
+  /// Complete a continued streaming response (after tool execution)
+  ///
+  /// Unlike `complete_streaming()`, this does NOT add to AG-UI message history
+  /// because the tool coordinator already adds it there.
+  pub fn complete_continued_streaming(&mut self, full_response: String) {
+    self.streaming_response = None;
+    self.is_sending = false;
+
+    // Add assistant response to local conversation (for UI display)
+    self.conversation.push(Message {
+      role: MessageRole::Assistant,
+      content: full_response.clone(),
+    });
+
+    // Check for commands in response
+    self.check_for_commands(&full_response, None);
   }
 
   /// Check the response for commands and set up approval if needed

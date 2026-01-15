@@ -179,8 +179,17 @@ impl<'a> AIChatUI<'a> {
       // Add streaming response widget if present
       if has_streaming {
         let idx = messages.len();
-        // Estimate height (will be approximate for streaming content)
-        let height = 10; // Default height for streaming widget
+        // Calculate height based on actual streaming content
+        // Structure: prefix line + markdown content + separator + spinner
+        let streaming_content = process.streaming_response().unwrap_or("");
+        let md_text = tui_markdown::from_str(streaming_content);
+        let prefix_lines = 1u16; // "AI: " prefix
+        let content_lines = md_text.lines.len().max(1) as u16; // At least 1 line
+        let separator_lines = 1u16; // Empty separator
+        let spinner_lines = 1u16; // Spinner animation
+        let height =
+          prefix_lines + content_lines + separator_lines + spinner_lines;
+
         layout.add(
           idx,
           Rect::new(0, y_offset, area.width, height),

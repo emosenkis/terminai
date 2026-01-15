@@ -1036,7 +1036,9 @@ fn event(
               full_response.len()
             );
             // Complete the streaming with the full response
-            ai_process.complete_streaming(full_response);
+            // Use complete_continued_streaming() because tool_coordinator already
+            // adds the assistant response to AG-UI history
+            ai_process.complete_continued_streaming(full_response);
             shell_changed = true; // Trigger re-render
           }
           ToolExecutionEvent::Error { message } => {
@@ -1247,7 +1249,7 @@ fn event(
                     // Complete streaming
                     {
                       let mut ai_process = ai_process_clone.lock().await;
-                      ai_process.complete_streaming(full_response);
+                      ai_process.complete_streaming(full_response).await;
                     }
                   }
                   Err(e) => {
