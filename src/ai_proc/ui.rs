@@ -1,3 +1,4 @@
+use crossterm::event::Event;
 use rat_event::{HandleEvent, Regular};
 use rat_focus::FocusFlag;
 use rat_text::text_area::{TextArea, TextAreaState};
@@ -17,7 +18,6 @@ use tui::{
 use tui_markdown::from_str;
 
 use super::chat_process::{AIChatProcess, MessageRole};
-use crate::key::Key;
 
 /// Render the AI chat interface
 pub struct AIChatUI<'a> {
@@ -489,18 +489,8 @@ impl<'a> AIChatUI<'a> {
     self.input_state.clear();
   }
 
-  pub fn input_event(&mut self, key: Key) {
-    // Convert Key to tui::crossterm event for rat-text
-    // Note: Key uses crossterm 0.29, need to create tui::crossterm::event (which is ratatui::crossterm)
-    // This is a workaround for the crossterm version mismatch
-    use tui::crossterm::event as ct_event;
-    let event = ct_event::Event::Key(ct_event::KeyEvent::new(
-      // These conversions work because KeyCode/KeyModifiers have same values across versions
-      unsafe { std::mem::transmute(key.code()) },
-      unsafe { std::mem::transmute(key.mods()) },
-    ));
-    // Use HandleEvent trait from rat-event
-    let _ = self.input_state.handle(&event, Regular);
+  pub fn input_event(&mut self, event: &Event) {
+    self.input_state.handle(event, Regular);
   }
 }
 

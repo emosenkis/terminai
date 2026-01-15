@@ -1063,14 +1063,16 @@ fn event(
   focus_builder.widget(state.ai_ui.input_state());
   let mut focus = focus_builder.build();
   let result = match event {
-    AppEvent::Crossterm(Event::Key(
-      key_event @ KeyEvent {
-        code,
-        modifiers,
-        kind,
-        ..
-      },
-    )) => 'm: {
+    AppEvent::Crossterm(
+      ct_event @ Event::Key(
+        key_event @ KeyEvent {
+          code,
+          modifiers,
+          kind,
+          ..
+        },
+      ),
+    ) => 'm: {
       // Transform KeyEvent into KeyCombination using crokey combiner
       let key_combo = state.key_combiner.transform(*key_event);
       if let Some(key_combo) = key_combo
@@ -1142,7 +1144,9 @@ fn event(
         event_flow!(break 'm focus.handle(cte, Regular));
       }
 
-      if let Some(key_combo) = key_combo {
+      if let Some(key_combo) = key_combo
+        && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+      {
         // Handle approval dialog with highest priority (when pending command exists)
         event_flow!(break 'm state.handle_approval_dialog_key(key_combo));
 
@@ -1183,7 +1187,10 @@ fn event(
       } else if state.ai_ui.input_focus().get() {
         // Input is focused
         // Handle Enter key to send message
-        if matches!(code, KeyCode::Enter) && modifiers.is_empty() {
+        if matches!(code, KeyCode::Enter)
+          && modifiers.is_empty()
+          && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        {
           log::debug!("Enter pressed - sending message");
           let input = state.ai_ui.get_input_value();
 
@@ -1264,8 +1271,7 @@ fn event(
 
         // Route other keys to input widget
         log::trace!("Routing key to input widget");
-        let key = Key::new(*code, *modifiers);
-        state.ai_ui.input_event(key);
+        state.ai_ui.input_event(ct_event);
         return Ok(Control::Changed);
       }
 
