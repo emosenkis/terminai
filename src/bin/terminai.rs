@@ -1125,154 +1125,154 @@ fn event(
           log::info!("AI overlay closed");
           break 'm Control::Changed;
         }
-        if !state.ai_visible {
-          // TODO: Kitty enhanced keyboard capability mode support?
-          if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-            // Route to shell when AI overlay not visible
-            let key = Key::new(*code, *modifiers);
-            state.shell.send_key(key)?;
-          }
-          break 'm Control::Continue;
+      }
+      if !state.ai_visible {
+        // TODO: Kitty enhanced keyboard capability mode support?
+        if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+          // Route to shell when AI overlay not visible
+          let key = Key::new(*code, *modifiers);
+          state.shell.send_key(key)?;
         }
-        // Try handling focus events first (for tab navigation, etc.)
-        if let AppEvent::Crossterm(cte) = event {
-          event_flow!(break 'm focus.handle(cte, Regular));
-        }
+        break 'm Control::Continue;
+      }
+      // Try handling focus events first (for tab navigation, etc.)
+      if let AppEvent::Crossterm(cte) = event {
+        event_flow!(break 'm focus.handle(cte, Regular));
+      }
 
+      if let Some(key_combo) = key_combo {
         // Handle approval dialog with highest priority (when pending command exists)
         event_flow!(break 'm state.handle_approval_dialog_key(key_combo));
 
         // Handle error dialog (second priority after approval dialog)
         event_flow!(break 'm state.handle_error_dialog_key(key_combo, *code));
+      }
 
-        // Route events based on focus
-        log::trace!(
-          "Key event with AI visible - conversation focused: {}, input focused: {}, key: {:?}",
-          state.ai_ui.conversation_focus().get(),
-          state.ai_ui.input_focus().get(),
+      // Route events based on focus
+      log::trace!(
+        "Key event with AI visible - conversation focused: {}, input focused: {}, key: {:?}",
+        state.ai_ui.conversation_focus().get(),
+        state.ai_ui.input_focus().get(),
+        code
+      );
+
+      if state.ai_ui.conversation_focus().get() {
+        // Conversation is focused - use Clipper's built-in event handler
+        log::debug!(
+          "Conversation is focused, dispatching to Clipper event handler: {:?}",
           code
         );
+        let outcome = HandleEvent::handle(
+          state.ai_ui.conversation_state(),
+          &Event::Key(KeyEvent::new(*code, *modifiers)),
+          Regular,
+        );
 
-        if state.ai_ui.conversation_focus().get() {
-          // Conversation is focused - use Clipper's built-in event handler
-          log::debug!(
-            "Conversation is focused, dispatching to Clipper event handler: {:?}",
-            code
-          );
-          let outcome = HandleEvent::handle(
-            state.ai_ui.conversation_state(),
-            &Event::Key(KeyEvent::new(*code, *modifiers)),
-            Regular,
-          );
-
-          return Ok(match outcome {
-            Outcome::Changed => Control::Changed,
-            _ => {
-              if shell_changed {
-                Control::Changed
-              } else {
-                Control::Continue
-              }
+        return Ok(match outcome {
+          Outcome::Changed => Control::Changed,
+          _ => {
+            if shell_changed {
+              Control::Changed
+            } else {
+              Control::Continue
             }
-          });
-        } else if state.ai_ui.input_focus().get() {
-          // Input is focused
-          // Handle Enter key to send message
-          if matches!(code, KeyCode::Enter) && modifiers.is_empty() {
-            log::debug!("Enter pressed - sending message");
-            let input = state.ai_ui.get_input_value();
+          }
+        });
+      } else if state.ai_ui.input_focus().get() {
+        // Input is focused
+        // Handle Enter key to send message
+        if matches!(code, KeyCode::Enter) && modifiers.is_empty() {
+          log::debug!("Enter pressed - sending message");
+          let input = state.ai_ui.get_input_value();
 
-            if !input.is_empty() {
-              log::info!("Sending message to AI: {}", input);
+          if !input.is_empty() {
+            log::info!("Sending message to AI: {}", input);
 
-              // Extract terminal context before spawning task
-              let context = state.extract_context();
+            // Extract terminal context before spawning task
+            let context = state.extract_context();
 
-              // Spawn async task to send message
-              if let Some(ref ai_process_arc) = state.ai_process {
-                let ai_process_clone = Arc::clone(ai_process_arc);
-                let input_clone = input.clone();
+            // Spawn async task to send message
+            if let Some(ref ai_process_arc) = state.ai_process {
+              let ai_process_clone = Arc::clone(ai_process_arc);
+              let input_clone = input.clone();
 
-                // Use spawn_async_ext to get a sender for intermediate render triggers
-                ctx.spawn_async_ext(|sender| async move {
-                  use futures::stream::StreamExt;
+              // Use spawn_async_ext to get a sender for intermediate render triggers
+              ctx.spawn_async_ext(|sender| async move {
+                use futures::stream::StreamExt;
 
-                  // Start streaming (lock only for setup)
-                  let stream = {
-                    let mut ai_process = ai_process_clone.lock().await;
-                    ai_process.start_streaming(&input_clone, context).await
-                  };
+                // Start streaming (lock only for setup)
+                let stream = {
+                  let mut ai_process = ai_process_clone.lock().await;
+                  ai_process.start_streaming(&input_clone, context).await
+                };
 
-                  match stream {
-                    Ok(response) => {
-                      let mut stream = response.text_stream;
-                      let mut full_response = String::new();
+                match stream {
+                  Ok(response) => {
+                    let mut stream = response.text_stream;
+                    let mut full_response = String::new();
 
-                      // Process stream tokens with lock/unlock cycles
-                      while let Some(token_result) = stream.next().await {
-                        match token_result {
-                          Ok(token) => {
-                            full_response.push_str(&token);
-                            // Lock only to update state
-                            {
-                              let mut ai_process =
-                                ai_process_clone.lock().await;
-                              ai_process.append_streaming_token(token);
-                            }
-                            // Trigger UI re-render after appending token
-                            let _ = sender.send(Ok(Control::Changed)).await;
-                          }
-                          Err(e) => {
-                            let error_msg = format!("{:#}", e);
-                            log::error!("Stream error: {}", error_msg);
+                    // Process stream tokens with lock/unlock cycles
+                    while let Some(token_result) = stream.next().await {
+                      match token_result {
+                        Ok(token) => {
+                          full_response.push_str(&token);
+                          // Lock only to update state
+                          {
                             let mut ai_process = ai_process_clone.lock().await;
-                            ai_process.abort_streaming();
-                            ai_process.set_error(error_msg);
-                            return Ok(Control::Changed);
+                            ai_process.append_streaming_token(token);
                           }
+                          // Trigger UI re-render after appending token
+                          let _ = sender.send(Ok(Control::Changed)).await;
+                        }
+                        Err(e) => {
+                          let error_msg = format!("{:#}", e);
+                          log::error!("Stream error: {}", error_msg);
+                          let mut ai_process = ai_process_clone.lock().await;
+                          ai_process.abort_streaming();
+                          ai_process.set_error(error_msg);
+                          return Ok(Control::Changed);
                         }
                       }
-
-                      // Complete streaming
-                      {
-                        let mut ai_process = ai_process_clone.lock().await;
-                        ai_process.complete_streaming(full_response);
-                      }
                     }
-                    Err(e) => {
-                      let error_msg = format!("{:#}", e);
-                      log::error!("Failed to start streaming: {}", error_msg);
+
+                    // Complete streaming
+                    {
                       let mut ai_process = ai_process_clone.lock().await;
-                      ai_process.abort_streaming();
-                      ai_process.set_error(error_msg);
+                      ai_process.complete_streaming(full_response);
                     }
                   }
+                  Err(e) => {
+                    let error_msg = format!("{:#}", e);
+                    log::error!("Failed to start streaming: {}", error_msg);
+                    let mut ai_process = ai_process_clone.lock().await;
+                    ai_process.abort_streaming();
+                    ai_process.set_error(error_msg);
+                  }
+                }
 
-                  Ok(Control::Changed)
-                });
-              }
-
-              // Clear input after queuing send
-              state.ai_ui.clear_input();
+                Ok(Control::Changed)
+              });
             }
-            return Ok(Control::Changed);
-          }
 
-          // Route other keys to input widget
-          log::trace!("Routing key to input widget");
-          let key = Key::new(*code, *modifiers);
-          state.ai_ui.input_event(key);
+            // Clear input after queuing send
+            state.ai_ui.clear_input();
+          }
           return Ok(Control::Changed);
         }
 
-        log::warn!("No widget has focus! Input should be focused by default");
-        return Ok(if shell_changed {
-          Control::Changed
-        } else {
-          Control::Continue
-        });
+        // Route other keys to input widget
+        log::trace!("Routing key to input widget");
+        let key = Key::new(*code, *modifiers);
+        state.ai_ui.input_event(key);
+        return Ok(Control::Changed);
       }
-      Control::Continue
+
+      log::warn!("No widget has focus! Input should be focused by default");
+      return Ok(if shell_changed {
+        Control::Changed
+      } else {
+        Control::Continue
+      });
     }
     AppEvent::Crossterm(Event::Resize(cols, rows)) => {
       state.shell.resize(*rows, *cols)?;

@@ -105,6 +105,16 @@ impl<'a> AIChatUI<'a> {
       layout.widget_len() != total_widgets
     };
 
+    // Check if we're at the bottom BEFORE rebuilding layout
+    // (so we can auto-scroll to the new bottom after adding content)
+    let was_at_bottom = if needs_rebuild {
+      let current_offset = self.conversation_state.vscroll.offset();
+      let current_max = self.conversation_state.vscroll.max_offset();
+      current_offset >= current_max
+    } else {
+      false
+    };
+
     if needs_rebuild {
       let mut layout = GenericLayout::new();
       let mut y_offset = 0u16;
@@ -260,17 +270,10 @@ impl<'a> AIChatUI<'a> {
     // Finish rendering and copy to buffer
     clip_buf.finish(buf, &mut self.conversation_state);
 
-    // Auto-scroll to bottom when at bottom (scroll_offset == 0)
-    // Clipper uses standard scrolling where offset 0 = top
-    // We want to be at the bottom by default
-    if messages.len() > 0 || has_streaming {
+    // Auto-scroll to bottom if we were at the bottom before adding content
+    if was_at_bottom && (messages.len() > 0 || has_streaming) {
       let max_offset = self.conversation_state.vscroll.max_offset();
-      if self.conversation_state.vscroll.offset() < max_offset {
-        // Not at bottom, keep current position
-      } else {
-        // At bottom, stay at bottom
-        self.conversation_state.set_vertical_offset(max_offset);
-      }
+      self.conversation_state.set_vertical_offset(max_offset);
     }
   }
 
