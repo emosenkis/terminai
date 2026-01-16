@@ -9,8 +9,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::llm::{
-  AgUiClient, ChatStreamResponse, CommandSuggestion, ToolExecutionRequest,
-  ToolExecutor,
+  AgUiClient, ChatStreamResponse, CommandSuggestion, TerminalContext,
+  ToolExecutionRequest, ToolExecutor,
 };
 
 /// Result of processing a tool request
@@ -29,6 +29,8 @@ pub struct ToolCoordinator {
   executor: ToolExecutor,
   message_history: Arc<Mutex<Vec<Message>>>,
   command_suggestions: Arc<Mutex<Vec<CommandSuggestion>>>,
+  /// Terminal context for providing to LLM
+  terminal_context: Arc<Mutex<Option<TerminalContext>>>,
 }
 
 impl ToolCoordinator {
@@ -43,7 +45,14 @@ impl ToolCoordinator {
       executor,
       message_history,
       command_suggestions,
+      terminal_context: Arc::new(Mutex::new(None)),
     }
+  }
+
+  /// Update the terminal context
+  pub async fn set_terminal_context(&self, context: TerminalContext) {
+    let mut ctx = self.terminal_context.lock().await;
+    *ctx = Some(context);
   }
 
   /// Process a single tool execution request
@@ -82,9 +91,19 @@ impl ToolCoordinator {
     }
 
     // 2. Submit result back to LLM and get continued response
+    // Get current terminal context if available
+    let terminal_context_opt = {
+      let ctx = self.terminal_context.lock().await;
+      ctx.clone()
+    };
+
     let continued_response = self
       .client
-      .submit_tool_result(Arc::clone(&self.message_history), result, None)
+      .submit_tool_result(
+        Arc::clone(&self.message_history),
+        result,
+        terminal_context_opt.as_ref(),
+      )
       .await?;
 
     Ok(ToolProcessingResult {

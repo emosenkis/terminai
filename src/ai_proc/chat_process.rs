@@ -196,6 +196,12 @@ impl AIChatProcess {
       .chat_stream(user_message, Some(message_history), Some(&filtered_context))
       .await?;
 
+    // Update the coordinator's terminal context for tool execution
+    self
+      .coordinator
+      .set_terminal_context(filtered_context)
+      .await;
+
     // Spawn tool execution loop in background
     let coordinator = Arc::clone(&self.coordinator);
     let tool_rx = response.tool_rx;
