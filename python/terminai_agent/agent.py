@@ -158,8 +158,8 @@ class TerminAIAgent:
         )
 
         # Register Python-side tools
-        @agent.tool
-        async def read_file_tool(
+        @agent.tool(name="read_file")
+        async def _read_file(
             ctx: RunContext[TerminalContext],
             path: str,
             start_line: int | None = None,
@@ -178,13 +178,10 @@ class TerminAIAgent:
             args = ReadFileArgs(path=path, start_line=start_line, max_lines=max_lines)
             result = await read_file(args, cwd=ctx.deps.cwd)
 
-            if result.error:
-                raise ValueError(result.error)
-
             return result.content
 
-        @agent.tool
-        async def grep_files_tool(
+        @agent.tool(name="grep_files")
+        async def _grep_files(
             ctx: RunContext[TerminalContext],
             pattern: str,
             file_pattern: str | None = None,
@@ -209,9 +206,6 @@ class TerminAIAgent:
                 max_matches=max_matches,
             )
             result = await grep_files(args, cwd=ctx.deps.cwd)
-
-            if result.error:
-                raise ValueError(result.error)
 
             return format_grep_result(result)
 

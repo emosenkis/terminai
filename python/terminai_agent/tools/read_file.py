@@ -14,8 +14,12 @@ MAX_FILE_LINES = 1000
 class ReadFileArgs(BaseModel):
     """Arguments for read_file tool."""
 
-    path: str = Field(description="Path to the file to read (relative to cwd or absolute)")
-    start_line: int | None = Field(None, description="Starting line number (0-indexed, optional)")
+    path: str = Field(
+        description="Path to the file to read (relative to cwd or absolute)"
+    )
+    start_line: int | None = Field(
+        None, description="Starting line number (0-indexed, optional)"
+    )
     max_lines: int | None = Field(
         None,
         description=f"Maximum number of lines to read (default: 100, max: {MAX_FILE_LINES})",
@@ -28,7 +32,7 @@ class ReadFileResult(BaseModel):
     content: str = Field(description="File content or error message")
     path: str = Field(description="Path that was read")
     lines_shown: tuple[int, int] | None = Field(
-        None, description="Range of lines shown (start, end) if partial read"
+        default=None, description="Range of lines shown (start, end) if partial read"
     )
     total_lines: int | None = Field(None, description="Total lines in file")
     error: str | None = Field(None, description="Error message if read failed")

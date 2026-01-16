@@ -22,9 +22,12 @@ class GrepFilesArgs(BaseModel):
     file_pattern: str | None = Field(
         None, description="File glob pattern (e.g., '*.rs', 'src/**/*.py'). Optional."
     )
-    case_insensitive: bool = Field(False, description="Whether to use case-insensitive search")
+    case_insensitive: bool = Field(
+        False, description="Whether to use case-insensitive search"
+    )
     max_matches: int | None = Field(
-        None, description=f"Maximum number of matches to return (default: 50, max: {MAX_MATCHES})"
+        None,
+        description=f"Maximum number of matches to return (default: 50, max: {MAX_MATCHES})",
     )
 
 
@@ -43,7 +46,9 @@ class GrepFilesResult(BaseModel):
     pattern: str = Field(description="Pattern that was searched")
     num_files_searched: int = Field(description="Number of files that were searched")
     truncated: bool = Field(description="Whether results were truncated")
-    error: str | None = Field(None, description="Error message if search failed")
+    error: str | None = Field(
+        default=None, description="Error message if search failed"
+    )
 
 
 def should_skip_file(path: Path) -> bool:
@@ -203,6 +208,8 @@ def format_grep_result(result: GrepFilesResult) -> str:
         output.append(f"{match.line_number}:  {match.line}\n")
 
     if result.truncated:
-        output.append(f"\n*Showing first {len(result.matches)} matches. There may be more.*")
+        output.append(
+            f"\n*Showing first {len(result.matches)} matches. There may be more.*"
+        )
 
     return "".join(output)
