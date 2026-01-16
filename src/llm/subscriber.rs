@@ -17,6 +17,11 @@ use tokio::sync::{Mutex, mpsc};
 
 use crate::llm::tool_executor::ToolExecutionRequest;
 
+/// Client-side tools that should be executed by the Rust client.
+/// Server-side tools (like read_file, grep_files) are executed by the Python server
+/// and we receive their results via on_tool_call_result_event.
+const CLIENT_SIDE_TOOLS: &[&str] = &["suggest_command", "read_scrollback"];
+
 /// Internal buffer for accumulating tool call information during streaming
 #[derive(Debug, Clone)]
 struct PartialToolCall {
@@ -314,18 +319,28 @@ where
       }
     }
 
-    let request = ToolExecutionRequest {
-      tool_call_id: event.tool_call_id.clone(),
-      tool_name: final_tool_name.clone(),
-      args: final_args,
-    };
+    // Only execute client-side tools - server-side tools are executed by the Python server
+    // and we receive their results via on_tool_call_result_event
+    if CLIENT_SIDE_TOOLS.contains(&final_tool_name.as_str()) {
+      let request = ToolExecutionRequest {
+        tool_call_id: event.tool_call_id.clone(),
+        tool_name: final_tool_name.clone(),
+        args: final_args,
+      };
 
-    // Send to application layer for execution
-    if let Err(e) = self.tool_sender.send(request) {
-      log::error!("Failed to send tool execution request: {}", e);
+      // Send to application layer for execution
+      if let Err(e) = self.tool_sender.send(request) {
+        log::error!("Failed to send tool execution request: {}", e);
+      } else {
+        log::info!(
+          "Tool execution request sent for '{}' (id: {:?})",
+          final_tool_name,
+          event.tool_call_id
+        );
+      }
     } else {
       log::info!(
-        "Tool execution request sent for '{}' (id: {:?})",
+        "Server-side tool '{}' (id: {:?}) executed by Python server - not sending to client executor",
         final_tool_name,
         event.tool_call_id
       );
