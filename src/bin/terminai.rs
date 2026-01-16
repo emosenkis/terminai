@@ -710,16 +710,19 @@ impl<'a> AppState<'a> {
       let screen = parser.screen();
       let size = screen.size();
 
-      // Extract up to max_lines rows
-      let rows_to_extract = max_lines.min(size.rows as usize);
+      // Collect all rows (scrollback + visible) and take the last N lines
+      // This ensures we get recent/current content, not old scrollback
+      let all_rows: Vec<_> = screen.all_rows().collect();
+      let start_idx = all_rows.len().saturating_sub(max_lines);
+      let rows_to_extract = &all_rows[start_idx..];
 
-      for row_idx in 0..rows_to_extract {
+      for row in rows_to_extract {
         let mut line_content = String::new();
         let mut has_content = false;
 
         // Extract each cell in the row
         for col_idx in 0..size.cols {
-          if let Some(cell) = screen.cell(row_idx as u16, col_idx) {
+          if let Some(cell) = row.get(col_idx) {
             if cell.has_contents() {
               line_content.push_str(&cell.contents());
               has_content = true;

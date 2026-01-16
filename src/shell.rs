@@ -175,14 +175,98 @@ impl Shell {
     Ok(())
   }
 
-  /// Send a command string to the shell (with newline)
+  /// Send a command string to the shell
+  ///
+  /// Decodes escape sequences in the command string before sending:
+  /// - \r -> carriage return (0x0D)
+  /// - \n -> newline (0x0A)
+  /// - \t -> tab (0x09)
+  /// - \b -> backspace (0x08)
+  /// - \u00XX -> unicode character (e.g., \u001b for ESC, \u0003 for Ctrl-C)
+  ///
+  /// If the command doesn't end with \r or \n, no Enter key is appended.
   pub fn send_command(&mut self, command: &str) -> Result<()> {
-    // Write the command text
-    self.writer.write_all(command.as_bytes())?;
-    // Send Enter key to execute
-    self.writer.write_all(b"\r")?;
+    // Decode escape sequences
+    let decoded = Self::decode_escape_sequences(command);
+
+    // Write the decoded bytes
+    self.writer.write_all(&decoded)?;
     self.writer.flush()?;
     Ok(())
+  }
+
+  /// Decode common escape sequences in a string to their byte equivalents
+  fn decode_escape_sequences(s: &str) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut chars = s.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+      if ch == '\\' {
+        match chars.peek() {
+          Some('r') => {
+            chars.next();
+            result.push(0x0D); // \r -> CR
+          }
+          Some('n') => {
+            chars.next();
+            result.push(0x0A); // \n -> LF
+          }
+          Some('t') => {
+            chars.next();
+            result.push(0x09); // \t -> TAB
+          }
+          Some('b') => {
+            chars.next();
+            result.push(0x08); // \b -> BS
+          }
+          Some('u') => {
+            chars.next();
+            // Try to parse \uXXXX format
+            let hex_chars: String = chars.by_ref().take(4).collect();
+            if hex_chars.len() == 4 {
+              if let Ok(code) = u16::from_str_radix(&hex_chars, 16) {
+                if code <= 0xFF {
+                  // Only support ASCII/Latin-1 range for terminal control
+                  result.push(code as u8);
+                } else {
+                  // Invalid for terminal control - encode as UTF-8
+                  if let Some(unicode_char) = char::from_u32(code as u32) {
+                    let mut buf = [0u8; 4];
+                    let encoded = unicode_char.encode_utf8(&mut buf);
+                    result.extend_from_slice(encoded.as_bytes());
+                  }
+                }
+              } else {
+                // Failed to parse - keep literal
+                result.push(b'\\');
+                result.push(b'u');
+                result.extend_from_slice(hex_chars.as_bytes());
+              }
+            } else {
+              // Not enough hex digits - keep literal
+              result.push(b'\\');
+              result.push(b'u');
+              result.extend_from_slice(hex_chars.as_bytes());
+            }
+          }
+          Some('\\') => {
+            chars.next();
+            result.push(b'\\'); // \\ -> \
+          }
+          _ => {
+            // Unknown escape - keep literal backslash
+            result.push(b'\\');
+          }
+        }
+      } else {
+        // Regular character - encode as UTF-8
+        let mut buf = [0u8; 4];
+        let encoded = ch.encode_utf8(&mut buf);
+        result.extend_from_slice(encoded.as_bytes());
+      }
+    }
+
+    result
   }
 
   pub fn send_mouse(&mut self, event: MouseEvent) -> Result<()> {
