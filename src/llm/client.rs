@@ -187,18 +187,18 @@ impl AgUiClient {
     vec![
       Tool {
         name: "suggest_command".to_string(),
-        description: "Suggest a shell command to execute in the terminal"
+        description: "Suggest terminal input to help the user. Can be shell commands, keystrokes to navigate TUI applications (arrow keys, q to quit, etc.), control sequences to exit editors (ESC:q for vim), or any other terminal input. Use escape sequences like \\r (Enter), \\u0003 (Ctrl-C), \\u001b (ESC), or arrow characters (↑↓←→) as needed. Always check the current terminal output to understand what the user is running and what input would help."
           .to_string(),
         parameters: json!({
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to suggest"
+                    "description": "The terminal input to suggest - can be a shell command, keystrokes, control sequences, or any combination. Use escape codes for special keys (\\r for Enter, \\u001b for ESC, \\u0003 for Ctrl-C, etc.)"
                 },
                 "explanation": {
                     "type": "string",
-                    "description": "Brief explanation of what the command does"
+                    "description": "Brief explanation of what this input will do"
                 }
             },
             "required": ["command"]
