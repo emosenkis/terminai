@@ -12,6 +12,9 @@ pub enum InternalTermEvent {
 
   InitTimeout,
   ReplyKittyKeyboard(u8),
+
+  BracketedPasteStart,
+  BracketedPasteEnd,
 }
 
 #[derive(Debug)]
