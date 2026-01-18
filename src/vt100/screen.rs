@@ -267,6 +267,12 @@ impl<Reply: TermReplySender> Screen<Reply> {
     self.mode(MODE_HIDE_CURSOR)
   }
 
+  /// Returns whether the terminal has enabled bracketed paste mode.
+  #[must_use]
+  pub fn bracketed_paste(&self) -> bool {
+    self.mode(MODE_BRACKETED_PASTE)
+  }
+
   /// Returns the currently active `MouseProtocolMode`
   #[must_use]
   pub fn mouse_protocol_mode(&self) -> MouseProtocolMode {

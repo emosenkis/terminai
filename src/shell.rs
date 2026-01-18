@@ -175,6 +175,31 @@ impl Shell {
     Ok(())
   }
 
+  /// Send pasted text to the shell
+  ///
+  /// If the guest shell has enabled bracketed paste mode (ESC[?2004h),
+  /// the pasted text will be wrapped with the bracketed paste sequences
+  /// (ESC[200~ ... ESC[201~). Otherwise, the text is sent directly.
+  pub fn send_paste(&mut self, text: &str) -> Result<()> {
+    let use_bracketed_paste = self
+      .vt
+      .read()
+      .map(|vt| vt.screen().bracketed_paste())
+      .unwrap_or(false);
+
+    if use_bracketed_paste {
+      // Wrap with bracketed paste sequences
+      self.writer.write_all(b"\x1b[200~")?;
+      self.writer.write_all(text.as_bytes())?;
+      self.writer.write_all(b"\x1b[201~")?;
+    } else {
+      // Send text directly
+      self.writer.write_all(text.as_bytes())?;
+    }
+    self.writer.flush()?;
+    Ok(())
+  }
+
   /// Send a command string to the shell
   ///
   /// Decodes escape sequences in the command string before sending:

@@ -1378,8 +1378,19 @@ fn event(
         }
       }
     }
+    AppEvent::Crossterm(Event::Paste(text)) => {
+      if !state.ai_visible {
+        // Send pasted text to shell, with bracketed paste if the shell wants it
+        state.shell.send_paste(text)?;
+      } else {
+        // When AI overlay is visible, paste into the chat input
+        // TODO: Handle paste into chat input
+        log::debug!("Paste ignored while AI overlay is visible");
+      }
+      Control::Continue
+    }
     AppEvent::Crossterm(_) => {
-      // Ignore other crossterm events (mouse, focus, paste, etc.) for now
+      // Ignore other crossterm events (focus, etc.) for now
       Control::Continue
     }
     AppEvent::Timer(_) => {
