@@ -8,15 +8,11 @@ use crate::term::internal::InternalTermEvent as E;
 
 pub struct InputParser {
   buf: Vec<u8>,
-  bracketed_paste: Option<Vec<u8>>,
 }
 
 impl InputParser {
   pub fn new() -> Self {
-    Self {
-      buf: Vec::new(),
-      bracketed_paste: None,
-    }
+    Self { buf: Vec::new() }
   }
 
   pub fn parse_input<F>(&mut self, input: &[u8], is_raw_mode: bool, mut f: F)
@@ -30,64 +26,6 @@ impl InputParser {
     use crossterm::event::KeyModifiers as Mods;
 
     self.buf.extend_from_slice(input);
-
-    // If we're in bracketed paste mode, collect bytes but don't emit them yet
-    // The end sequence (ESC[201~) will be detected during normal parsing
-    let in_paste_mode = self.bracketed_paste.is_some();
-    if in_paste_mode && !self.buf.is_empty() {
-      // Check if we have the complete end sequence
-      const END_SEQ: &[u8] = b"\x1B[201~";
-      if self.buf.windows(END_SEQ.len()).any(|w| w == END_SEQ) {
-        // We have the end sequence - let normal parsing handle it
-      } else {
-        // No end sequence yet - collect and wait for more input
-        if let Some(ref mut paste_buf) = self.bracketed_paste {
-          paste_buf.extend_from_slice(&self.buf);
-          self.buf.clear();
-          return;
-        }
-      }
-    }
-
-    // Wrap the callback to intercept bracketed paste events
-    let paste_state = &mut self.bracketed_paste;
-    let mut wrapped_f = |event: E| match event {
-      E::BracketedPasteStart => {
-        // Enter bracketed paste mode
-        *paste_state = Some(Vec::new());
-      }
-      E::BracketedPasteEnd => {
-        // Exit bracketed paste mode and emit collected bytes
-        if let Some(paste_buf) = paste_state.take() {
-          for &byte in paste_buf.iter() {
-            match parse_char_key(byte, &[byte]) {
-              Ok((_, Some(key))) => f(E::Key(key)),
-              _ => {}
-            }
-          }
-        }
-      }
-      other => {
-        // In paste mode, collect the byte instead of emitting
-        if let E::Key(key) = other {
-          if let Some(paste_buf) = paste_state {
-            // Extract the character from the key event and collect it
-            match key.code {
-              KeyCode::Char(c) => {
-                paste_buf.extend_from_slice(c.to_string().as_bytes());
-              }
-              KeyCode::Enter => paste_buf.push(b'\n'),
-              KeyCode::Tab => paste_buf.push(b'\t'),
-              _ => {} // Ignore other keys in paste mode
-            }
-            return; // Don't pass through
-          }
-        }
-        // Pass through other events
-        f(other);
-      }
-    };
-
     let buf = &self.buf;
 
     while i < buf.len() {
@@ -99,7 +37,7 @@ impl InputParser {
             if more {
               break;
             } else {
-              wrapped_f(E::Key(KeyEvent::new(KeyCode::Esc, Mods::NONE)));
+              f(E::Key(KeyEvent::new(KeyCode::Esc, Mods::NONE)));
               consumed = i;
               continue;
             }
@@ -116,31 +54,31 @@ impl InputParser {
               match next_char {
                 b'A' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(KeyCode::Up, Mods::NONE)));
+                  f(E::Key(KeyEvent::new(KeyCode::Up, Mods::NONE)));
                 }
                 b'B' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(KeyCode::Down, Mods::NONE)));
+                  f(E::Key(KeyEvent::new(KeyCode::Down, Mods::NONE)));
                 }
                 b'C' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(KeyCode::Right, Mods::NONE)));
+                  f(E::Key(KeyEvent::new(KeyCode::Right, Mods::NONE)));
                 }
                 b'D' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(KeyCode::Left, Mods::NONE)));
+                  f(E::Key(KeyEvent::new(KeyCode::Left, Mods::NONE)));
                 }
                 b'F' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(KeyCode::End, Mods::NONE)));
+                  f(E::Key(KeyEvent::new(KeyCode::End, Mods::NONE)));
                 }
                 b'H' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(KeyCode::Home, Mods::NONE)));
+                  f(E::Key(KeyEvent::new(KeyCode::Home, Mods::NONE)));
                 }
                 val @ b'P'..=b'S' => {
                   consumed = i;
-                  wrapped_f(E::Key(KeyEvent::new(
+                  f(E::Key(KeyEvent::new(
                     KeyCode::F(1 + val - b'P'),
                     Mods::NONE,
                   )));
@@ -166,7 +104,7 @@ impl InputParser {
                 consumed = i;
                 match parse_cb(b) {
                   Ok((kind, modifiers)) => {
-                    wrapped_f(E::Mouse(MouseEvent {
+                    f(E::Mouse(MouseEvent {
                       kind,
                       modifiers,
                       column: x,
@@ -179,13 +117,13 @@ impl InputParser {
                 }
               } else {
                 // Most of CSI
-                let len = parse_csi(&buf[i..], is_raw_mode, &mut wrapped_f);
+                let len = parse_csi(&buf[i..], is_raw_mode, &mut f);
                 i += len;
                 consumed = i;
               }
             }
             b'\x1B' => {
-              wrapped_f(E::Key(KeyEvent::new(KeyCode::Esc, Mods::NONE)));
+              f(E::Key(KeyEvent::new(KeyCode::Esc, Mods::NONE)));
               consumed = i;
             }
             c => {
@@ -194,7 +132,7 @@ impl InputParser {
                   i += used;
                   if let Some(mut key) = key {
                     key.modifiers |= Mods::ALT;
-                    wrapped_f(E::Key(key));
+                    f(E::Key(key));
                   }
                 }
                 Err(err) => {
@@ -210,7 +148,7 @@ impl InputParser {
             Ok((used, key)) => {
               i += used;
               if let Some(key) = key {
-                wrapped_f(E::Key(key));
+                f(E::Key(key));
               }
             }
             Err(err) => {
@@ -524,27 +462,11 @@ where
       let params_str = str::from_utf8(params)?;
       let mut params = params_str.split(';');
 
-      let code_val = params
+      let code = params
         .next()
         .ok_or_else(|| anyhow!("No key param in CSI ~"))?
-        .parse::<u16>()?;
-
-      // Handle bracketed paste sequences
-      match code_val {
-        200 => {
-          f(E::BracketedPasteStart);
-          return Ok(());
-        }
-        201 => {
-          f(E::BracketedPasteEnd);
-          return Ok(());
-        }
-        _ => {}
-      }
-
-      // Convert to u8 for normal key codes (all are < 256)
-      let code_u8 = code_val as u8;
-      let code = match code_u8 {
+        .parse::<u8>()?;
+      let code = match code {
         1 | 7 => KeyCode::Home,
         2 => KeyCode::Insert,
         3 => KeyCode::Delete,
@@ -815,133 +737,5 @@ fn utf8_char_len(first_byte: u8) -> usize {
     (0xE0..=0xEF) => 3, // 1110xxxx 10xxxxxx 10xxxxxx
     (0xF0..=0xF7) => 4, // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
     (0x80..=0xBF) | (0xF8..=0xFF) => 0,
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use crossterm::event::{KeyCode, KeyModifiers};
-
-  #[test]
-  fn test_bracketed_paste_simple() {
-    let mut parser = InputParser::new();
-    let mut events = Vec::new();
-
-    // Simulate a bracketed paste with "hello"
-    let input = b"\x1B[200~hello\x1B[201~";
-    parser.parse_input(input, true, |event| {
-      events.push(event);
-    });
-
-    // Should receive 5 key events for 'h', 'e', 'l', 'l', 'o'
-    assert_eq!(events.len(), 5);
-    match &events[0] {
-      E::Key(key) => {
-        assert_eq!(key.code, KeyCode::Char('h'));
-        assert_eq!(key.modifiers, KeyModifiers::NONE);
-      }
-      _ => panic!("Expected key event"),
-    }
-    match &events[1] {
-      E::Key(key) => {
-        assert_eq!(key.code, KeyCode::Char('e'));
-      }
-      _ => panic!("Expected key event"),
-    }
-  }
-
-  #[test]
-  fn test_bracketed_paste_multiline() {
-    let mut parser = InputParser::new();
-    let mut events = Vec::new();
-
-    // Simulate a bracketed paste with multiple lines
-    let input = b"\x1B[200~line1\nline2\x1B[201~";
-    parser.parse_input(input, true, |event| {
-      events.push(event);
-    });
-
-    // Should receive key events for each character including newline
-    assert!(events.len() > 10);
-
-    // Verify the newline is included
-    let has_newline = events.iter().any(|e| match e {
-      E::Key(key) => matches!(key.code, KeyCode::Enter),
-      _ => false,
-    });
-    assert!(has_newline, "Should contain newline character");
-  }
-
-  #[test]
-  fn test_bracketed_paste_with_special_chars() {
-    let mut parser = InputParser::new();
-    let mut events = Vec::new();
-
-    // Simulate a bracketed paste with special characters
-    let input = b"\x1B[200~hello\t world\x1B[201~";
-    parser.parse_input(input, true, |event| {
-      events.push(event);
-    });
-
-    // Should contain tab character
-    let has_tab = events.iter().any(|e| match e {
-      E::Key(key) => matches!(key.code, KeyCode::Tab),
-      _ => false,
-    });
-    assert!(has_tab, "Should contain tab character");
-  }
-
-  #[test]
-  fn test_bracketed_paste_split_across_calls() {
-    let mut parser = InputParser::new();
-    let mut events = Vec::new();
-
-    // First call: start sequence and partial data
-    parser.parse_input(b"\x1B[200~hel", true, |event| {
-      events.push(event);
-    });
-
-    // No events should be emitted yet
-    assert_eq!(events.len(), 0);
-
-    // Second call: more data
-    parser.parse_input(b"lo wor", true, |event| {
-      events.push(event);
-    });
-
-    // Still no events
-    assert_eq!(events.len(), 0);
-
-    // Third call: end sequence
-    parser.parse_input(b"ld\x1B[201~", true, |event| {
-      events.push(event);
-    });
-
-    // Now all events should be emitted
-    assert_eq!(events.len(), 11); // "hello world"
-  }
-
-  #[test]
-  fn test_normal_input_before_bracketed_paste() {
-    let mut parser = InputParser::new();
-    let mut events = Vec::new();
-
-    // Normal input followed by bracketed paste
-    let input = b"a\x1B[200~bc\x1B[201~d";
-    parser.parse_input(input, true, |event| {
-      events.push(event);
-    });
-
-    // Should receive: 'a', 'b', 'c', 'd'
-    assert_eq!(events.len(), 4);
-    match &events[0] {
-      E::Key(key) => assert_eq!(key.code, KeyCode::Char('a')),
-      _ => panic!("Expected key event"),
-    }
-    match &events[3] {
-      E::Key(key) => assert_eq!(key.code, KeyCode::Char('d')),
-      _ => panic!("Expected key event"),
-    }
   }
 }

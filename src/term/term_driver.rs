@@ -229,11 +229,6 @@ impl TermDriver {
           self.keyboard = KeyboardMode::Kitty(flags);
           self.stdout.write_all(b"\x1b[>1u")?;
         }
-        InternalTermEvent::BracketedPasteStart
-        | InternalTermEvent::BracketedPasteEnd => {
-          // These are handled internally by the input parser and should never reach here
-          ()
-        }
       };
     }
   }
