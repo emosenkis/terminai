@@ -21,8 +21,28 @@ use super::chat_process::{AIChatProcess, ConversationEntry, MessageRole};
 use crate::llm::ToolCallDisplay;
 
 /// Moon phases spinner frames for the loading animation
-const SPINNER_FRAMES: &[char] =
-  &['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+const SPINNER_MOON: &[char] = &['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+
+/// Thinking/Processing - AI is contemplating
+const SPINNER_THINKING: &[char] = &['🤔', '🧐', '🤨', '🤔', '😐', '🤔'];
+
+/// Smooth smile wave - pleasant, loops perfectly
+const SPINNER_SMILE_WAVE: &[char] = &['😐', '🙂', '😊', '😀', '😊', '🙂'];
+
+/// Gentle blink - subtle and familiar
+const SPINNER_BLINK: &[char] = &['😀', '😀', '😑', '😀', '😀', '😑'];
+
+/// Deep focus - contemplative processing
+const SPINNER_FOCUS: &[char] = &['😶', '🤔', '🧐', '🤔', '😶', '😐'];
+
+/// Excitement building - enthusiastic AI
+const SPINNER_EXCITED: &[char] = &['🙂', '😀', '😃', '🤩', '😃', '😀'];
+
+/// Nodding approval - reassuring
+const SPINNER_NODDING: &[char] = &['🙂', '😊', '😌', '😊', '🙂', '😐'];
+
+/// Active spinner (change this to switch animation style)
+const SPINNER_FRAMES: &[char] = SPINNER_MOON;
 
 /// Get the current spinner frame based on system time
 fn get_spinner_frame() -> char {
