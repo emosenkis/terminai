@@ -1,6 +1,6 @@
 // Integration test for LLM subprocess management
 
-use termin::llm_subprocess::{LlmSubprocess, LlmSubprocessConfig};
+use crate::llm_subprocess::{LlmSubprocess, LlmSubprocessConfig};
 
 #[tokio::test]
 #[ignore] // Only run when explicitly requested (requires Python/uv)

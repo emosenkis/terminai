@@ -46,3 +46,7 @@ pub mod terminai_config;
 // Test utilities
 #[cfg(test)]
 pub mod test_config;
+
+// Test modules
+#[cfg(test)]
+mod tests;

@@ -3,9 +3,7 @@
 // These tests use ratatui's TestBackend to verify the application's
 // behavior without requiring an actual terminal.
 
-mod e2e;
-
-use e2e::TestHarness;
+use super::e2e::TestHarness;
 
 #[cfg(test)]
 mod tests {

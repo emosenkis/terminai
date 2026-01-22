@@ -16,8 +16,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::time::sleep;
 
-use termin::llm::AgUiClient;
-use termin::llm_subprocess::LlmSubprocessConfig;
+use crate::llm::AgUiClient;
+use crate::llm_subprocess::LlmSubprocessConfig;
 
 /// Helper to spawn the mock LLM server
 struct MockLlmServer {

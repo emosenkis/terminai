@@ -17,12 +17,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 
-use termin::llm::{
+use crate::llm::{
   AgUiClient, CommandSuggestion, Message, TerminalContext, ToolCoordinator,
   ToolExecutionContext, ToolExecutionEvent, ToolExecutor,
   run_tool_execution_loop,
 };
-use termin::llm_subprocess::LlmSubprocessConfig;
+use crate::llm_subprocess::LlmSubprocessConfig;
 
 /// Test the full E2E flow using real Anthropic API
 ///
@@ -83,8 +83,8 @@ async fn test_agui_tool_e2e_real_anthropic() -> Result<()> {
     vt_parser: None,
     fallback_scrollback: Some(terminal_context.history_lines.clone()),
     command_suggestions: Arc::clone(&command_suggestions),
-    command_executor: termin::command::CommandExecutor::new(),
-    safety_validator: termin::command::SafetyValidator::new(),
+    command_executor: crate::command::CommandExecutor::new(),
+    safety_validator: crate::command::SafetyValidator::new(),
   };
   let tool_executor = ToolExecutor::new(tool_context);
 
@@ -158,7 +158,7 @@ async fn test_agui_tool_e2e_real_anthropic() -> Result<()> {
       }
       tool_event = event_rx.recv() => {
         match tool_event {
-          Some(ToolExecutionEvent::ToolExecuted { tool_name }) => {
+          Some(ToolExecutionEvent::ToolExecuted { tool_name, .. }) => {
             log::info!("Tool executed: {}", tool_name);
           }
           Some(ToolExecutionEvent::ContinuedTextChunk { chunk }) => {
@@ -171,6 +171,12 @@ async fn test_agui_tool_e2e_real_anthropic() -> Result<()> {
           Some(ToolExecutionEvent::Error { message }) => {
             log::error!("Tool execution error: {}", message);
             anyhow::bail!("Tool execution error: {}", message);
+          }
+          Some(ToolExecutionEvent::ToolCallStarted { tool_name, .. }) => {
+            log::info!("Tool call started: {}", tool_name);
+          }
+          Some(ToolExecutionEvent::ToolFailed { tool_name, error_message, .. }) => {
+            log::error!("Tool failed: {} - {}", tool_name, error_message);
           }
           None => {
             log::info!("Event channel closed");
@@ -262,8 +268,8 @@ async fn test_agui_tool_call_flow_with_mock() -> Result<()> {
     vt_parser: None,
     fallback_scrollback: Some(terminal_context.history_lines.clone()),
     command_suggestions: Arc::clone(&command_suggestions),
-    command_executor: termin::command::CommandExecutor::new(),
-    safety_validator: termin::command::SafetyValidator::new(),
+    command_executor: crate::command::CommandExecutor::new(),
+    safety_validator: crate::command::SafetyValidator::new(),
   };
   let tool_executor = ToolExecutor::new(tool_context);
 
@@ -333,7 +339,7 @@ async fn test_agui_tool_call_flow_with_mock() -> Result<()> {
       }
       tool_event = event_rx.recv() => {
         match tool_event {
-          Some(ToolExecutionEvent::ToolExecuted { tool_name }) => {
+          Some(ToolExecutionEvent::ToolExecuted { tool_name, .. }) => {
             log::info!("✅ Tool executed: {}", tool_name);
             tool_executed = true;
             if tool_name == "suggest_command" {
@@ -349,6 +355,12 @@ async fn test_agui_tool_call_flow_with_mock() -> Result<()> {
           Some(ToolExecutionEvent::Error { message }) => {
             log::error!("❌ Tool execution error: {}", message);
             anyhow::bail!("Tool execution error: {}", message);
+          }
+          Some(ToolExecutionEvent::ToolCallStarted { tool_name, .. }) => {
+            log::info!("Tool call started: {}", tool_name);
+          }
+          Some(ToolExecutionEvent::ToolFailed { tool_name, error_message, .. }) => {
+            log::error!("Tool failed: {} - {}", tool_name, error_message);
           }
           None => {
             log::info!("Event channel closed");

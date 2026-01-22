@@ -4,6 +4,7 @@
 // of the Termin.AI application using ratatui's TestBackend.
 
 pub mod test_ai;
+pub mod test_resize;
 pub mod test_ui;
 pub mod test_vt100;
 

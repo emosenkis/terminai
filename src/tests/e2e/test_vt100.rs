@@ -3,8 +3,7 @@
 // Tests for VT100 terminal parsing and rendering
 
 use super::*;
-use std::sync::{Arc, RwLock};
-use termin::vt100::{self, TermReplySender};
+use crate::vt100::{self, TermReplySender};
 use tui::widgets::Widget;
 
 /// Simple reply sender for testing
