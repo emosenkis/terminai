@@ -5,6 +5,7 @@
 
 pub mod test_ai;
 pub mod test_resize;
+pub mod test_scrollback;
 pub mod test_ui;
 pub mod test_vt100;
 
