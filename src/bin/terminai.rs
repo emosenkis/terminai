@@ -175,49 +175,8 @@ impl PollEvents<AppEvent, Error> for PollShell {
   }
 }
 
-// Terminal renderer widget (simplified from mprocs' UiTerm)
-struct TerminalWidget<'a> {
-  screen: &'a vt100::Screen<termin::shell::ReplySender>,
-  row_offset: u16,
-}
-
-impl<'a> TerminalWidget<'a> {
-  fn with_offset(
-    screen: &'a vt100::Screen<termin::shell::ReplySender>,
-    row_offset: u16,
-  ) -> Self {
-    Self { screen, row_offset }
-  }
-}
-
-impl Widget for TerminalWidget<'_> {
-  fn render(self, area: Rect, buf: &mut tui::buffer::Buffer) {
-    // Render each cell from the VT100 screen to the tui buffer
-    // Pattern borrowed from mprocs' ui_term.rs
-    for row in 0..area.height {
-      for col in 0..area.width {
-        let pos = tui::layout::Position {
-          x: area.x + col,
-          y: area.y + row,
-        };
-
-        if let Some(to_cell) = buf.cell_mut(pos) {
-          // Apply row offset to shift viewport (for AI overlay)
-          if let Some(cell) = self.screen.cell(row + self.row_offset, col) {
-            // Convert VT100 cell to tui cell (using mprocs' conversion)
-            *to_cell = cell.to_tui();
-            if !cell.has_contents() {
-              to_cell.set_char(' ');
-            }
-          } else {
-            // Out of bounds (offset pushed us past screen size)
-            to_cell.set_char(' ');
-          }
-        }
-      }
-    }
-  }
-}
+// Use TerminalWidget from ui_layer module
+use termin::ui_layer::TerminalWidget;
 
 /// Helper to initialize shell and AI process asynchronously
 async fn initialize_app_components(
