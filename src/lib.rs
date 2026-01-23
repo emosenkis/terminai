@@ -40,6 +40,7 @@ pub mod env_loader;
 pub mod llm;
 pub mod llm_subprocess;
 pub mod privacy;
+pub mod scrollback;
 pub mod shell;
 pub mod terminai_config;
 
