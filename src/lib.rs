@@ -43,6 +43,7 @@ pub mod privacy;
 pub mod scrollback;
 pub mod shell;
 pub mod terminai_config;
+pub mod ui_layer;
 
 // Test utilities
 #[cfg(test)]
