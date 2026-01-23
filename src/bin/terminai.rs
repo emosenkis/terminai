@@ -13,7 +13,6 @@ use tokio::sync::{
   mpsc::{self, UnboundedReceiver},
 };
 use tui::Frame;
-use tui::style::Modifier;
 
 use tui::{
   layout::Rect,
@@ -38,6 +37,7 @@ use termin::ai_proc::{AIChatProcess, AIChatUI};
 use termin::key::Key;
 use termin::llm::TerminalContext;
 use termin::mouse::MouseEvent;
+use termin::scrollback::{ScrollbackTracker, process_scrollback};
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 use termin::vt100;
 
@@ -476,14 +476,17 @@ fn main() -> Result<()> {
 
   // Create application state
   log::debug!("Creating application state");
+  // Initialize scrollback tracker with current terminal state
+  let mut scrollback_tracker = ScrollbackTracker::new();
+  scrollback_tracker.init(rows as usize);
+
   let mut state = AppState {
     shell,
     ai_process: ai_process.map(|p| Arc::new(Mutex::new(p))),
     ai_ui: AIChatUI::new(),
     ai_visible: false,
     chat_position,
-    last_total_rows: rows as usize,
-    has_pending_scrollback: false,
+    scrollback_tracker,
     config,
     config_error,
     key_combiner,
@@ -555,10 +558,8 @@ struct AppState<'a> {
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
   chat_position: ChatPosition,
-  /// Track the total row count to detect when content scrolls off screen
-  last_total_rows: usize,
-  /// Has pending scrollback lines:
-  has_pending_scrollback: bool,
+  /// Scrollback tracker for detecting and handling scrolled content
+  scrollback_tracker: ScrollbackTracker,
   /// Termin.AI configuration
   config: TerminAIConfig,
   /// Configuration error message (if config failed to load)
@@ -804,76 +805,25 @@ fn render(
 
   // Detect when content has scrolled in the VT100 terminal
   // and push scrolled lines to the host terminal's native scrollback
-  let num_pending_lines = if let Ok(vt) = state.shell.vt.read() {
+  let scroll_up_lines = if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
-    let current_total_rows = screen.total_rows();
-
-    // If total rows increased, content has scrolled into VT100's scrollback buffer
-    if current_total_rows > state.last_total_rows {
-      let num = current_total_rows - state.last_total_rows;
-      log::trace!(
-        "Content scrolled: {} new lines (total rows: {} -> {})",
-        num,
-        state.last_total_rows,
-        current_total_rows
-      );
-      num
-    } else {
-      0
-    }
+    let buf = frame.buffer_mut();
+    process_scrollback(&mut state.scrollback_tracker, screen, buf, area)
   } else {
     log::error!("Failed to acquire read lock on VT");
     0
   };
-  let rows_to_scroll = num_pending_lines.min(area.height as usize);
-  state.last_total_rows += rows_to_scroll;
-  state.has_pending_scrollback = rows_to_scroll < num_pending_lines;
 
-  // If content has scrolled, render the scrolled lines BEFORE rendering current screen
-  if num_pending_lines > 0 {
-    if let Ok(vt) = state.shell.vt.read() {
-      let screen = vt.screen();
-      let current_row0 = screen.row0();
-
-      // The lines that just scrolled off are now in scrollback
-      // They are at indices: (current_row0 - num_scrolled_lines) through (current_row0 - 1)
-      let scrollback_start = current_row0.saturating_sub(num_pending_lines);
-
-      log::trace!(
-        "Inserting {} lines into scrollback of possible {}",
-        rows_to_scroll,
-        num_pending_lines
-      );
-
-      let mut line_idx = 0;
-      for row in screen
-        .all_rows()
-        .skip(scrollback_start)
-        .take(rows_to_scroll)
-      {
-        // Render this scrollback row into the buffer
-        for col in 0..area.width.min(row.cols()) {
-          if let Some(cell) = row.get(col) {
-            if let Some(buf_cell) = frame
-              .buffer_mut()
-              .cell_mut((area.x + col, area.y + line_idx as u16))
-            {
-              *buf_cell = cell.to_tui();
-              if !cell.has_contents() {
-                buf_cell.modifier |= Modifier::EMPTY;
-              }
-            }
-          }
-        }
-        line_idx += 1;
-      }
-    } else {
-      log::error!("Failed to acquire read lock on VT for scrollback");
-    }
-
-    // Push these rendered lines to native scrollback
-    frame.set_scroll_up(num_pending_lines as u16);
+  // Push rendered scrollback lines to native scrollback
+  if scroll_up_lines > 0 {
+    log::trace!(
+      "Scrolling up {} lines (pending: {})",
+      scroll_up_lines,
+      state.scrollback_tracker.has_pending_scrollback()
+    );
+    frame.set_scroll_up(scroll_up_lines);
   }
+
   let buf = frame.buffer_mut();
 
   // Calculate row offset for terminal viewport
@@ -1110,7 +1060,7 @@ fn event(
 
   if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
-    if screen.total_rows() > state.last_total_rows {
+    if screen.total_rows() > state.scrollback_tracker.last_total_rows() {
       shell_changed = true;
     }
   } else {
