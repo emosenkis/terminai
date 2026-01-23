@@ -324,16 +324,7 @@ async fn initialize_ai() -> (
                 log::error!("Failed to initialize AI subprocess: {:?}", e);
                 eprintln!("\n⚠️  Failed to initialize AI subprocess:");
                 eprintln!("{}", e);
-                let log_dir = xdg::BaseDirectories::with_prefix("terminai")
-                  .get_cache_home()
-                  .map(|path| path.to_string_lossy().to_string())
-                  .unwrap_or_else(|| {
-                    std::env::temp_dir()
-                      .join("terminai")
-                      .to_string_lossy()
-                      .to_string()
-                  });
-                let log_path = format!("{}/terminai.log", log_dir);
+                let log_path = termin::terminai_init::get_log_path();
                 eprintln!("\n📝 Check detailed logs at: {}", log_path);
                 eprintln!(
                   "   You can also set RUST_LOG=debug for verbose output.\n"
@@ -378,41 +369,8 @@ async fn initialize_ai() -> (
 }
 
 fn main() -> Result<()> {
-  // Setup logging (enable debug for HTTP/LLM debugging)
-  // Get app cache directory
-  let cache_dir = xdg::BaseDirectories::with_prefix("terminai")
-    .get_cache_home()
-    .map(|path| path.to_str().map(String::from))
-    .flatten()
-    .unwrap_or_else(|| {
-      // Fallback to temporary directory if XDG not available
-      std::env::temp_dir()
-        .join("terminai")
-        .to_string_lossy()
-        .to_string()
-    });
-
-  #[cfg(debug_assertions)]
-  let log_spec =
-    "info,terminai=debug,genai=debug,reqwest=debug,tui_markdown=error";
-  #[cfg(not(debug_assertions))]
-  let log_spec = "info,genai=debug,reqwest=debug,tui_markdown=error";
-
-  flexi_logger::Logger::try_with_env_or_str(log_spec)?
-    .log_to_file(
-      flexi_logger::FileSpec::default()
-        .directory(&cache_dir)
-        .basename("terminai")
-        .suppress_timestamp(), // Don't add timestamp to filename
-    )
-    .append()
-    .rotate(
-      flexi_logger::Criterion::Size(1024 * 1024), // Rotate at 1 MB
-      flexi_logger::Naming::Timestamps, // Add timestamp to rotated files
-      flexi_logger::Cleanup::KeepLogFiles(5), // Keep last 5 rotated log files
-    )
-    .format_for_files(flexi_logger::with_thread) // Format with timestamp and thread
-    .start()?;
+  // Setup logging to file with rotation
+  termin::terminai_init::setup_logging()?;
 
   // Load environment variables from terminai.env (for API keys)
   // This must happen before AI initialization
@@ -493,36 +451,10 @@ fn main() -> Result<()> {
   };
 
   // Run rat-salsa event loop
-  // Phase 2: PollShell properly integrated via rat-salsa framework
   log::info!("Starting rat-salsa event loop");
-  log::debug!("Creating RunConfig with inline terminal");
 
   // Create inline terminal (no alternate screen) for native scrollback support
-  // IMPORTANT: Disable mouse capture to allow native terminal scrolling
-  // If the guest process requests mouse events, we'll pass them through
-  use crossterm::cursor::SetCursorStyle;
-  use crossterm::event::KeyboardEnhancementFlags;
-  use rat_salsa::terminal::{CrosstermTerminal, SalsaOptions};
-  use tui::TerminalOptions;
-  use tui::Viewport;
-  let (_, rows) = crossterm::terminal::size()?;
-  let options = SalsaOptions {
-    alternate_screen: false,
-    mouse_capture: false, // Don't capture mouse - allow native scrolling
-    bracketed_paste: true,
-    cursor_blinking: true,
-    cursor: SetCursorStyle::DefaultUserShape,
-    keyboard_enhancements: KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-      | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-      | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-      | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
-    shutdown_clear: false,
-    ratatui_options: TerminalOptions {
-      viewport: Viewport::Inline(rows),
-    },
-    ..Default::default()
-  };
-  let terminal = CrosstermTerminal::with_options(options)?;
+  let terminal = termin::terminai_init::create_terminal()?;
   let config = RunConfig::<AppEvent, Error>::new(terminal);
   log::debug!("Calling run_tui");
   match run_tui(
