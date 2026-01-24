@@ -403,4 +403,46 @@ mod tests {
     // No layer consumed the event
     assert_eq!(outcome, LayerEventOutcome::Continue);
   }
+
+  // Test that demonstrates the "overlay pattern":
+  // - Terminal layer always visible at bottom
+  // - Overlay layer on top when visible
+  // - When overlay hidden, events pass through to terminal
+  #[test]
+  fn test_overlay_pattern_visible() {
+    let mut stack = UILayerStack::new();
+
+    // Terminal layer - always visible, doesn't consume events (passes to shell)
+    stack.push(Box::new(TestLayer::new("terminal", true, false)));
+    // Overlay layer - visible, consumes events
+    stack.push(Box::new(TestLayer::new("overlay", true, true)));
+
+    let event = Event::Key(crossterm::event::KeyEvent::new(
+      crossterm::event::KeyCode::Char('a'),
+      crossterm::event::KeyModifiers::empty(),
+    ));
+
+    // Overlay is visible and consumes the event
+    let outcome = stack.handle_event(&event).unwrap();
+    assert_eq!(outcome, LayerEventOutcome::Changed);
+  }
+
+  #[test]
+  fn test_overlay_pattern_hidden() {
+    let mut stack = UILayerStack::new();
+
+    // Terminal layer - always visible, doesn't consume events (passes to shell)
+    stack.push(Box::new(TestLayer::new("terminal", true, false)));
+    // Overlay layer - hidden, would consume events if visible
+    stack.push(Box::new(TestLayer::new("overlay", false, true)));
+
+    let event = Event::Key(crossterm::event::KeyEvent::new(
+      crossterm::event::KeyCode::Char('a'),
+      crossterm::event::KeyModifiers::empty(),
+    ));
+
+    // Overlay is hidden, event passes through to terminal (which also passes)
+    let outcome = stack.handle_event(&event).unwrap();
+    assert_eq!(outcome, LayerEventOutcome::Continue);
+  }
 }
