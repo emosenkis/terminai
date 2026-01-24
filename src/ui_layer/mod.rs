@@ -1,5 +1,39 @@
-// UI Layer abstraction for Termin.AI
-// Provides a widget stack that renders layers bottom-to-top and handles events top-to-bottom
+//! UI Layer abstraction for Termin.AI
+//!
+//! This module provides a widget stack pattern that:
+//! - Renders layers bottom-to-top (first layer pushed = bottom, rendered first)
+//! - Handles events top-to-bottom (last layer pushed = top, handles events first)
+//!
+//! # Layer Stack Pattern
+//!
+//! The pattern is designed for overlay UIs where:
+//! - A base layer (terminal) is always visible and renders first
+//! - An overlay layer (AI chat) may or may not be visible
+//! - When visible, the overlay handles events first (captures input)
+//! - When hidden, events pass through to the base layer
+//!
+//! # Example
+//!
+//! ```ignore
+//! use termin::ui_layer::{UILayerStack, TerminalLayer, AIOverlayLayer};
+//!
+//! // Create a stack with terminal at bottom, overlay on top
+//! let mut stack = UILayerStack::new();
+//! stack.push(Box::new(TerminalLayer::new(vt_parser)));
+//! stack.push(Box::new(AIOverlayLayer::new(ChatPosition::Bottom)));
+//!
+//! // Render bottom-to-top (terminal first, then overlay on top)
+//! stack.render(area, buf);
+//!
+//! // Handle events top-to-bottom (overlay first if visible, then terminal)
+//! stack.handle_event(&event);
+//! ```
+//!
+//! # Integration with rat-salsa
+//!
+//! The terminai binary uses rat-salsa's callback pattern. While UILayerStack
+//! provides the layer abstraction, the actual integration is done through
+//! helper methods in AppState that follow the same layering principles.
 
 pub mod ai_overlay_layer;
 pub mod terminal_layer;

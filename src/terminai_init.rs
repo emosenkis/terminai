@@ -1,5 +1,12 @@
-// Application initialization functions for Termin.AI binary
-// Provides setup for logging, terminal, and components
+//! Application initialization functions for Termin.AI binary
+//!
+//! This module provides setup functions extracted from main() to improve
+//! testability and separation of concerns:
+//!
+//! - [`setup_logging`]: Configure file-based logging with rotation
+//! - [`create_terminal`]: Create the rat-salsa terminal with inline viewport
+//! - [`get_cache_dir`]: Get the XDG cache directory for terminai
+//! - [`get_log_path`]: Get the full path to the log file
 
 use anyhow::Result;
 use crossterm::cursor::SetCursorStyle;
