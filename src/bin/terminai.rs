@@ -204,7 +204,7 @@ async fn initialize_app_components(
     let cmd = &command[0];
     let args = &command[1..];
     log::info!("Spawning command: {} {:?}", cmd, args);
-    Shell::spawn_command(cmd, &args.to_vec(), rows, cols)?
+    Shell::spawn_command(cmd, args, rows, cols)?
   };
 
   // Initialize AI and get chat position from config
@@ -433,7 +433,7 @@ fn main() -> Result<()> {
     Ok(_) => log::info!("rat-salsa event loop exited normally"),
     Err(e) => {
       log::error!("rat-salsa event loop failed: {:?}", e);
-      return Err(e.into());
+      return Err(e);
     }
   }
 
@@ -616,7 +616,7 @@ impl<'a> AppState<'a> {
         for col_idx in 0..size.cols {
           if let Some(cell) = row.get(col_idx) {
             if cell.has_contents() {
-              line_content.push_str(&cell.contents());
+              line_content.push_str(cell.contents());
               has_content = true;
             } else if has_content {
               // Add spaces for empty cells after content
@@ -676,6 +676,253 @@ impl<'a> AppState<'a> {
       y: overlay_y,
       width: area.width,
       height: overlay_height,
+    }
+  }
+
+  /// Process tool execution events from AI subprocess
+  /// Returns true if any state changed requiring re-render
+  fn process_tool_events(&mut self, ctx: &mut Global) -> bool {
+    let mut changed = false;
+
+    if let Some(ref ai_process_arc) = self.ai_process {
+      // Use try_lock to avoid blocking - this is a synchronous event loop
+      if let Ok(mut ai_process) = ai_process_arc.try_lock() {
+        // Check for tool execution events (non-blocking)
+        if let Some(tool_event) = ai_process.try_recv_tool_event() {
+          match tool_event {
+            ToolExecutionEvent::ToolCallStarted {
+              tool_call_id,
+              tool_name,
+              args,
+            } => {
+              log::info!(
+                "Tool call started: {} (id: {})",
+                tool_name,
+                tool_call_id
+              );
+              // Add tool call to conversation in "running" state
+              ai_process.add_tool_call_started(tool_call_id, tool_name, args);
+              changed = true;
+            }
+            ToolExecutionEvent::ToolExecuted {
+              tool_call_id,
+              tool_name,
+              args: _,
+              result_content,
+              duration_ms,
+            } => {
+              log::info!(
+                "Tool executed: {} (id: {}, {}ms)",
+                tool_name,
+                tool_call_id,
+                duration_ms
+              );
+              // Update tool call in conversation to "success" state
+              ai_process.complete_tool_call(
+                &tool_call_id,
+                result_content,
+                duration_ms,
+              );
+              changed = true;
+
+              // Check if it was a suggest_command tool
+              if tool_name == "suggest_command" {
+                log::info!("Command suggested, spawning checker task");
+
+                // Spawn async task to retrieve and display the suggestion
+                let ai_process_clone = Arc::clone(ai_process_arc);
+                ctx.spawn_async(async move {
+                  let mut ai = ai_process_clone.lock().await;
+                  if let Some(suggestion) = ai.get_latest_suggestion().await {
+                    log::info!(
+                      "Retrieved suggestion: {} (risk: {:?})",
+                      suggestion.command,
+                      suggestion.risk_level
+                    );
+                    // Convert to pending command for approval UI
+                    ai.set_pending_command(suggestion).await;
+                  }
+                  Ok(Control::Changed)
+                });
+              }
+            }
+            ToolExecutionEvent::ToolFailed {
+              tool_call_id,
+              tool_name,
+              args: _,
+              error_message,
+              duration_ms,
+            } => {
+              log::error!(
+                "Tool failed: {} (id: {}, {}ms): {}",
+                tool_name,
+                tool_call_id,
+                duration_ms,
+                error_message
+              );
+              // Update tool call in conversation to "failed" state
+              ai_process.fail_tool_call(
+                &tool_call_id,
+                error_message,
+                duration_ms,
+              );
+              changed = true;
+            }
+            ToolExecutionEvent::ContinuedTextChunk { chunk } => {
+              log::debug!("Continued text: {}", chunk);
+              // Ensure streaming response is initialized for continued stream
+              if ai_process.streaming_response().is_none() {
+                ai_process.start_continued_streaming();
+              }
+              // Append to AI process streaming response
+              ai_process.append_streaming_token(chunk);
+              changed = true;
+            }
+            ToolExecutionEvent::ContinuedStreamComplete { full_response } => {
+              log::info!(
+                "Continued response complete: {} chars",
+                full_response.len()
+              );
+              // Complete the streaming with the full response
+              // Use complete_continued_streaming() because tool_coordinator already
+              // adds the assistant response to AG-UI history
+              ai_process.complete_continued_streaming(full_response);
+              changed = true;
+            }
+            ToolExecutionEvent::Error { message } => {
+              log::error!("Tool execution error: {}", message);
+              ai_process
+                .set_error(format!("Tool execution failed: {}", message));
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+
+    changed
+  }
+
+  /// Handle Enter key press to send message to AI
+  /// Returns true if the message was sent
+  fn send_ai_message(&mut self, ctx: &mut Global) -> bool {
+    let input = self.ai_ui.get_input_value().trim().to_string();
+
+    if input.is_empty() {
+      return false;
+    }
+
+    log::info!("Sending message to AI: {}", input);
+
+    // Extract terminal context before spawning task
+    let context = self.extract_context();
+
+    // Spawn async task to send message
+    if let Some(ref ai_process_arc) = self.ai_process {
+      let ai_process_clone = Arc::clone(ai_process_arc);
+      let input_clone = input.clone();
+
+      // Use spawn_async_ext to get a sender for intermediate render triggers
+      ctx.spawn_async_ext(|sender| async move {
+        use futures::stream::StreamExt;
+
+        // Start streaming (lock only for setup)
+        let stream = {
+          let mut ai_process = ai_process_clone.lock().await;
+          ai_process.start_streaming(&input_clone, context).await
+        };
+
+        match stream {
+          Ok(response) => {
+            let mut stream = response.text_stream;
+            let mut full_response = String::new();
+
+            // Process stream tokens with lock/unlock cycles
+            while let Some(token_result) = stream.next().await {
+              match token_result {
+                Ok(token) => {
+                  full_response.push_str(&token);
+                  // Lock only to update state
+                  {
+                    let mut ai_process = ai_process_clone.lock().await;
+                    ai_process.append_streaming_token(token);
+                  }
+                  // Trigger UI re-render after appending token
+                  let _ = sender.send(Ok(Control::Changed)).await;
+                }
+                Err(e) => {
+                  let error_msg = format!("{:#}", e);
+                  log::error!("Stream error: {}", error_msg);
+                  let mut ai_process = ai_process_clone.lock().await;
+                  ai_process.abort_streaming();
+                  ai_process.set_error(error_msg);
+                  return Ok(Control::Changed);
+                }
+              }
+            }
+
+            // Complete streaming
+            {
+              let mut ai_process = ai_process_clone.lock().await;
+              ai_process.complete_streaming(full_response).await;
+            }
+          }
+          Err(e) => {
+            let error_msg = format!("{:#}", e);
+            log::error!("Failed to start streaming: {}", error_msg);
+            let mut ai_process = ai_process_clone.lock().await;
+            ai_process.abort_streaming();
+            ai_process.set_error(error_msg);
+          }
+        }
+
+        Ok(Control::Changed)
+      });
+    }
+
+    // Clear input after queuing send
+    self.ai_ui.clear_input();
+    true
+  }
+
+  /// Handle mouse events when AI overlay is visible
+  fn handle_ai_mouse_event(
+    &mut self,
+    mouse: &crossterm::event::MouseEvent,
+  ) -> Control<AppEvent> {
+    // AI modal is visible - use Clipper's built-in mouse handler
+    // Clipper handles scroll events, dragging, etc. automatically
+    let outcome = HandleEvent::handle(
+      self.ai_ui.conversation_state(),
+      &Event::Mouse(*mouse),
+      rat_event::MouseOnly,
+    );
+
+    match outcome {
+      Outcome::Changed => Control::Changed,
+      _ => Control::Continue,
+    }
+  }
+
+  /// Handle mouse events when AI overlay is not visible
+  fn handle_shell_mouse_event(
+    &mut self,
+    mouse: &crossterm::event::MouseEvent,
+  ) -> Result<Control<AppEvent>> {
+    use crossterm::event::MouseEventKind;
+
+    if matches!(
+      mouse.kind,
+      MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+    ) {
+      // Allow native terminal scrollback
+      log::trace!("Passing scroll event to native terminal scrollback");
+      Ok(Control::Continue)
+    } else {
+      // Pass other mouse events to shell
+      let mouse_event = MouseEvent::from_crossterm(*mouse);
+      self.shell.send_mouse(mouse_event)?;
+      Ok(Control::Continue)
     }
   }
 }
@@ -781,7 +1028,7 @@ fn render(
       // Try to lock without blocking (non-blocking for render)
       if let Ok(ai_process) = ai_process_arc.try_lock() {
         // Render AI chat interface with Clipper's built-in focus
-        state.ai_ui.render(&*ai_process, overlay_area, buf);
+        state.ai_ui.render(&ai_process, overlay_area, buf);
 
         // Show cursor in input area when it has focus
         if let Some((cx, cy)) = state.ai_ui.input_state().screen_cursor() {
@@ -840,125 +1087,10 @@ fn event(
   ctx: &mut Global,
 ) -> Result<Control<AppEvent>, Error> {
   // Track if any state changed requiring re-render
-  let mut shell_changed = false;
+  // Process tool execution events from AI using helper method
+  let mut shell_changed = state.process_tool_events(ctx);
 
-  // Process tool execution events from AI
-  // Check for tool events and handle command suggestions
-  if let Some(ref ai_process_arc) = state.ai_process {
-    // Use try_lock to avoid blocking - this is a synchronous event loop
-    if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-      // Check for tool execution events (non-blocking)
-      if let Some(tool_event) = ai_process.try_recv_tool_event() {
-        match tool_event {
-          ToolExecutionEvent::ToolCallStarted {
-            tool_call_id,
-            tool_name,
-            args,
-          } => {
-            log::info!(
-              "Tool call started: {} (id: {})",
-              tool_name,
-              tool_call_id
-            );
-            // Add tool call to conversation in "running" state
-            ai_process.add_tool_call_started(tool_call_id, tool_name, args);
-            shell_changed = true;
-          }
-          ToolExecutionEvent::ToolExecuted {
-            tool_call_id,
-            tool_name,
-            args: _,
-            result_content,
-            duration_ms,
-          } => {
-            log::info!(
-              "Tool executed: {} (id: {}, {}ms)",
-              tool_name,
-              tool_call_id,
-              duration_ms
-            );
-            // Update tool call in conversation to "success" state
-            ai_process.complete_tool_call(
-              &tool_call_id,
-              result_content,
-              duration_ms,
-            );
-            shell_changed = true;
-
-            // Check if it was a suggest_command tool
-            if tool_name == "suggest_command" {
-              log::info!("Command suggested, spawning checker task");
-
-              // Spawn async task to retrieve and display the suggestion
-              let ai_process_clone = Arc::clone(ai_process_arc);
-              ctx.spawn_async(async move {
-                let mut ai = ai_process_clone.lock().await;
-                if let Some(suggestion) = ai.get_latest_suggestion().await {
-                  log::info!(
-                    "Retrieved suggestion: {} (risk: {:?})",
-                    suggestion.command,
-                    suggestion.risk_level
-                  );
-                  // Convert to pending command for approval UI
-                  ai.set_pending_command(suggestion).await;
-                }
-                Ok(Control::Changed)
-              });
-            }
-          }
-          ToolExecutionEvent::ToolFailed {
-            tool_call_id,
-            tool_name,
-            args: _,
-            error_message,
-            duration_ms,
-          } => {
-            log::error!(
-              "Tool failed: {} (id: {}, {}ms): {}",
-              tool_name,
-              tool_call_id,
-              duration_ms,
-              error_message
-            );
-            // Update tool call in conversation to "failed" state
-            ai_process.fail_tool_call(
-              &tool_call_id,
-              error_message,
-              duration_ms,
-            );
-            shell_changed = true;
-          }
-          ToolExecutionEvent::ContinuedTextChunk { chunk } => {
-            log::debug!("Continued text: {}", chunk);
-            // Ensure streaming response is initialized for continued stream
-            if ai_process.streaming_response().is_none() {
-              ai_process.start_continued_streaming();
-            }
-            // Append to AI process streaming response
-            ai_process.append_streaming_token(chunk);
-            shell_changed = true; // Trigger re-render
-          }
-          ToolExecutionEvent::ContinuedStreamComplete { full_response } => {
-            log::info!(
-              "Continued response complete: {} chars",
-              full_response.len()
-            );
-            // Complete the streaming with the full response
-            // Use complete_continued_streaming() because tool_coordinator already
-            // adds the assistant response to AG-UI history
-            ai_process.complete_continued_streaming(full_response);
-            shell_changed = true; // Trigger re-render
-          }
-          ToolExecutionEvent::Error { message } => {
-            log::error!("Tool execution error: {}", message);
-            ai_process.set_error(format!("Tool execution failed: {}", message));
-            shell_changed = true; // Trigger re-render
-          }
-        }
-      }
-    }
-  }
-
+  // Check for VT scrollback changes
   if let Ok(vt) = state.shell.vt.read() {
     let screen = vt.screen();
     if screen.total_rows() > state.scrollback_tracker.last_total_rows() {
@@ -1019,18 +1151,16 @@ fn event(
           log::info!("Deactivate overlay key pressed: {:?}", key_combo);
 
           // Dismiss any active dialogs before closing overlay
-          if let Some(ref ai_process_arc) = state.ai_process {
-            if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-              if ai_process.error_message().is_some() {
-                log::debug!("Dismissing error dialog before closing overlay");
-                ai_process.clear_error();
-              }
-              if ai_process.pending_command().is_some() {
-                log::debug!(
-                  "Dismissing approval dialog before closing overlay"
-                );
-                ai_process.reject_command();
-              }
+          if let Some(ref ai_process_arc) = state.ai_process
+            && let Ok(mut ai_process) = ai_process_arc.try_lock()
+          {
+            if ai_process.error_message().is_some() {
+              log::debug!("Dismissing error dialog before closing overlay");
+              ai_process.clear_error();
+            }
+            if ai_process.pending_command().is_some() {
+              log::debug!("Dismissing approval dialog before closing overlay");
+              ai_process.reject_command();
             }
           }
 
@@ -1096,86 +1226,13 @@ fn event(
         });
       } else if state.ai_ui.input_focus().get() {
         // Input is focused
-        // Handle Enter key to send message
+        // Handle Enter key to send message using helper method
         if matches!(code, KeyCode::Enter)
           && modifiers.is_empty()
           && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
         {
           log::debug!("Enter pressed - sending message");
-          let input = state.ai_ui.get_input_value().trim().to_string();
-
-          if !input.is_empty() {
-            log::info!("Sending message to AI: {}", input);
-
-            // Extract terminal context before spawning task
-            let context = state.extract_context();
-
-            // Spawn async task to send message
-            if let Some(ref ai_process_arc) = state.ai_process {
-              let ai_process_clone = Arc::clone(ai_process_arc);
-              let input_clone = input.clone();
-
-              // Use spawn_async_ext to get a sender for intermediate render triggers
-              ctx.spawn_async_ext(|sender| async move {
-                use futures::stream::StreamExt;
-
-                // Start streaming (lock only for setup)
-                let stream = {
-                  let mut ai_process = ai_process_clone.lock().await;
-                  ai_process.start_streaming(&input_clone, context).await
-                };
-
-                match stream {
-                  Ok(response) => {
-                    let mut stream = response.text_stream;
-                    let mut full_response = String::new();
-
-                    // Process stream tokens with lock/unlock cycles
-                    while let Some(token_result) = stream.next().await {
-                      match token_result {
-                        Ok(token) => {
-                          full_response.push_str(&token);
-                          // Lock only to update state
-                          {
-                            let mut ai_process = ai_process_clone.lock().await;
-                            ai_process.append_streaming_token(token);
-                          }
-                          // Trigger UI re-render after appending token
-                          let _ = sender.send(Ok(Control::Changed)).await;
-                        }
-                        Err(e) => {
-                          let error_msg = format!("{:#}", e);
-                          log::error!("Stream error: {}", error_msg);
-                          let mut ai_process = ai_process_clone.lock().await;
-                          ai_process.abort_streaming();
-                          ai_process.set_error(error_msg);
-                          return Ok(Control::Changed);
-                        }
-                      }
-                    }
-
-                    // Complete streaming
-                    {
-                      let mut ai_process = ai_process_clone.lock().await;
-                      ai_process.complete_streaming(full_response).await;
-                    }
-                  }
-                  Err(e) => {
-                    let error_msg = format!("{:#}", e);
-                    log::error!("Failed to start streaming: {}", error_msg);
-                    let mut ai_process = ai_process_clone.lock().await;
-                    ai_process.abort_streaming();
-                    ai_process.set_error(error_msg);
-                  }
-                }
-
-                Ok(Control::Changed)
-              });
-            }
-
-            // Clear input after queuing send
-            state.ai_ui.clear_input();
-          }
+          state.send_ai_message(ctx);
           return Ok(Control::Changed);
         }
 
@@ -1197,36 +1254,10 @@ fn event(
       Control::Changed
     }
     AppEvent::Crossterm(Event::Mouse(mouse)) => {
-      use crossterm::event::MouseEventKind;
-
       if state.ai_visible {
-        // AI modal is visible - use Clipper's built-in mouse handler
-        // Clipper handles scroll events, dragging, etc. automatically
-        let outcome = HandleEvent::handle(
-          state.ai_ui.conversation_state(),
-          &Event::Mouse(*mouse),
-          rat_event::MouseOnly,
-        );
-
-        match outcome {
-          Outcome::Changed => Control::Changed,
-          _ => Control::Continue,
-        }
+        state.handle_ai_mouse_event(mouse)
       } else {
-        // AI modal not visible
-        if matches!(
-          mouse.kind,
-          MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-        ) {
-          // Allow native terminal scrollback
-          log::trace!("Passing scroll event to native terminal scrollback");
-          Control::Continue
-        } else {
-          // Pass other mouse events to shell
-          let mouse_event = MouseEvent::from_crossterm(*mouse);
-          state.shell.send_mouse(mouse_event)?;
-          Control::Continue
-        }
+        state.handle_shell_mouse_event(mouse)?
       }
     }
     AppEvent::Crossterm(Event::Paste(text)) => {
