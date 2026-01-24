@@ -650,8 +650,34 @@ impl<'a> AppState<'a> {
     }
   }
 
-  // OLD METHODS REMOVED - now using rat-salsa init/render/event functions instead
-  // See init(), render(), event(), error() functions below
+  /// Calculate the overlay height based on terminal area
+  fn overlay_height(&self, area: Rect) -> u16 {
+    (area.height / 2).max(10)
+  }
+
+  /// Calculate the row offset for the terminal when overlay is visible at bottom
+  fn terminal_row_offset(&self, area: Rect) -> u16 {
+    if self.ai_visible && self.chat_position == ChatPosition::Bottom {
+      self.overlay_height(area)
+    } else {
+      0
+    }
+  }
+
+  /// Calculate the overlay area based on terminal area and position config
+  fn overlay_area(&self, area: Rect) -> Rect {
+    let overlay_height = self.overlay_height(area);
+    let overlay_y = match self.chat_position {
+      ChatPosition::Bottom => area.y + area.height - overlay_height,
+      ChatPosition::Top => area.y,
+    };
+    Rect {
+      x: area.x,
+      y: overlay_y,
+      width: area.width,
+      height: overlay_height,
+    }
+  }
 }
 
 /// rat-salsa init function - initialize focus and state
@@ -717,14 +743,8 @@ fn render(
 
   let buf = frame.buffer_mut();
 
-  // Calculate row offset for terminal viewport
-  // Only shift upwards when AI overlay is visible on the bottom
-  let row_offset =
-    if state.ai_visible && state.chat_position == ChatPosition::Bottom {
-      (area.height / 2).max(10) // Same as overlay height
-    } else {
-      0
-    };
+  // Calculate row offset for terminal viewport using helper
+  let row_offset = state.terminal_row_offset(area);
 
   // Render current shell terminal (always visible as background)
   if let Ok(vt) = state.shell.vt.read() {
@@ -749,20 +769,10 @@ fn render(
     log::warn!("Failed to acquire shell vt read lock");
   }
 
-  // Render AI overlay if visible (Phase 2)
+  // Render AI overlay if visible
   if state.ai_visible {
-    // Calculate overlay area - full width, positioned based on config
-    let overlay_height = (area.height / 2).max(10); // At least 10 lines
-    let overlay_y = match state.chat_position {
-      ChatPosition::Bottom => area.y + area.height - overlay_height,
-      ChatPosition::Top => area.y,
-    };
-    let overlay_area = Rect {
-      x: area.x,
-      y: overlay_y,
-      width: area.width,
-      height: overlay_height,
-    };
+    // Calculate overlay area using helper
+    let overlay_area = state.overlay_area(area);
 
     // Clear the overlay area to prevent terminal content from showing through
     Clear.render(overlay_area, buf);
