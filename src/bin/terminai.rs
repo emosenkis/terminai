@@ -407,6 +407,7 @@ fn main() -> Result<()> {
     config,
     config_error,
     key_combiner,
+    shell_output_pending: false,
   };
 
   // Run rat-salsa event loop
@@ -457,6 +458,9 @@ struct AppState<'a> {
   config_error: Option<String>,
   /// Crokey combiner for processing keyboard events
   key_combiner: Combiner,
+  /// Flag indicating shell has produced output since last render.
+  /// This batches multiple shell outputs into a single render on the next timer tick.
+  shell_output_pending: bool,
 }
 
 impl<'a> AppState<'a> {
@@ -1276,9 +1280,15 @@ fn event(
       Control::Continue
     }
     AppEvent::Timer(_) => {
-      // Periodic timer (60fps) - trigger render if shell has changed
-      // This ensures we render at 60fps like the old code did
-      Control::Continue
+      // Periodic timer (60fps) - trigger render if shell output is pending.
+      // This batches multiple shell outputs into a single render per frame,
+      // preventing event floods from high-frequency programs like `top`.
+      if state.shell_output_pending {
+        state.shell_output_pending = false;
+        Control::Changed
+      } else {
+        Control::Continue
+      }
     }
     AppEvent::Rendered => {
       // Rebuild focus after render to track widget positions
@@ -1293,9 +1303,11 @@ fn event(
     }
     // Shell events now arrive via PollShell
     AppEvent::ShellOutput => {
-      // Shell produced output, trigger re-render
-      log::trace!("Shell output event");
-      Control::Changed
+      // Shell produced output - set flag for batched rendering on next timer tick.
+      // This prevents event floods from high-frequency programs like `top`.
+      log::trace!("Shell output event - marking pending");
+      state.shell_output_pending = true;
+      Control::Continue
     }
     AppEvent::ShellTermReply(reply) => {
       // Write terminal reply back to shell
