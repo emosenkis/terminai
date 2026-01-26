@@ -3,6 +3,7 @@
 // Tests for VT100 terminal parsing and rendering
 
 use super::*;
+use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
 use tui::widgets::Widget;
 
@@ -112,40 +113,6 @@ fn test_vt100_widget_rendering() {
 
   harness.assert_buffer_contains("Terminal Output");
   harness.assert_buffer_contains("With multiple lines");
-}
-
-/// Terminal widget for rendering VT100 screen
-struct TerminalWidget<'a, T: TermReplySender> {
-  screen: &'a vt100::Screen<T>,
-}
-
-impl<'a, T: TermReplySender> TerminalWidget<'a, T> {
-  fn new(screen: &'a vt100::Screen<T>) -> Self {
-    Self { screen }
-  }
-}
-
-impl<T: TermReplySender> Widget for TerminalWidget<'_, T> {
-  fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-    // Render each cell from the VT100 screen to the tui buffer
-    for row in 0..area.height.min(self.screen.size().rows) {
-      for col in 0..area.width.min(self.screen.size().cols) {
-        let pos = tui::layout::Position {
-          x: area.x + col,
-          y: area.y + row,
-        };
-
-        if let Some(to_cell) = buf.cell_mut(pos) {
-          if let Some(cell) = self.screen.cell(row, col) {
-            *to_cell = cell.to_tui();
-            if !cell.has_contents() {
-              to_cell.set_char(' ');
-            }
-          }
-        }
-      }
-    }
-  }
 }
 
 #[test]

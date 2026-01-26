@@ -261,7 +261,7 @@ pub fn process_scrollback<T: TermReplySender>(
 
   tracker.update(&detection);
 
-  detection.num_pending_lines as u16
+  detection.rows_to_scroll as u16
 }
 
 #[cfg(test)]

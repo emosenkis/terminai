@@ -12,6 +12,7 @@ use super::*;
 use crate::scrollback::{
   ScrollbackTracker, process_scrollback, render_scrollback_to_buffer,
 };
+use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
 use tui::buffer::Buffer;
 use tui::layout::Rect;
@@ -24,39 +25,6 @@ struct TestReplySender;
 impl TermReplySender for TestReplySender {
   fn reply(&self, _reply: compact_str::CompactString) {
     // No-op for testing
-  }
-}
-
-/// Terminal widget for rendering VT100 screen to tui buffer (visible area only)
-struct TerminalWidget<'a, T: TermReplySender> {
-  screen: &'a vt100::Screen<T>,
-}
-
-impl<'a, T: TermReplySender> TerminalWidget<'a, T> {
-  fn new(screen: &'a vt100::Screen<T>) -> Self {
-    Self { screen }
-  }
-}
-
-impl<T: TermReplySender> Widget for TerminalWidget<'_, T> {
-  fn render(self, area: Rect, buf: &mut Buffer) {
-    for row in 0..area.height.min(self.screen.size().rows) {
-      for col in 0..area.width.min(self.screen.size().cols) {
-        let pos = tui::layout::Position {
-          x: area.x + col,
-          y: area.y + row,
-        };
-
-        if let Some(to_cell) = buf.cell_mut(pos) {
-          if let Some(cell) = self.screen.cell(row, col) {
-            *to_cell = cell.to_tui();
-            if !cell.has_contents() {
-              to_cell.set_char(' ');
-            }
-          }
-        }
-      }
-    }
   }
 }
 
