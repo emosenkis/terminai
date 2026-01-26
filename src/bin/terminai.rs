@@ -393,9 +393,19 @@ fn main() -> Result<()> {
 
   // Create application state
   log::debug!("Creating application state");
-  // Initialize scrollback tracker with current terminal state
+  // Initialize scrollback tracker from VT100's actual total_rows
   let mut scrollback_tracker = ScrollbackTracker::new();
-  scrollback_tracker.init(rows as usize);
+  if let Ok(vt) = shell.vt.read() {
+    scrollback_tracker.init_from_screen(vt.screen());
+    log::debug!(
+      "Scrollback tracker initialized with total_rows={}",
+      vt.screen().total_rows()
+    );
+  } else {
+    // Fallback to terminal height if we can't read VT
+    scrollback_tracker.init(rows as usize);
+    log::warn!("Could not read VT for scrollback init, using terminal height");
+  }
 
   let mut state = AppState {
     shell,
@@ -1254,7 +1264,23 @@ fn event(
       });
     }
     AppEvent::Crossterm(Event::Resize(cols, rows)) => {
+      log::info!("Terminal resize event: {}x{}", cols, rows);
       state.shell.resize(*rows, *cols)?;
+
+      // Re-synchronize scrollback tracker with VT100's new state after resize.
+      // Resize can cause total_rows to change (lines wrap/unwrap), so the tracker
+      // must be updated to prevent incorrect scrollback detection.
+      if let Ok(vt) = state.shell.vt.read() {
+        let new_total = vt.screen().total_rows();
+        let old_total = state.scrollback_tracker.last_total_rows();
+        state.scrollback_tracker.init_from_screen(vt.screen());
+        log::debug!(
+          "Scrollback tracker re-synced after resize: {} -> {}",
+          old_total,
+          new_total
+        );
+      }
+
       Control::Changed
     }
     AppEvent::Crossterm(Event::Mouse(mouse)) => {

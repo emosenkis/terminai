@@ -735,3 +735,193 @@ fn test_harness_resize_and_render() {
   // Note: TestBackend resize is separate from vt100 resize
   // In a real app, both would be coordinated
 }
+
+// =============================================================================
+// Scrollback Tracker Synchronization After Resize Tests
+// =============================================================================
+
+use crate::scrollback::ScrollbackTracker;
+
+#[test]
+fn test_resize_larger_scrollback_tracker_sync() {
+  // Test that scrollback tracker must be re-synced after resize
+  // because total_rows can change when lines unwrap
+  let mut parser = vt100::Parser::new(24, 40, 1000, TestReplySender);
+
+  // Write content that wraps at 40 columns
+  // Each 80-char line becomes 2 rows at 40 cols
+  for i in 0..10 {
+    let line = format!("Line {:02}: {}\r\n", i, "X".repeat(70));
+    parser.process(line.as_bytes());
+  }
+
+  let total_before = parser.screen().total_rows();
+
+  // Initialize tracker with current state
+  let mut tracker = ScrollbackTracker::new();
+  tracker.init_from_screen(parser.screen());
+  assert_eq!(tracker.last_total_rows(), total_before);
+
+  // Resize wider - lines may unwrap, reducing total_rows
+  parser.set_size(24, 120);
+
+  let total_after = parser.screen().total_rows();
+
+  // After resize, tracker's last_total_rows is stale
+  // Without re-sync, detection would be incorrect
+  let detection_stale = tracker.detect(total_after, 24);
+
+  // Re-sync tracker with new state
+  tracker.init_from_screen(parser.screen());
+  assert_eq!(tracker.last_total_rows(), total_after);
+
+  // After re-sync, detection should show no pending scrollback
+  let detection_synced = tracker.detect(total_after, 24);
+  assert_eq!(
+    detection_synced.num_pending_lines, 0,
+    "After re-sync, no pending scrollback expected"
+  );
+}
+
+#[test]
+fn test_resize_32x120_to_57x238_scenario() {
+  // Test the specific scenario reported: 32x120 -> 57x238
+  // Guest shell should see full 57 rows after resize
+  let mut parser = vt100::Parser::new(32, 120, 1000, TestReplySender);
+
+  // Add some content
+  for i in 0..20 {
+    parser.process(format!("Line {:02}\r\n", i).as_bytes());
+  }
+
+  let mut tracker = ScrollbackTracker::new();
+  tracker.init_from_screen(parser.screen());
+
+  // Resize to larger dimensions
+  parser.set_size(57, 238);
+
+  // Verify VT100 reports correct size
+  assert_eq!(
+    parser.screen().size().rows,
+    57,
+    "VT100 should report 57 rows"
+  );
+  assert_eq!(
+    parser.screen().size().cols,
+    238,
+    "VT100 should report 238 cols"
+  );
+
+  // Re-sync tracker (this is what the fix does)
+  tracker.init_from_screen(parser.screen());
+
+  // Verify tracker is synced
+  let detection = tracker.detect(parser.screen().total_rows(), 57);
+  assert_eq!(
+    detection.num_pending_lines, 0,
+    "No pending scrollback after resize and re-sync"
+  );
+}
+
+#[test]
+fn test_resize_larger_cursor_column_preserved() {
+  // Test that cursor column is preserved after resize larger.
+  // Note: Cursor row may change due to content reflow in the VT100 grid's
+  // set_size logic, which recalculates abs_pos_row based on content reflow.
+  let mut parser = vt100::Parser::new(24, 80, 1000, TestReplySender);
+
+  // Position cursor at row 10, col 40
+  parser.process(b"\x1b[11;41H"); // 1-indexed in ANSI
+  let (row, col) = parser.screen().cursor_position();
+  assert_eq!(row, 10, "Cursor should be at row 10");
+  assert_eq!(col, 40, "Cursor should be at col 40");
+
+  // Resize larger
+  parser.set_size(48, 160);
+
+  let (row_after, col_after) = parser.screen().cursor_position();
+
+  // Column should be preserved
+  assert_eq!(
+    col_after, 40,
+    "Cursor col should be preserved after resize larger"
+  );
+
+  // Row should be within bounds (may change due to reflow)
+  assert!(
+    row_after < 48,
+    "Cursor row {} should be within screen bounds",
+    row_after
+  );
+}
+
+#[test]
+fn test_resize_larger_with_content_and_scrollback() {
+  // Test resize larger with existing scrollback content
+  let mut parser = vt100::Parser::new(10, 40, 100, TestReplySender);
+
+  // Fill with content to create scrollback
+  for i in 0..30 {
+    parser.process(format!("Scrollback line {:02}\r\n", i).as_bytes());
+  }
+
+  let total_before = parser.screen().total_rows();
+  let scrollback_len_before = parser.screen().scrollback_len();
+  assert!(scrollback_len_before > 0, "Should have scrollback");
+
+  let mut tracker = ScrollbackTracker::new();
+  tracker.init_from_screen(parser.screen());
+
+  // Resize much larger
+  parser.set_size(50, 120);
+
+  let total_after = parser.screen().total_rows();
+
+  // Re-sync tracker
+  let old_total = tracker.last_total_rows();
+  tracker.init_from_screen(parser.screen());
+
+  // Verify size change
+  assert_eq!(parser.screen().size().rows, 50);
+  assert_eq!(parser.screen().size().cols, 120);
+
+  // Verify no spurious scrollback detection after re-sync
+  let detection = tracker.detect(total_after, 50);
+  assert_eq!(
+    detection.num_pending_lines, 0,
+    "No spurious scrollback after resize and re-sync. old_total={}, new_total={}",
+    old_total, total_after
+  );
+}
+
+#[test]
+fn test_resize_preserves_cursor_in_content() {
+  // Test that cursor stays with its content after resize
+  let mut parser = vt100::Parser::new(24, 80, 1000, TestReplySender);
+
+  // Write some lines and position cursor on line 5
+  parser.process(b"Line 1\r\n");
+  parser.process(b"Line 2\r\n");
+  parser.process(b"Line 3\r\n");
+  parser.process(b"Line 4\r\n");
+  parser.process(b"Line 5"); // Cursor at end of "Line 5"
+
+  let (row_before, col_before) = parser.screen().cursor_position();
+  assert_eq!(row_before, 4, "Cursor should be on row 4 (0-indexed)");
+  assert_eq!(col_before, 6, "Cursor should be at col 6");
+
+  // Resize larger
+  parser.set_size(48, 160);
+
+  let (row_after, col_after) = parser.screen().cursor_position();
+
+  // Cursor should still be at same logical position
+  assert_eq!(
+    col_after, 6,
+    "Cursor col should be preserved (was {}, now {})",
+    col_before, col_after
+  );
+
+  // Row may change if content reflows, but should be reasonable
+  assert!(row_after < 48, "Cursor row should be within screen bounds");
+}
