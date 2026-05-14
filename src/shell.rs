@@ -1,6 +1,8 @@
 use anyhow::Result;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::Write;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
@@ -25,6 +27,13 @@ pub struct Shell {
   pub _pid: u32,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ShellSpawnOptions {
+  pub cwd: Option<PathBuf>,
+  pub env: HashMap<String, String>,
+  pub scrollback_len: usize,
+}
+
 impl Shell {
   /// Spawn a shell command (runs through /bin/sh -c)
   /// Returns (Shell, event_receiver) tuple
@@ -34,7 +43,13 @@ impl Shell {
     cols: u16,
   ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     log::info!("Spawning shell: {} ({}x{})", shell_cmd, cols, rows);
-    Self::spawn_internal(shell_cmd, &[], rows, cols)
+    Self::spawn_internal(
+      shell_cmd,
+      &[],
+      rows,
+      cols,
+      ShellSpawnOptions::default(),
+    )
   }
 
   /// Spawn a command with explicit arguments (no shell interpretation)
@@ -46,7 +61,32 @@ impl Shell {
     cols: u16,
   ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     log::info!("Spawning command: {} {:?} ({}x{})", cmd, args, cols, rows);
-    Self::spawn_internal(cmd, args, rows, cols)
+    Self::spawn_internal(
+      cmd,
+      args,
+      rows,
+      cols,
+      ShellSpawnOptions::default(),
+    )
+  }
+
+  /// Spawn a command with explicit arguments and process options.
+  /// Returns (Shell, event_receiver) tuple.
+  pub fn spawn_command_with_options(
+    cmd: &str,
+    args: &[String],
+    rows: u16,
+    cols: u16,
+    options: ShellSpawnOptions,
+  ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
+    log::info!(
+      "Spawning command with options: {} {:?} ({}x{})",
+      cmd,
+      args,
+      cols,
+      rows
+    );
+    Self::spawn_internal(cmd, args, rows, cols, options)
   }
 
   fn spawn_internal(
@@ -54,6 +94,7 @@ impl Shell {
     args: &[String],
     rows: u16,
     cols: u16,
+    options: ShellSpawnOptions,
   ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     // Setup event channel
     let (event_tx, event_rx) = mpsc::unbounded_channel();
@@ -62,7 +103,12 @@ impl Shell {
     let reply_sender = ReplySender {
       tx: event_tx.clone(),
     };
-    let vt = vt100::Parser::new(rows, cols, 1000, reply_sender);
+    let scrollback_len = if options.scrollback_len == 0 {
+      1000
+    } else {
+      options.scrollback_len
+    };
+    let vt = vt100::Parser::new(rows, cols, scrollback_len, reply_sender);
     let vt = Arc::new(RwLock::new(vt));
 
     // Create PTY (using portable-pty like mprocs)
@@ -75,7 +121,10 @@ impl Shell {
     })?;
 
     // Get current working directory to pass to child shell
-    let cwd = std::env::current_dir()?;
+    let cwd = match options.cwd {
+      Some(cwd) => cwd,
+      None => std::env::current_dir()?,
+    };
     log::debug!("Setting child shell CWD to: {:?}", cwd);
 
     // Build command
@@ -86,6 +135,9 @@ impl Shell {
     command.cwd(cwd);
     command.env("TERM", "xterm-256color");
     command.env("TERMINAI", "1");
+    for (key, value) in options.env {
+      command.env(key, value);
+    }
 
     // Spawn command
     let mut child = pair.slave.spawn_command(command)?;

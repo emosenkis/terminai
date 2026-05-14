@@ -1,0 +1,7 @@
+---
+source: src/tests/e2e/test_vt100.rs
+expression: harness.buffer_as_string()
+---
+Red Green Blue                                                                  
+Normal text                                                                     
+Bold and underline

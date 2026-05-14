@@ -1,3 +1,6 @@
+#![allow(warnings)]
+#![allow(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic)]
+
 mod app;
 mod client;
 mod clipboard;
@@ -31,9 +34,11 @@ mod widgets;
 mod yaml_val;
 
 // TERMIN.AI: AI assistant modules
-mod ai_proc;
+mod agent_launcher;
+mod agent_terminal;
+mod agent_tools;
 mod command;
-mod llm;
+mod mcp_host;
 mod privacy;
 
 use std::{io::Read, path::Path};

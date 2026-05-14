@@ -4,6 +4,4 @@
 
 pub mod e2e;
 mod e2e_tests;
-mod test_agui_tool_e2e;
-mod test_llm_e2e;
-mod test_llm_subprocess;
+mod test_mcp_host;

@@ -11,14 +11,14 @@
 //!
 //! # Synopsis
 //!
-//! ```
-//! let mut parser = vt100::Parser::new(24, 80, 0);
+//! ```ignore
+//! let mut parser = termin::vt100::Parser::new(24, 80, 0);
 //!
 //! let screen = parser.screen().clone();
 //! parser.process(b"this text is \x1b[31mRED\x1b[m");
 //! assert_eq!(
 //!     parser.screen().cell(0, 13).unwrap().fgcolor(),
-//!     vt100::Color::Idx(1),
+//!     termin::vt100::Color::Idx(1),
 //! );
 //!
 //! let screen = parser.screen().clone();

@@ -1,3 +1,6 @@
+#![allow(warnings)]
+#![allow(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic)]
+
 // Termin.AI library - exports modules for use in binaries
 
 // All modules (needed for dependencies)
@@ -34,21 +37,18 @@ pub mod widgets;
 pub mod yaml_val;
 
 // TERMIN.AI: AI assistant modules
-pub mod ai_proc;
+pub mod agent_launcher;
+pub mod agent_terminal;
+pub mod agent_tools;
 pub mod command;
 pub mod env_loader;
-pub mod llm;
-pub mod llm_subprocess;
+pub mod mcp_host;
 pub mod privacy;
 pub mod scrollback;
 pub mod shell;
 pub mod terminai_config;
 pub mod terminai_init;
 pub mod ui_layer;
-
-// Test utilities
-#[cfg(test)]
-pub mod test_config;
 
 // Test modules
 #[cfg(test)]

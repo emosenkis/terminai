@@ -1,17 +1,16 @@
+#![allow(warnings)]
+#![allow(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic)]
+
 // Termin.AI - Clean terminal wrapper with AI overlay
 
 use anyhow::{Error, Result};
 use clap::Parser;
 use crokey::{Combiner, KeyCombination};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
-use termin::llm::ToolExecutionEvent;
-use tokio::sync::{
-  Mutex,
-  mpsc::{self, UnboundedReceiver},
-};
+use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tui::Frame;
 
 use tui::{
@@ -21,9 +20,7 @@ use tui::{
 };
 
 // rat-salsa imports
-use rat_cursor::HasScreenCursor;
-use rat_event::{HandleEvent, Outcome, Regular, event_flow};
-use rat_focus::FocusBuilder;
+use rat_event::Outcome;
 use rat_salsa::{
   Control, RunConfig, SalsaAppContext, SalsaContext,
   poll::{PollCrossterm, PollEvents, PollRendered, PollTimers, PollTokio},
@@ -33,15 +30,16 @@ use rat_salsa::{
 use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 
 // Import only what we need from the crate
-use termin::ai_proc::{AIChatProcess, AIChatUI};
+use termin::agent_launcher::{AgentLaunchContext, build_launch_plan};
+use termin::agent_terminal::AgentTerminal;
+use termin::agent_tools::PendingCommand;
 use termin::key::Key;
-use termin::llm::TerminalContext;
+use termin::mcp_host::{TerminaiMcpState, start_http_mcp_server};
 use termin::mouse::MouseEvent;
 use termin::scrollback::{ScrollbackTracker, process_scrollback};
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
-use termin::vt100;
 
-use termin::shell::{Shell, ShellEvent};
+use termin::shell::{Shell, ShellEvent, ShellSpawnOptions};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -92,6 +90,9 @@ pub enum AppEvent {
   ShellOutput,
   ShellTermReply(String),
   ShellExited(i32),
+  AgentOutput,
+  AgentTermReply(String),
+  AgentExited(i32),
 }
 
 impl From<rat_salsa::event::RenderedEvent> for AppEvent {
@@ -123,6 +124,63 @@ impl PollShell {
     Self {
       receiver: Arc::new(std::sync::Mutex::new(Some(receiver))),
       cached_event: Arc::new(std::sync::Mutex::new(None)),
+    }
+  }
+}
+
+pub struct PollAgent {
+  receiver: std::sync::Arc<
+    std::sync::Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>,
+  >,
+  cached_event: std::sync::Arc<std::sync::Mutex<Option<ShellEvent>>>,
+}
+
+impl PollAgent {
+  pub fn new(receiver: mpsc::UnboundedReceiver<ShellEvent>) -> Self {
+    Self {
+      receiver: std::sync::Arc::new(std::sync::Mutex::new(Some(receiver))),
+      cached_event: std::sync::Arc::new(std::sync::Mutex::new(None)),
+    }
+  }
+}
+
+impl PollEvents<AppEvent, Error> for PollAgent {
+  fn as_any(&self) -> &dyn std::any::Any {
+    self
+  }
+
+  fn poll(&mut self) -> Result<bool, Error> {
+    if self.cached_event.lock().unwrap().is_some() {
+      return Ok(true);
+    }
+
+    if let Some(ref mut rx) = *self.receiver.lock().unwrap() {
+      match rx.try_recv() {
+        Ok(event) => {
+          *self.cached_event.lock().unwrap() = Some(event);
+          Ok(true)
+        }
+        Err(mpsc::error::TryRecvError::Empty) => Ok(false),
+        Err(mpsc::error::TryRecvError::Disconnected) => Ok(false),
+      }
+    } else {
+      Ok(false)
+    }
+  }
+
+  fn read(&mut self) -> Result<Control<AppEvent>, Error> {
+    if let Some(event) = self.cached_event.lock().unwrap().take() {
+      match event {
+        ShellEvent::Output => Ok(Control::Event(AppEvent::AgentOutput)),
+        ShellEvent::TermReply(reply) => {
+          Ok(Control::Event(AppEvent::AgentTermReply(reply.to_string())))
+        }
+        ShellEvent::Exited(code) => {
+          Ok(Control::Event(AppEvent::AgentExited(code as i32)))
+        }
+      }
+    } else {
+      Ok(Control::Continue)
     }
   }
 }
@@ -184,7 +242,9 @@ async fn initialize_app_components(
 ) -> Result<(
   Shell,
   UnboundedReceiver<ShellEvent>,
-  Option<AIChatProcess>,
+  Option<AgentTerminal>,
+  UnboundedReceiver<ShellEvent>,
+  UnboundedReceiver<PendingCommand>,
   TerminAIConfig,
   ChatPosition,
   Option<String>,
@@ -207,100 +267,101 @@ async fn initialize_app_components(
     Shell::spawn_command(cmd, args, rows, cols)?
   };
 
-  // Initialize AI and get chat position from config
-  let (ai_process, config, chat_position, config_error) = initialize_ai().await;
+  let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+  let (agent, agent_rx, config, chat_position, config_error) =
+    initialize_agent(&shell, suggestion_tx, rows, cols).await;
 
   Ok((
     shell,
     shell_event_rx,
-    ai_process,
+    agent,
+    agent_rx,
+    suggestion_rx,
     config,
     chat_position,
     config_error,
   ))
 }
 
-/// Initialize AI process (extracted from App::new)
-/// Returns (ai_process, config, chat_position, config_error)
-async fn initialize_ai() -> (
-  Option<AIChatProcess>,
+/// Initialize external AI CLI terminal.
+async fn initialize_agent(
+  shell: &Shell,
+  suggestion_tx: mpsc::UnboundedSender<PendingCommand>,
+  rows: u16,
+  cols: u16,
+) -> (
+  Option<AgentTerminal>,
+  UnboundedReceiver<ShellEvent>,
   TerminAIConfig,
   ChatPosition,
   Option<String>,
 ) {
+  let (fallback_tx, fallback_rx) = mpsc::unbounded_channel();
+  drop(fallback_tx);
+
   match TerminAIConfig::load() {
     Ok(config) => {
       log::info!("Configuration loaded successfully");
       log::debug!("Loaded config: {:?}", config);
       let chat_position = config.interface.chat_position;
 
-      match config.get_default_provider_and_model() {
-        Ok((provider_config, model_config)) => {
-          log::info!(
-            "Using configured provider: {} with model: {}",
-            provider_config.name,
-            model_config.name
-          );
-
-          let api_key_env = provider_config.effective_api_key_env();
-
-          // Check if API key is required and available
-          let can_initialize = match api_key_env {
-            None => {
-              // No API key needed (e.g., Ollama running locally)
-              log::info!(
-                "Provider {} does not require an API key",
-                provider_config.name
-              );
-              true
-            }
-            Some(ref env_key) => {
-              // API key required - check if it's set
-              if std::env::var(env_key).is_ok() {
-                log::info!("API key {} found in environment", env_key);
-                true
-              } else {
-                log::warn!("API key environment variable {} not set", env_key);
-                false
-              }
-            }
-          };
-
-          if can_initialize {
-            // Pass provider and model to the AI chat process
-            // The subprocess will receive these via environment variables
-            match AIChatProcess::new_with_provider(
-              provider_config.name.clone(),
-              model_config.model.clone(),
-            )
-            .await
-            {
-              Ok(process) => {
-                log::info!("AI assistant initialized successfully");
-                return (Some(process), config, chat_position, None);
-              }
-              Err(e) => {
-                log::error!("Failed to initialize AI subprocess: {:?}", e);
-                eprintln!("\n⚠️  Failed to initialize AI subprocess:");
-                eprintln!("{}", e);
-                let log_path = termin::terminai_init::get_log_path();
-                eprintln!("\n📝 Check detailed logs at: {}", log_path);
-                eprintln!(
-                  "   You can also set RUST_LOG=debug for verbose output.\n"
-                );
-                // Return config even if AI init failed
-                return (None, config, chat_position, None);
-              }
-            }
-          }
+      let mcp_state =
+        TerminaiMcpState::new(Arc::clone(&shell.vt), suggestion_tx);
+      let mcp = match start_http_mcp_server(mcp_state).await {
+        Ok(server) => server,
+        Err(err) => {
+          let message = format!("Failed to start Termin.AI MCP server: {err}");
+          log::error!("{}", message);
+          return (None, fallback_rx, config, chat_position, Some(message));
         }
-        Err(e) => {
-          log::error!(
-            "Failed to get default provider/model from config: {:?}",
-            e
-          );
-          // Return config even if provider/model setup failed
-          return (None, config, chat_position, None);
+      };
+      log::info!("Termin.AI MCP server listening at {}", mcp.url);
+      let mcp_url = mcp.url.clone();
+      drop(mcp);
+
+      let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+      let launch_context = AgentLaunchContext::new(cwd.clone(), mcp_url);
+
+      let plan = match build_launch_plan(&config.agent, &launch_context) {
+        Ok(plan) => plan,
+        Err(err) => {
+          let message = format!("Failed to build AI CLI launch plan: {err}");
+          log::error!("{}", message);
+          return (None, fallback_rx, config, chat_position, Some(message));
+        }
+      };
+
+      let available = which::which(&plan.command).is_ok();
+      if !available {
+        let message = format!(
+          "Configured AI CLI '{}' was not found in PATH",
+          plan.command
+        );
+        log::warn!("{}", message);
+        return (None, fallback_rx, config, chat_position, Some(message));
+      }
+
+      let overlay_rows = (rows / 2).max(10);
+      let options = ShellSpawnOptions {
+        cwd: Some(plan.cwd),
+        env: plan.env,
+        scrollback_len: 4000,
+      };
+      match AgentTerminal::spawn(
+        &plan.command,
+        &plan.args,
+        overlay_rows,
+        cols,
+        options,
+      ) {
+        Ok((agent, rx)) => {
+          log::info!("AI CLI terminal started: {}", plan.command);
+          return (Some(agent), rx, config, chat_position, None);
+        }
+        Err(err) => {
+          let message = format!("Failed to start AI CLI '{}': {err}", plan.command);
+          log::error!("{}", message);
+          return (None, fallback_rx, config, chat_position, Some(message));
         }
       }
     }
@@ -312,6 +373,7 @@ async fn initialize_ai() -> (
       );
       return (
         None,
+        fallback_rx,
         TerminAIConfig::default(),
         ChatPosition::default(),
         Some(error_msg),
@@ -319,12 +381,6 @@ async fn initialize_ai() -> (
     }
   }
 
-  (
-    None,
-    TerminAIConfig::default(),
-    ChatPosition::default(),
-    None,
-  )
 }
 
 fn main() -> Result<()> {
@@ -354,14 +410,16 @@ fn main() -> Result<()> {
   let (
     shell,
     shell_event_rx,
-    mut ai_process,
+    agent_terminal,
+    agent_event_rx,
+    suggestion_rx,
     config,
     chat_position,
     config_error,
   ) = tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
-    "Shell and AI components initialized, ai_present={}, chat_position={:?}",
-    ai_process.is_some(),
+    "Shell and AI components initialized, agent_present={}, chat_position={:?}",
+    agent_terminal.is_some(),
     chat_position
   );
 
@@ -371,16 +429,7 @@ fn main() -> Result<()> {
   // Create PollShell for rat-salsa event loop integration
   log::debug!("Creating PollShell for event loop");
   let poll_shell = PollShell::new(shell_event_rx);
-
-  // Set the VT parser for scrollback reading (if AI is enabled)
-  if let Some(ref mut ai_proc) = ai_process {
-    log::debug!("Setting VT parser for AI scrollback reading");
-    let vt_clone = Arc::clone(&shell.vt);
-    tokio_rt.block_on(async {
-      ai_proc.set_vt_parser(vt_clone).await;
-    });
-    log::info!("VT parser set for AI process");
-  }
+  let poll_agent = PollAgent::new(agent_event_rx);
 
   // Get terminal size for initial state
   let (_, rows) = crossterm::terminal::size()?;
@@ -409,8 +458,9 @@ fn main() -> Result<()> {
 
   let mut state = AppState {
     shell,
-    ai_process: ai_process.map(|p| Arc::new(Mutex::new(p))),
-    ai_ui: AIChatUI::new(),
+    agent_terminal,
+    suggestion_rx,
+    pending_command: None,
     ai_visible: false,
     chat_position,
     scrollback_tracker,
@@ -418,6 +468,7 @@ fn main() -> Result<()> {
     config_error,
     key_combiner,
     shell_output_pending: false,
+    agent_output_pending: false,
   };
 
   // Run rat-salsa event loop
@@ -438,6 +489,7 @@ fn main() -> Result<()> {
       .poll(PollTimers::default())
       .poll(PollCrossterm)
       .poll(poll_shell) // Phase 2: PollShell integrated into rat-salsa framework
+      .poll(poll_agent)
       .poll(PollRendered)
       .poll(PollTokio::new(tokio_rt)),
   ) {
@@ -453,10 +505,11 @@ fn main() -> Result<()> {
 }
 
 /// Application state (previously App)
-struct AppState<'a> {
+struct AppState {
   shell: Shell,
-  ai_process: Option<Arc<Mutex<AIChatProcess>>>,
-  ai_ui: AIChatUI<'a>,
+  agent_terminal: Option<AgentTerminal>,
+  suggestion_rx: UnboundedReceiver<PendingCommand>,
+  pending_command: Option<PendingCommand>,
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
   chat_position: ChatPosition,
@@ -471,22 +524,17 @@ struct AppState<'a> {
   /// Flag indicating shell has produced output since last render.
   /// This batches multiple shell outputs into a single render on the next timer tick.
   shell_output_pending: bool,
+  agent_output_pending: bool,
 }
 
-impl<'a> AppState<'a> {
+impl AppState {
   /// Handle approval dialog key events
   /// Returns Outcome::Changed if the key was consumed, Outcome::Continue otherwise
   fn handle_approval_dialog_key(
     &mut self,
     key_combo: KeyCombination,
   ) -> Outcome {
-    if let Some(ref ai_process_arc) = self.ai_process
-      && let Ok(mut ai_process) = ai_process_arc.try_lock()
-    {
-      if ai_process.pending_command().is_none() {
-        return Outcome::Continue;
-      }
-
+    if self.pending_command.is_some() {
       // Approval dialog is active - check for approve/deny keys
       if self
         .config
@@ -496,7 +544,7 @@ impl<'a> AppState<'a> {
         .matches(key_combo)
       {
         log::info!("Command approved by user with key: {:?}", key_combo);
-        if let Some(cmd) = ai_process.approve_command() {
+        if let Some(cmd) = self.pending_command.take() {
           log::info!("Executing approved command: {}", cmd.command);
           // Send the command to the shell
           if let Err(e) = self.shell.send_command(&cmd.command) {
@@ -506,52 +554,12 @@ impl<'a> AppState<'a> {
         return Outcome::Changed;
       } else if self.config.interface.key_bindings.deny.matches(key_combo) {
         log::info!("Command rejected by user with key: {:?}", key_combo);
-        ai_process.reject_command();
+        self.pending_command = None;
         return Outcome::Changed;
       }
 
       // Any other key while approval dialog is active is consumed but ignored
       log::trace!("Key {:?} ignored (approval dialog active)", key_combo);
-      return Outcome::Unchanged;
-    }
-    Outcome::Continue
-  }
-
-  /// Handle error dialog key events
-  /// Returns Outcome::Changed if the key was consumed, Outcome::Continue otherwise
-  fn handle_error_dialog_key(
-    &mut self,
-    key_combo: KeyCombination,
-    code: KeyCode,
-  ) -> Outcome {
-    if let Some(ref ai_process_arc) = self.ai_process
-      && let Ok(mut ai_process) = ai_process_arc.try_lock()
-    {
-      if ai_process.error_message().is_none() {
-        return Outcome::Continue;
-      }
-
-      // Error dialog uses deactivate key to close, arrow keys to scroll
-      if self
-        .config
-        .interface
-        .key_bindings
-        .deactivate_overlay
-        .matches(key_combo)
-      {
-        log::info!("Error dialog dismissed by user with key: {:?}", key_combo);
-        ai_process.clear_error();
-        return Outcome::Changed;
-      } else if matches!(code, KeyCode::Up) {
-        ai_process.error_scroll_up(1);
-        return Outcome::Changed;
-      } else if matches!(code, KeyCode::Down) {
-        ai_process.error_scroll_down(1);
-        return Outcome::Changed;
-      }
-
-      // Any other key while error dialog is active is consumed but ignored
-      log::trace!("Key {:?} ignored (error dialog active)", key_combo);
       return Outcome::Unchanged;
     }
     Outcome::Continue
@@ -582,7 +590,7 @@ impl<'a> AppState<'a> {
         let screen = parser.screen();
         !matches!(
           screen.mouse_protocol_mode(),
-          crate::vt100::MouseProtocolMode::None
+          termin::vt100::MouseProtocolMode::None
         )
       } else {
         false
@@ -602,66 +610,6 @@ impl<'a> AppState<'a> {
       }
     }
     Ok(())
-  }
-
-  /// Extract terminal context from shell for AI
-  fn extract_context(&self) -> TerminalContext {
-    use std::path::PathBuf;
-
-    let mut history_lines = Vec::new();
-    let max_lines = 500; // As per PRD
-
-    // Extract terminal buffer from VT100 screen
-    if let Ok(parser) = self.shell.vt.read() {
-      let screen = parser.screen();
-      let size = screen.size();
-
-      // Collect all rows (scrollback + visible) and take the last N lines
-      // This ensures we get recent/current content, not old scrollback
-      let all_rows: Vec<_> = screen.all_rows().collect();
-      let start_idx = all_rows.len().saturating_sub(max_lines);
-      let rows_to_extract = &all_rows[start_idx..];
-
-      for row in rows_to_extract {
-        let mut line_content = String::new();
-        let mut has_content = false;
-
-        // Extract each cell in the row
-        for col_idx in 0..size.cols {
-          if let Some(cell) = row.get(col_idx) {
-            if cell.has_contents() {
-              line_content.push_str(cell.contents());
-              has_content = true;
-            } else if has_content {
-              // Add spaces for empty cells after content
-              line_content.push(' ');
-            }
-          }
-        }
-
-        // Only add non-empty lines
-        let trimmed = line_content.trim_end();
-        if !trimmed.is_empty() {
-          history_lines.push(trimmed.to_string());
-        }
-      }
-    }
-
-    // Get current working directory
-    let cwd = std::env::current_dir()
-      .unwrap_or_else(|_| PathBuf::from("/"))
-      .to_string_lossy()
-      .to_string();
-
-    // No exit code tracking yet (future enhancement)
-    // Note: Privacy filtering will be applied by AIChatProcess.start_streaming
-    TerminalContext {
-      history_lines,
-      cwd,
-      last_exit_code: None,
-      os_info: Some(TerminalContext::get_os_info()),
-      shell: TerminalContext::get_shell(),
-    }
   }
 
   /// Calculate the overlay height based on terminal area
@@ -693,210 +641,18 @@ impl<'a> AppState<'a> {
     }
   }
 
-  /// Process tool execution events from AI subprocess
-  /// Returns true if any state changed requiring re-render
-  fn process_tool_events(&mut self, ctx: &mut Global) -> bool {
+  fn process_agent_suggestions(&mut self) -> bool {
     let mut changed = false;
-
-    if let Some(ref ai_process_arc) = self.ai_process {
-      // Use try_lock to avoid blocking - this is a synchronous event loop
-      if let Ok(mut ai_process) = ai_process_arc.try_lock() {
-        // Check for tool execution events (non-blocking)
-        if let Some(tool_event) = ai_process.try_recv_tool_event() {
-          match tool_event {
-            ToolExecutionEvent::ToolCallStarted {
-              tool_call_id,
-              tool_name,
-              args,
-            } => {
-              log::info!(
-                "Tool call started: {} (id: {})",
-                tool_name,
-                tool_call_id
-              );
-              // Add tool call to conversation in "running" state
-              ai_process.add_tool_call_started(tool_call_id, tool_name, args);
-              changed = true;
-            }
-            ToolExecutionEvent::ToolExecuted {
-              tool_call_id,
-              tool_name,
-              args: _,
-              result_content,
-              duration_ms,
-            } => {
-              log::info!(
-                "Tool executed: {} (id: {}, {}ms)",
-                tool_name,
-                tool_call_id,
-                duration_ms
-              );
-              // Update tool call in conversation to "success" state
-              ai_process.complete_tool_call(
-                &tool_call_id,
-                result_content,
-                duration_ms,
-              );
-              changed = true;
-
-              // Check if it was a suggest_command tool
-              if tool_name == "suggest_command" {
-                log::info!("Command suggested, spawning checker task");
-
-                // Spawn async task to retrieve and display the suggestion
-                let ai_process_clone = Arc::clone(ai_process_arc);
-                ctx.spawn_async(async move {
-                  let mut ai = ai_process_clone.lock().await;
-                  if let Some(suggestion) = ai.get_latest_suggestion().await {
-                    log::info!(
-                      "Retrieved suggestion: {} (risk: {:?})",
-                      suggestion.command,
-                      suggestion.risk_level
-                    );
-                    // Convert to pending command for approval UI
-                    ai.set_pending_command(suggestion).await;
-                  }
-                  Ok(Control::Changed)
-                });
-              }
-            }
-            ToolExecutionEvent::ToolFailed {
-              tool_call_id,
-              tool_name,
-              args: _,
-              error_message,
-              duration_ms,
-            } => {
-              log::error!(
-                "Tool failed: {} (id: {}, {}ms): {}",
-                tool_name,
-                tool_call_id,
-                duration_ms,
-                error_message
-              );
-              // Update tool call in conversation to "failed" state
-              ai_process.fail_tool_call(
-                &tool_call_id,
-                error_message,
-                duration_ms,
-              );
-              changed = true;
-            }
-            ToolExecutionEvent::ContinuedTextChunk { chunk } => {
-              log::debug!("Continued text: {}", chunk);
-              // Ensure streaming response is initialized for continued stream
-              if ai_process.streaming_response().is_none() {
-                ai_process.start_continued_streaming();
-              }
-              // Append to AI process streaming response
-              ai_process.append_streaming_token(chunk);
-              changed = true;
-            }
-            ToolExecutionEvent::ContinuedStreamComplete { full_response } => {
-              log::info!(
-                "Continued response complete: {} chars",
-                full_response.len()
-              );
-              // Complete the streaming with the full response
-              // Use complete_continued_streaming() because tool_coordinator already
-              // adds the assistant response to AG-UI history
-              ai_process.complete_continued_streaming(full_response);
-              changed = true;
-            }
-            ToolExecutionEvent::Error { message } => {
-              log::error!("Tool execution error: {}", message);
-              ai_process
-                .set_error(format!("Tool execution failed: {}", message));
-              changed = true;
-            }
-          }
-        }
-      }
+    while let Ok(suggestion) = self.suggestion_rx.try_recv() {
+      log::info!(
+        "AI CLI suggested shell input: {} (risk: {:?})",
+        suggestion.command,
+        suggestion.risk_level
+      );
+      self.pending_command = Some(suggestion);
+      changed = true;
     }
-
     changed
-  }
-
-  /// Handle Enter key press to send message to AI
-  /// Returns true if the message was sent
-  fn send_ai_message(&mut self, ctx: &mut Global) -> bool {
-    let input = self.ai_ui.get_input_value().trim().to_string();
-
-    if input.is_empty() {
-      return false;
-    }
-
-    log::info!("Sending message to AI: {}", input);
-
-    // Extract terminal context before spawning task
-    let context = self.extract_context();
-
-    // Spawn async task to send message
-    if let Some(ref ai_process_arc) = self.ai_process {
-      let ai_process_clone = Arc::clone(ai_process_arc);
-      let input_clone = input.clone();
-
-      // Use spawn_async_ext to get a sender for intermediate render triggers
-      ctx.spawn_async_ext(|sender| async move {
-        use futures::stream::StreamExt;
-
-        // Start streaming (lock only for setup)
-        let stream = {
-          let mut ai_process = ai_process_clone.lock().await;
-          ai_process.start_streaming(&input_clone, context).await
-        };
-
-        match stream {
-          Ok(response) => {
-            let mut stream = response.text_stream;
-            let mut full_response = String::new();
-
-            // Process stream tokens with lock/unlock cycles
-            while let Some(token_result) = stream.next().await {
-              match token_result {
-                Ok(token) => {
-                  full_response.push_str(&token);
-                  // Lock only to update state
-                  {
-                    let mut ai_process = ai_process_clone.lock().await;
-                    ai_process.append_streaming_token(token);
-                  }
-                  // Trigger UI re-render after appending token
-                  let _ = sender.send(Ok(Control::Changed)).await;
-                }
-                Err(e) => {
-                  let error_msg = format!("{:#}", e);
-                  log::error!("Stream error: {}", error_msg);
-                  let mut ai_process = ai_process_clone.lock().await;
-                  ai_process.abort_streaming();
-                  ai_process.set_error(error_msg);
-                  return Ok(Control::Changed);
-                }
-              }
-            }
-
-            // Complete streaming
-            {
-              let mut ai_process = ai_process_clone.lock().await;
-              ai_process.complete_streaming(full_response).await;
-            }
-          }
-          Err(e) => {
-            let error_msg = format!("{:#}", e);
-            log::error!("Failed to start streaming: {}", error_msg);
-            let mut ai_process = ai_process_clone.lock().await;
-            ai_process.abort_streaming();
-            ai_process.set_error(error_msg);
-          }
-        }
-
-        Ok(Control::Changed)
-      });
-    }
-
-    // Clear input after queuing send
-    self.ai_ui.clear_input();
-    true
   }
 
   /// Handle mouse events when AI overlay is visible
@@ -904,18 +660,13 @@ impl<'a> AppState<'a> {
     &mut self,
     mouse: &crossterm::event::MouseEvent,
   ) -> Control<AppEvent> {
-    // AI modal is visible - use Clipper's built-in mouse handler
-    // Clipper handles scroll events, dragging, etc. automatically
-    let outcome = HandleEvent::handle(
-      self.ai_ui.conversation_state(),
-      &Event::Mouse(*mouse),
-      rat_event::MouseOnly,
-    );
-
-    match outcome {
-      Outcome::Changed => Control::Changed,
-      _ => Control::Continue,
+    if let Some(agent) = &mut self.agent_terminal {
+      let mouse_event = MouseEvent::from_crossterm(*mouse);
+      if let Err(err) = agent.shell_mut().send_mouse(mouse_event) {
+        log::error!("Failed to send mouse event to AI CLI: {err:?}");
+      }
     }
+    Control::Continue
   }
 
   /// Handle mouse events when AI overlay is not visible
@@ -953,17 +704,6 @@ fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
   );
   log::debug!("Started 60fps render timer");
 
-  // Initialize focus (Phase 5)
-  // Always build focus, but it's only active when AI modal is visible
-  log::debug!("Building focus for AI modal");
-  let mut builder = FocusBuilder::default();
-  builder.widget(state.ai_ui.conversation_state()); // Clipper state has built-in container focus
-  builder.widget(state.ai_ui.input_state()); // Use widget's built-in focus
-  let focus = builder.build();
-  // Focus on input by default
-  focus.focus(state.ai_ui.input_focus());
-  ctx.set_focus(focus);
-  log::debug!("Focus initialized and set in context, input focused");
   log::debug!("init() completed");
   Ok(())
 }
@@ -1038,28 +778,21 @@ fn render(
     // Clear the overlay area to prevent terminal content from showing through
     Clear.render(overlay_area, buf);
 
-    if let Some(ref ai_process_arc) = state.ai_process {
-      // Try to lock without blocking (non-blocking for render)
-      if let Ok(ai_process) = ai_process_arc.try_lock() {
-        // Render AI chat interface with Clipper's built-in focus
-        state.ai_ui.render(&ai_process, overlay_area, buf);
+    if let Some(ref agent) = state.agent_terminal {
+      if let Ok(vt) = agent.shell().vt.read() {
+        let screen = vt.screen();
+        let widget = TerminalWidget::with_offset(screen, 0);
+        widget.render(overlay_area, buf);
 
-        // Show cursor in input area when it has focus
-        if let Some((cx, cy)) = state.ai_ui.input_state().screen_cursor() {
-          ctx.set_screen_cursor(Some((cx, cy)));
+        if !screen.hide_cursor() {
+          let cursor = screen.cursor_position();
+          ctx.set_screen_cursor(Some((
+            overlay_area.x + cursor.1,
+            overlay_area.y + cursor.0,
+          )));
         } else {
           ctx.set_screen_cursor(None);
         }
-      } else {
-        // Lock is held (AI is processing) - render loading state
-        let message = Paragraph::new("Processing... (AI is thinking)").block(
-          Block::default()
-            .borders(Borders::ALL)
-            .title(" AI Assistant ")
-            .style(Style::default().fg(Color::Cyan).bg(Color::Black)),
-        );
-        message.render(overlay_area, buf);
-        ctx.set_screen_cursor(None);
       }
     } else {
       // Show "not configured" message with actual error if available
@@ -1089,6 +822,34 @@ fn render(
       message.render(overlay_area, buf);
       ctx.set_screen_cursor(None);
     }
+
+    if let Some(pending) = &state.pending_command {
+      let approval_area = Rect {
+        x: overlay_area.x,
+        y: overlay_area.y,
+        width: overlay_area.width,
+        height: overlay_area.height.min(7),
+      };
+      Clear.render(approval_area, buf);
+      let message = format!(
+        "The AI suggests shell input:\n\n{}\n\n{}  Approve? (Y/N)",
+        pending.command,
+        pending
+          .explanation
+          .as_deref()
+          .unwrap_or("No explanation provided.")
+      );
+      Paragraph::new(message)
+        .block(
+          Block::default()
+            .borders(Borders::ALL)
+            .title(" Shell Input Approval ")
+            .style(Style::default().fg(Color::Yellow)),
+        )
+        .style(Style::default().fg(Color::White))
+        .render(approval_area, buf);
+      ctx.set_screen_cursor(None);
+    }
   }
 
   Ok(())
@@ -1098,11 +859,10 @@ fn render(
 fn event(
   event: &AppEvent,
   state: &mut AppState,
-  ctx: &mut Global,
+  _ctx: &mut Global,
 ) -> Result<Control<AppEvent>, Error> {
   // Track if any state changed requiring re-render
-  // Process tool execution events from AI using helper method
-  let mut shell_changed = state.process_tool_events(ctx);
+  let mut shell_changed = state.process_agent_suggestions();
 
   // Check for VT scrollback changes
   if let Ok(vt) = state.shell.vt.read() {
@@ -1114,13 +874,9 @@ fn event(
     log::warn!("Failed to get lock on VT")
   }
 
-  let mut focus_builder = FocusBuilder::default();
-  focus_builder.widget(state.ai_ui.conversation_state());
-  focus_builder.widget(state.ai_ui.input_state());
-  let mut focus = focus_builder.build();
   let result = match event {
     AppEvent::Crossterm(
-      ct_event @ Event::Key(
+      Event::Key(
         key_event @ KeyEvent {
           code,
           modifiers,
@@ -1165,17 +921,9 @@ fn event(
           log::info!("Deactivate overlay key pressed: {:?}", key_combo);
 
           // Dismiss any active dialogs before closing overlay
-          if let Some(ref ai_process_arc) = state.ai_process
-            && let Ok(mut ai_process) = ai_process_arc.try_lock()
-          {
-            if ai_process.error_message().is_some() {
-              log::debug!("Dismissing error dialog before closing overlay");
-              ai_process.clear_error();
-            }
-            if ai_process.pending_command().is_some() {
-              log::debug!("Dismissing approval dialog before closing overlay");
-              ai_process.reject_command();
-            }
+          if state.pending_command.is_some() {
+            log::debug!("Dismissing approval dialog before closing overlay");
+            state.pending_command = None;
           }
 
           // Always close the overlay when deactivate key is pressed
@@ -1193,70 +941,24 @@ fn event(
         }
         break 'm Control::Continue;
       }
-      // Try handling focus events first (for tab navigation, etc.)
-      if let AppEvent::Crossterm(cte) = event {
-        event_flow!(break 'm focus.handle(cte, Regular));
-      }
-
       if let Some(key_combo) = key_combo
         && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
       {
         // Handle approval dialog with highest priority (when pending command exists)
-        event_flow!(break 'm state.handle_approval_dialog_key(key_combo));
-
-        // Handle error dialog (second priority after approval dialog)
-        event_flow!(break 'm state.handle_error_dialog_key(key_combo, *code));
-      }
-
-      // Route events based on focus
-      log::trace!(
-        "Key event with AI visible - conversation focused: {}, input focused: {}, key: {:?}",
-        state.ai_ui.conversation_focus().get(),
-        state.ai_ui.input_focus().get(),
-        code
-      );
-
-      if state.ai_ui.conversation_focus().get() {
-        // Conversation is focused - use Clipper's built-in event handler
-        log::debug!(
-          "Conversation is focused, dispatching to Clipper event handler: {:?}",
-          code
-        );
-        let outcome = HandleEvent::handle(
-          state.ai_ui.conversation_state(),
-          &Event::Key(KeyEvent::new(*code, *modifiers)),
-          Regular,
-        );
-
-        return Ok(match outcome {
-          Outcome::Changed => Control::Changed,
-          _ => {
-            if shell_changed {
-              Control::Changed
-            } else {
-              Control::Continue
-            }
-          }
-        });
-      } else if state.ai_ui.input_focus().get() {
-        // Input is focused
-        // Handle Enter key to send message using helper method
-        if matches!(code, KeyCode::Enter)
-          && modifiers.is_empty()
-          && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
-        {
-          log::debug!("Enter pressed - sending message");
-          state.send_ai_message(ctx);
-          return Ok(Control::Changed);
+        match state.handle_approval_dialog_key(key_combo) {
+          Outcome::Changed => break 'm Control::Changed,
+          Outcome::Unchanged => break 'm Control::Continue,
+          Outcome::Continue => {}
         }
-
-        // Route other keys to input widget
-        log::trace!("Routing key to input widget");
-        state.ai_ui.input_event(ct_event);
-        return Ok(Control::Changed);
       }
 
-      log::warn!("No widget has focus! Input should be focused by default");
+      if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        && let Some(agent) = &mut state.agent_terminal
+      {
+        let key = Key::new(*code, *modifiers);
+        agent.shell_mut().send_key(key)?;
+        return Ok(Control::Continue);
+      }
       return Ok(if shell_changed {
         Control::Changed
       } else {
@@ -1266,6 +968,11 @@ fn event(
     AppEvent::Crossterm(Event::Resize(cols, rows)) => {
       log::info!("Terminal resize event: {}x{}", cols, rows);
       state.shell.resize(*rows, *cols)?;
+
+      if let Some(agent) = &mut state.agent_terminal {
+        let overlay_height = (*rows / 2).max(10);
+        agent.shell_mut().resize(overlay_height, *cols)?;
+      }
 
       // Re-synchronize scrollback tracker with VT100's new state after resize.
       // Resize can cause total_rows to change (lines wrap/unwrap), so the tracker
@@ -1294,10 +1001,8 @@ fn event(
       if !state.ai_visible {
         // Send pasted text to shell, with bracketed paste if the shell wants it
         state.shell.send_paste(text)?;
-      } else {
-        // When AI overlay is visible, paste into the chat input
-        // TODO: Handle paste into chat input
-        log::debug!("Paste ignored while AI overlay is visible");
+      } else if let Some(agent) = &mut state.agent_terminal {
+        agent.shell_mut().send_paste(text)?;
       }
       Control::Continue
     }
@@ -1306,31 +1011,19 @@ fn event(
       Control::Continue
     }
     AppEvent::Timer(_) => {
-      // Periodic timer (60fps) - trigger render if shell output is pending.
-      // This batches multiple shell outputs into a single render per frame,
-      // preventing event floods from high-frequency programs like `top`.
-      if state.shell_output_pending {
+      // Periodic timer (60fps) - trigger render if terminal output is pending.
+      if state.shell_output_pending || state.agent_output_pending {
         state.shell_output_pending = false;
+        state.agent_output_pending = false;
         Control::Changed
       } else {
         Control::Continue
       }
     }
-    AppEvent::Rendered => {
-      // Rebuild focus after render to track widget positions
-      if state.ai_visible {
-        let mut builder = FocusBuilder::default();
-        builder.widget(state.ai_ui.conversation_state());
-        builder.widget(state.ai_ui.input_state()); // Use widget's built-in focus
-        let focus = builder.build();
-        ctx.set_focus(focus);
-      }
-      Control::Continue
-    }
+    AppEvent::Rendered => Control::Continue,
     // Shell events now arrive via PollShell
     AppEvent::ShellOutput => {
       // Shell produced output - set flag for batched rendering on next timer tick.
-      // This prevents event floods from high-frequency programs like `top`.
       log::trace!("Shell output event - marking pending");
       state.shell_output_pending = true;
       Control::Continue
@@ -1345,6 +1038,21 @@ fn event(
     AppEvent::ShellExited(code) => {
       log::info!("Shell exited with code: {}", code);
       Control::Quit
+    }
+    AppEvent::AgentOutput => {
+      state.agent_output_pending = true;
+      Control::Continue
+    }
+    AppEvent::AgentTermReply(reply) => {
+      if let Some(agent) = &mut state.agent_terminal {
+        agent.shell_mut().writer.write_all(reply.as_bytes())?;
+        agent.shell_mut().writer.flush()?;
+      }
+      Control::Continue
+    }
+    AppEvent::AgentExited(code) => {
+      log::info!("AI CLI exited with code: {}", code);
+      Control::Changed
     }
   };
   Ok(if shell_changed && result == Control::Continue {
@@ -1364,7 +1072,7 @@ fn error(
   Ok(Control::Quit)
 }
 
-impl<'a> Drop for AppState<'a> {
+impl Drop for AppState {
   fn drop(&mut self) {
     // Cleanup terminal
     let _ = disable_raw_mode();

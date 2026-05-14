@@ -1,0 +1,24 @@
+---
+source: src/tests/e2e/test_ai.rs
+expression: harness.buffer_as_string()
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+        ┌ AI Assistant ────────────────────────────────────────────────┐        
+        │System: You are a helpful terminal assistant.                 │        
+        │                                                              │        
+        │You: Show me how to list files                                │        
+        │                                                              │        
+        │AI: You can use `ls` to list files in the current directory.  │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        │                                                              │        
+        └──────────────────────────────────────────────────────────────┘

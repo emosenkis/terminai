@@ -68,6 +68,63 @@ pub struct InterfaceConfig {
   pub key_bindings: KeyBindingsConfig,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentKind {
+  Claude,
+  Codex,
+  Custom,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentConfig {
+  #[serde(default)]
+  pub kind: Option<AgentKind>,
+  #[serde(default)]
+  pub command: Option<String>,
+  #[serde(default)]
+  pub args: Vec<String>,
+  #[serde(default, rename = "initial-prompt")]
+  pub initial_prompt: Option<String>,
+}
+
+impl AgentConfig {
+  pub fn claude() -> Self {
+    Self {
+      kind: Some(AgentKind::Claude),
+      command: Some("claude".to_string()),
+      args: Vec::new(),
+      initial_prompt: None,
+    }
+  }
+
+  pub fn codex() -> Self {
+    Self {
+      kind: Some(AgentKind::Codex),
+      command: Some("codex".to_string()),
+      args: Vec::new(),
+      initial_prompt: None,
+    }
+  }
+
+  pub fn effective_kind(&self) -> AgentKind {
+    if let Some(kind) = self.kind {
+      return kind;
+    }
+    match self.command.as_deref() {
+      Some("claude") => AgentKind::Claude,
+      Some("codex") | None => AgentKind::Codex,
+      Some(_) => AgentKind::Custom,
+    }
+  }
+}
+
+impl Default for AgentConfig {
+  fn default() -> Self {
+    Self::codex()
+  }
+}
+
 /// Configuration for a specific AI model
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ModelConfig {
@@ -101,18 +158,17 @@ impl ProviderConfig {
   /// Get the environment variable name to use for the API key
   /// Uses api_key_env if specified, otherwise falls back to provider default
   pub fn effective_api_key_env(&self) -> Option<String> {
-    use crate::llm::Provider;
-    use std::str::FromStr;
-
     if let Some(ref env_var) = self.api_key_env {
       return Some(env_var.clone());
     }
 
-    // Fall back to provider default
-    if let Ok(provider) = Provider::from_str(&self.name) {
-      provider.api_key_env().map(|s| s.to_string())
-    } else {
-      None
+    match self.name.as_str() {
+      "anthropic" => Some("ANTHROPIC_API_KEY".to_string()),
+      "openai" => Some("OPENAI_API_KEY".to_string()),
+      "gemini" => Some("GEMINI_API_KEY".to_string()),
+      "openrouter" => Some("OPENROUTER_API_KEY".to_string()),
+      "ollama" => None,
+      _ => None,
     }
   }
 }
@@ -124,9 +180,14 @@ pub struct TerminAIConfig {
   #[serde(default)]
   pub interface: InterfaceConfig,
   /// List of AI providers with their models
+  #[serde(default)]
   pub providers: Vec<ProviderConfig>,
   /// Default model in format "provider/model" (e.g., "anthropic/claude-sonnet-4-5")
+  #[serde(default)]
   pub default_model: String,
+  /// External CLI agent to run in the AI terminal.
+  #[serde(default)]
+  pub agent: AgentConfig,
 }
 
 impl TerminAIConfig {
@@ -362,6 +423,35 @@ default_model: anthropic/claude-sonnet-4-5
       models: vec![],
     };
     assert_eq!(provider2.effective_display_name(), "openai");
+  }
+
+  #[test]
+  fn test_agent_config_defaults_to_codex() {
+    let yaml = r#"
+interface:
+  chat-position: bottom
+    "#;
+
+    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(config.agent.effective_kind(), AgentKind::Codex);
+    assert_eq!(config.agent.command.as_deref(), Some("codex"));
+  }
+
+  #[test]
+  fn test_agent_config_custom_command() {
+    let yaml = r#"
+agent:
+  kind: custom
+  command: my-agent
+  args:
+    - --mcp
+    - "{mcp_url}"
+    "#;
+
+    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(config.agent.effective_kind(), AgentKind::Custom);
+    assert_eq!(config.agent.command.as_deref(), Some("my-agent"));
+    assert_eq!(config.agent.args, vec!["--mcp", "{mcp_url}"]);
   }
 
   #[test]

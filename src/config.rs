@@ -73,18 +73,17 @@ impl AIConfig {
   /// Get the environment variable name to use for the API key
   /// Uses api_key_env if specified, otherwise falls back to provider default
   pub fn effective_api_key_env(&self) -> Option<String> {
-    use crate::llm::Provider;
-    use std::str::FromStr;
-
     if let Some(ref env_var) = self.api_key_env {
       return Some(env_var.clone());
     }
 
-    // Fall back to provider default
-    if let Ok(provider) = Provider::from_str(&self.provider) {
-      provider.api_key_env().map(|s| s.to_string())
-    } else {
-      None
+    match self.provider.as_str() {
+      "anthropic" => Some("ANTHROPIC_API_KEY".to_string()),
+      "openai" => Some("OPENAI_API_KEY".to_string()),
+      "gemini" => Some("GEMINI_API_KEY".to_string()),
+      "openrouter" => Some("OPENROUTER_API_KEY".to_string()),
+      "ollama" => None,
+      _ => None,
     }
   }
 }
