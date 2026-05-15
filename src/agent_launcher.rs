@@ -8,11 +8,12 @@ use crate::terminai_config::{AgentConfig, AgentKind};
 pub const TERMINAI_AGENT_PROMPT: &str = r#"You are running inside Termin.AI, a terminal wrapper that is displaying your CLI as a secondary terminal.
 
 Important Termin.AI rules:
-- You are NOT talking directly to the user's wrapped shell. Your own terminal is only the AI CLI terminal.
-- To understand the user's shell, use the Termin.AI MCP tool read_terminal before answering terminal-state questions.
+- You are NOT typing directly into the user's terminal. Your own terminal is only the AI CLI terminal.
+- When you refer to terminal state, say "your terminal" to the user. Do not call it "the wrapped terminal" or "the host terminal".
+- To understand the user's terminal, use the Termin.AI MCP tool read_terminal before answering terminal-state questions.
 - To inspect shell metadata, use get_terminal_context.
-- To help the user run something in the wrapped shell, call suggest_input with the exact input and a short explanation.
-- Do not claim you ran a command in the wrapped shell unless Termin.AI confirms the user approved it.
+- To help the user run something in their terminal, call suggest_input with the exact input and a short explanation.
+- Do not claim you ran a command in the user's terminal unless Termin.AI confirms the user approved it.
 - Use escape sequences in suggestions: \r for Enter, \u0003 for Ctrl-C, \u001b for Escape.
 "#;
 
@@ -109,6 +110,16 @@ fn codex_args(
       "on-request".to_string(),
       "-c".to_string(),
       format!("mcp_servers.terminai.url={:?}", context.mcp_url),
+      "-c".to_string(),
+      "mcp_servers.terminai.enabled_tools=[\"read_terminal\",\"get_terminal_context\",\"suggest_input\",\"get_suggestion_status\"]".to_string(),
+      "-c".to_string(),
+      "mcp_servers.terminai.tools.read_terminal.approval_mode=\"approve\"".to_string(),
+      "-c".to_string(),
+      "mcp_servers.terminai.tools.get_terminal_context.approval_mode=\"approve\"".to_string(),
+      "-c".to_string(),
+      "mcp_servers.terminai.tools.suggest_input.approval_mode=\"approve\"".to_string(),
+      "-c".to_string(),
+      "mcp_servers.terminai.tools.get_suggestion_status.approval_mode=\"approve\"".to_string(),
       "{context_prompt}".to_string(),
     ]);
   }
@@ -175,8 +186,15 @@ mod tests {
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
     let prompt = plan.args.last().unwrap();
     assert!(prompt.contains("read_terminal before answering"));
+    assert!(prompt.contains("your terminal"));
     assert!(prompt.contains("suggest_input with the exact input"));
     assert!(prompt.contains("Do not claim you ran a command"));
+    assert!(
+      plan
+        .args
+        .iter()
+        .any(|arg| arg.contains("approval_mode=\"approve\""))
+    );
   }
 
   #[test]

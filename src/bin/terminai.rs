@@ -6,7 +6,7 @@
 use anyhow::{Error, Result};
 use clap::Parser;
 use crokey::{Combiner, KeyCombination};
-use crossterm::event::{Event, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
@@ -16,7 +16,10 @@ use tui::Frame;
 use tui::{
   layout::Rect,
   style::{Color, Style},
-  widgets::{Block, Borders, Clear, Paragraph, Widget},
+  widgets::{
+    Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, StatefulWidget, Widget,
+  },
 };
 
 // rat-salsa imports
@@ -42,6 +45,46 @@ use termin::scrollback::{ScrollbackTracker, process_scrollback};
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 
 use termin::shell::{Shell, ShellEvent, ShellSpawnOptions};
+
+fn overlay_height_for_rows(rows: u16) -> u16 {
+  (rows / 2).max(10)
+}
+
+fn agent_pty_size(rows: u16, cols: u16) -> (u16, u16) {
+  (
+    overlay_height_for_rows(rows).saturating_sub(2).max(1),
+    cols.saturating_sub(2).max(1),
+  )
+}
+
+fn render_terminal_history<R: termin::vt100::TermReplySender>(
+  screen: &termin::vt100::Screen<R>,
+  row_offset: usize,
+  area: Rect,
+  buf: &mut tui::buffer::Buffer,
+) {
+  for (row_idx, row) in screen
+    .all_rows()
+    .skip(row_offset)
+    .take(area.height as usize)
+    .enumerate()
+  {
+    for col in 0..area.width {
+      if let Some(buf_cell) =
+        buf.cell_mut((area.x + col, area.y + row_idx as u16))
+      {
+        if let Some(cell) = row.get(col) {
+          *buf_cell = cell.to_tui();
+          if !cell.has_contents() {
+            buf_cell.set_char(' ');
+          }
+        } else {
+          buf_cell.set_char(' ');
+        }
+      }
+    }
+  }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -364,7 +407,7 @@ async fn initialize_agent(
         );
       }
 
-      let overlay_rows = (rows / 2).max(10);
+      let (agent_rows, agent_cols) = agent_pty_size(rows, cols);
       let options = ShellSpawnOptions {
         cwd: Some(plan.cwd),
         env: plan.env,
@@ -373,8 +416,8 @@ async fn initialize_agent(
       match AgentTerminal::spawn(
         &plan.command,
         &plan.args,
-        overlay_rows,
-        cols,
+        agent_rows,
+        agent_cols,
         options,
       ) {
         Ok((agent, rx)) => {
@@ -492,6 +535,7 @@ fn main() -> Result<()> {
     shell,
     agent_terminal,
     _mcp_server: mcp_server,
+    agent_view: TerminalViewState::new(),
     suggestion_rx,
     pending_command: None,
     ai_visible: false,
@@ -542,6 +586,7 @@ struct AppState {
   shell: Shell,
   agent_terminal: Option<AgentTerminal>,
   _mcp_server: Option<McpServerHandle>,
+  agent_view: TerminalViewState,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   pending_command: Option<PendingCommand>,
   ai_visible: bool,
@@ -559,6 +604,55 @@ struct AppState {
   /// This batches multiple shell outputs into a single render on the next timer tick.
   shell_output_pending: bool,
   agent_output_pending: bool,
+}
+
+#[derive(Debug, Clone)]
+struct TerminalViewState {
+  row_offset: usize,
+  follow_tail: bool,
+}
+
+impl TerminalViewState {
+  fn new() -> Self {
+    Self {
+      row_offset: 0,
+      follow_tail: true,
+    }
+  }
+
+  fn clamp(&mut self, total_rows: usize, viewport_rows: usize) {
+    let max_offset = Self::max_offset(total_rows, viewport_rows);
+    if self.follow_tail {
+      self.row_offset = max_offset;
+    } else {
+      self.row_offset = self.row_offset.min(max_offset);
+      if self.row_offset >= max_offset {
+        self.follow_tail = true;
+      }
+    }
+  }
+
+  fn scroll_lines(
+    &mut self,
+    delta: isize,
+    total_rows: usize,
+    viewport_rows: usize,
+  ) {
+    let max_offset = Self::max_offset(total_rows, viewport_rows);
+    let next = if delta.is_negative() {
+      self.row_offset.saturating_sub(delta.unsigned_abs())
+    } else {
+      self.row_offset.saturating_add(delta as usize)
+    }
+    .min(max_offset);
+
+    self.row_offset = next;
+    self.follow_tail = self.row_offset >= max_offset;
+  }
+
+  fn max_offset(total_rows: usize, viewport_rows: usize) -> usize {
+    total_rows.saturating_sub(viewport_rows.max(1))
+  }
 }
 
 impl AppState {
@@ -610,6 +704,7 @@ impl AppState {
       log::debug!("Enabled mouse tracking for AI modal");
 
       self.ai_visible = true;
+      self.agent_view.follow_tail = true;
     }
     Ok(())
   }
@@ -648,7 +743,7 @@ impl AppState {
 
   /// Calculate the overlay height based on terminal area
   fn overlay_height(&self, area: Rect) -> u16 {
-    (area.height / 2).max(10)
+    overlay_height_for_rows(area.height).min(area.height)
   }
 
   /// Calculate the row offset for the terminal when overlay is visible at bottom
@@ -675,6 +770,23 @@ impl AppState {
     }
   }
 
+  fn overlay_inner_area(&self, area: Rect) -> Rect {
+    let overlay = self.overlay_area(area);
+    Rect {
+      x: overlay.x.saturating_add(1),
+      y: overlay.y.saturating_add(1),
+      width: overlay.width.saturating_sub(2),
+      height: overlay.height.saturating_sub(2),
+    }
+  }
+
+  fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
+    x >= area.x
+      && x < area.x.saturating_add(area.width)
+      && y >= area.y
+      && y < area.y.saturating_add(area.height)
+  }
+
   fn process_agent_suggestions(&mut self) -> bool {
     let mut changed = false;
     while let Ok(suggestion) = self.suggestion_rx.try_recv() {
@@ -689,13 +801,60 @@ impl AppState {
     changed
   }
 
+  fn agent_total_rows(&self) -> usize {
+    self
+      .agent_terminal
+      .as_ref()
+      .and_then(|agent| {
+        agent
+          .shell()
+          .vt
+          .read()
+          .ok()
+          .map(|vt| vt.screen().total_rows())
+      })
+      .unwrap_or(0)
+  }
+
+  fn scroll_agent_view(&mut self, delta: isize, viewport_rows: usize) {
+    let total_rows = self.agent_total_rows();
+    self
+      .agent_view
+      .scroll_lines(delta, total_rows, viewport_rows);
+  }
+
   /// Handle mouse events when AI overlay is visible
   fn handle_ai_mouse_event(
     &mut self,
     mouse: &crossterm::event::MouseEvent,
+    terminal_area: Rect,
   ) -> Control<AppEvent> {
+    use crossterm::event::MouseEventKind;
+
+    let overlay_area = self.overlay_area(terminal_area);
+    let inner_area = self.overlay_inner_area(terminal_area);
+
+    if matches!(
+      mouse.kind,
+      MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+    ) && Self::point_in_rect(mouse.column, mouse.row, overlay_area)
+    {
+      let delta = match mouse.kind {
+        MouseEventKind::ScrollUp => -3,
+        MouseEventKind::ScrollDown => 3,
+        _ => 0,
+      };
+      self.scroll_agent_view(delta, inner_area.height as usize);
+      return Control::Changed;
+    }
+
+    if !Self::point_in_rect(mouse.column, mouse.row, inner_area) {
+      return Control::Continue;
+    }
+
     if let Some(agent) = &mut self.agent_terminal {
-      let mouse_event = MouseEvent::from_crossterm(*mouse);
+      let mouse_event =
+        MouseEvent::from_crossterm(*mouse).translate(inner_area);
       if let Err(err) = agent.shell_mut().send_mouse(mouse_event) {
         log::error!("Failed to send mouse event to AI CLI: {err:?}");
       }
@@ -808,22 +967,57 @@ fn render(
   if state.ai_visible {
     // Calculate overlay area using helper
     let overlay_area = state.overlay_area(area);
+    let inner_area = state.overlay_inner_area(area);
 
     // Clear the overlay area to prevent terminal content from showing through
     Clear.render(overlay_area, buf);
+    let block = Block::default()
+      .borders(Borders::ALL)
+      .title(" AI Terminal ")
+      .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+    block.render(overlay_area, buf);
 
     if let Some(ref agent) = state.agent_terminal {
       if let Ok(vt) = agent.shell().vt.read() {
         let screen = vt.screen();
-        let widget = TerminalWidget::with_offset(screen, 0);
-        widget.render(overlay_area, buf);
+        let total_rows = screen.total_rows();
+        state
+          .agent_view
+          .clamp(total_rows, inner_area.height as usize);
+        render_terminal_history(
+          screen,
+          state.agent_view.row_offset,
+          inner_area,
+          buf,
+        );
+
+        if total_rows > inner_area.height as usize {
+          let mut scrollbar_state = ScrollbarState::new(total_rows)
+            .position(state.agent_view.row_offset)
+            .viewport_content_length(inner_area.height as usize);
+          Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
+            overlay_area,
+            buf,
+            &mut scrollbar_state,
+          );
+        }
 
         if !screen.hide_cursor() {
           let cursor = screen.cursor_position();
-          ctx.set_screen_cursor(Some((
-            overlay_area.x + cursor.1,
-            overlay_area.y + cursor.0,
-          )));
+          let absolute_cursor_row = screen.row0() + cursor.0 as usize;
+          let viewport_end =
+            state.agent_view.row_offset + inner_area.height as usize;
+          if absolute_cursor_row >= state.agent_view.row_offset
+            && absolute_cursor_row < viewport_end
+          {
+            ctx.set_screen_cursor(Some((
+              inner_area.x + cursor.1.min(inner_area.width.saturating_sub(1)),
+              inner_area.y
+                + (absolute_cursor_row - state.agent_view.row_offset) as u16,
+            )));
+          } else {
+            ctx.set_screen_cursor(None);
+          }
         } else {
           ctx.set_screen_cursor(None);
         }
@@ -844,16 +1038,10 @@ fn render(
           .to_string()
       };
 
-      let message = Paragraph::new(error_text)
-        .block(
-          Block::default()
-            .borders(Borders::ALL)
-            .title(" AI Assistant ")
-            .style(Style::default().fg(Color::Yellow)),
-        )
-        .style(Style::default().fg(Color::White));
+      let message =
+        Paragraph::new(error_text).style(Style::default().fg(Color::White));
 
-      message.render(overlay_area, buf);
+      message.render(inner_area, buf);
       ctx.set_screen_cursor(None);
     }
 
@@ -985,6 +1173,23 @@ fn event(
       }
 
       if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        && matches!(code, KeyCode::PageUp | KeyCode::PageDown)
+      {
+        let (cols, rows) = crossterm::terminal::size()?;
+        let terminal_area = Rect::new(0, 0, cols, rows);
+        let viewport_rows =
+          state.overlay_inner_area(terminal_area).height as usize;
+        let page = viewport_rows.saturating_sub(1).max(1) as isize;
+        let delta = if matches!(code, KeyCode::PageUp) {
+          -page
+        } else {
+          page
+        };
+        state.scroll_agent_view(delta, viewport_rows);
+        break 'm Control::Changed;
+      }
+
+      if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
         && let Some(agent) = &mut state.agent_terminal
       {
         let key = Key::new(*code, *modifiers);
@@ -1002,8 +1207,8 @@ fn event(
       state.shell.resize(*rows, *cols)?;
 
       if let Some(agent) = &mut state.agent_terminal {
-        let overlay_height = (*rows / 2).max(10);
-        agent.shell_mut().resize(overlay_height, *cols)?;
+        let (agent_rows, agent_cols) = agent_pty_size(*rows, *cols);
+        agent.shell_mut().resize(agent_rows, agent_cols)?;
       }
 
       // Re-synchronize scrollback tracker with VT100's new state after resize.
@@ -1024,7 +1229,8 @@ fn event(
     }
     AppEvent::Crossterm(Event::Mouse(mouse)) => {
       if state.ai_visible {
-        state.handle_ai_mouse_event(mouse)
+        let (cols, rows) = crossterm::terminal::size()?;
+        state.handle_ai_mouse_event(mouse, Rect::new(0, 0, cols, rows))
       } else {
         state.handle_shell_mouse_event(mouse)?
       }
@@ -1108,5 +1314,37 @@ impl Drop for AppState {
   fn drop(&mut self) {
     // Cleanup terminal
     let _ = disable_raw_mode();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn agent_pty_size_matches_inner_overlay_area() {
+    assert_eq!(agent_pty_size(40, 120), (18, 118));
+    assert_eq!(agent_pty_size(8, 1), (8, 1));
+  }
+
+  #[test]
+  fn terminal_view_scrolls_and_resumes_following_tail() {
+    let mut view = TerminalViewState::new();
+
+    view.clamp(100, 20);
+    assert_eq!(view.row_offset, 80);
+    assert!(view.follow_tail);
+
+    view.scroll_lines(-10, 100, 20);
+    assert_eq!(view.row_offset, 70);
+    assert!(!view.follow_tail);
+
+    view.clamp(110, 20);
+    assert_eq!(view.row_offset, 70);
+    assert!(!view.follow_tail);
+
+    view.scroll_lines(100, 110, 20);
+    assert_eq!(view.row_offset, 90);
+    assert!(view.follow_tail);
   }
 }
