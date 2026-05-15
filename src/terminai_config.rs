@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use crokey::KeyCombination;
 use crokey::key;
@@ -79,11 +81,15 @@ pub enum AgentKind {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentConfig {
   #[serde(default)]
+  pub preset: Option<String>,
+  #[serde(default)]
   pub kind: Option<AgentKind>,
   #[serde(default)]
   pub command: Option<String>,
   #[serde(default)]
   pub args: Vec<String>,
+  #[serde(default, rename = "extra-args")]
+  pub extra_args: Vec<String>,
   #[serde(default, rename = "initial-prompt")]
   pub initial_prompt: Option<String>,
 }
@@ -91,18 +97,22 @@ pub struct AgentConfig {
 impl AgentConfig {
   pub fn claude() -> Self {
     Self {
+      preset: Some("claude".to_string()),
       kind: Some(AgentKind::Claude),
-      command: Some("claude".to_string()),
+      command: None,
       args: Vec::new(),
+      extra_args: Vec::new(),
       initial_prompt: None,
     }
   }
 
   pub fn codex() -> Self {
     Self {
+      preset: Some("codex".to_string()),
       kind: Some(AgentKind::Codex),
-      command: Some("codex".to_string()),
+      command: None,
       args: Vec::new(),
+      extra_args: Vec::new(),
       initial_prompt: None,
     }
   }
@@ -123,6 +133,20 @@ impl Default for AgentConfig {
   fn default() -> Self {
     Self::codex()
   }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AgentPresetConfig {
+  #[serde(default)]
+  pub extends: Option<String>,
+  #[serde(default)]
+  pub command: Option<String>,
+  #[serde(default)]
+  pub args: Vec<String>,
+  #[serde(default, rename = "extra-args")]
+  pub extra_args: Vec<String>,
+  #[serde(default)]
+  pub env: HashMap<String, String>,
 }
 
 /// Configuration for a specific AI model
@@ -188,6 +212,9 @@ pub struct TerminAIConfig {
   /// External CLI agent to run in the AI terminal.
   #[serde(default)]
   pub agent: AgentConfig,
+  /// User-defined CLI agent presets. Built-in presets include codex and claude.
+  #[serde(default, rename = "agent-presets")]
+  pub agent_presets: HashMap<String, AgentPresetConfig>,
 }
 
 impl TerminAIConfig {
@@ -314,6 +341,38 @@ default_model: anthropic/claude-sonnet-4-5
   }
 
   #[test]
+  fn test_agent_config_extra_args_and_user_presets() {
+    let yaml = r#"
+agent:
+  preset: codex
+  extra-args:
+    - --model
+    - gpt-5.5
+agent-presets:
+  opencode-fast:
+    extends: opencode
+    extra-args:
+      - --model
+      - github-copilot/gpt-5
+providers: []
+default_model: ""
+    "#;
+
+    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(config.agent.preset.as_deref(), Some("codex"));
+    assert_eq!(config.agent.extra_args, vec!["--model", "gpt-5.5"]);
+    assert_eq!(
+      config
+        .agent_presets
+        .get("opencode-fast")
+        .unwrap()
+        .extends
+        .as_deref(),
+      Some("opencode")
+    );
+  }
+
+  #[test]
   fn test_terminai_config_with_interface() {
     let yaml = r#"
 interface:
@@ -434,7 +493,8 @@ interface:
 
     let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.effective_kind(), AgentKind::Codex);
-    assert_eq!(config.agent.command.as_deref(), Some("codex"));
+    assert_eq!(config.agent.preset.as_deref(), Some("codex"));
+    assert_eq!(config.agent.command.as_deref(), None);
   }
 
   #[test]

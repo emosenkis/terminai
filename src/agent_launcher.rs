@@ -1,9 +1,10 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
-use crate::terminai_config::{AgentConfig, AgentKind};
+use crate::terminai_config::{AgentConfig, AgentKind, AgentPresetConfig};
 
 pub const TERMINAI_AGENT_PROMPT: &str = r#"You are running inside Termin.AI, a terminal wrapper that is displaying your CLI as a secondary terminal.
 
@@ -44,9 +45,9 @@ impl AgentLaunchContext {
 
 pub fn build_launch_plan(
   config: &AgentConfig,
+  user_presets: &HashMap<String, AgentPresetConfig>,
   context: &AgentLaunchContext,
 ) -> Result<AgentLaunchPlan> {
-  let kind = config.effective_kind();
   let mut env = HashMap::new();
   env.insert("TERMINAI_MCP_URL".to_string(), context.mcp_url.clone());
   env.insert(
@@ -54,11 +55,10 @@ pub fn build_launch_plan(
     context.context_prompt.clone(),
   );
 
-  let (command, args) = match kind {
-    AgentKind::Claude => claude_args(config, context),
-    AgentKind::Codex => codex_args(config, context),
-    AgentKind::Custom => custom_args(config, context),
-  };
+  let resolved = resolve_agent_config(config, user_presets)?;
+  env.extend(resolved.env);
+  let command = resolved.command;
+  let args = expand_args(resolved.args, context);
 
   Ok(AgentLaunchPlan {
     command,
@@ -68,40 +68,31 @@ pub fn build_launch_plan(
   })
 }
 
-fn claude_args(
-  config: &AgentConfig,
-  context: &AgentLaunchContext,
-) -> (String, Vec<String>) {
-  let command = config
-    .command
-    .clone()
-    .unwrap_or_else(|| "claude".to_string());
-  let mut args = config.args.clone();
-  if args.is_empty() {
-    args.extend([
+#[derive(Debug, Clone)]
+struct ResolvedAgentConfig {
+  command: String,
+  args: Vec<String>,
+  env: HashMap<String, String>,
+}
+
+fn builtin_preset(name: &str) -> Option<AgentPresetConfig> {
+  match name {
+    "claude" => Some(AgentPresetConfig {
+      command: Some("claude".to_string()),
+      args: vec![
       "--append-system-prompt".to_string(),
-      context.context_prompt.clone(),
+      "{context_prompt}".to_string(),
       "--mcp-config".to_string(),
-      claude_mcp_config(&context.mcp_url),
+      "{claude_mcp_config}".to_string(),
       "--strict-mcp-config".to_string(),
       "--permission-mode".to_string(),
       "default".to_string(),
-    ]);
-  }
-  (command, expand_args(args, context))
-}
-
-fn codex_args(
-  config: &AgentConfig,
-  context: &AgentLaunchContext,
-) -> (String, Vec<String>) {
-  let command = config
-    .command
-    .clone()
-    .unwrap_or_else(|| "codex".to_string());
-  let mut args = config.args.clone();
-  if args.is_empty() {
-    args.extend([
+      ],
+      ..Default::default()
+    }),
+    "codex" => Some(AgentPresetConfig {
+      command: Some("codex".to_string()),
+      args: vec![
       "--cd".to_string(),
       "{cwd}".to_string(),
       "--sandbox".to_string(),
@@ -110,9 +101,9 @@ fn codex_args(
       "on-request".to_string(),
       "--no-alt-screen".to_string(),
       "-c".to_string(),
-      format!("developer_instructions={:?}", context.context_prompt),
+      "developer_instructions={context_prompt_toml}".to_string(),
       "-c".to_string(),
-      format!("mcp_servers.terminai.url={:?}", context.mcp_url),
+      "mcp_servers.terminai.url={mcp_url_toml}".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.enabled_tools=[\"read_terminal\",\"get_terminal_context\",\"suggest_input\",\"get_suggestion_status\"]".to_string(),
       "-c".to_string(),
@@ -125,20 +116,105 @@ fn codex_args(
       "mcp_servers.terminai.tools.suggest_input.approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.tools.get_suggestion_status.approval_mode=\"approve\"".to_string(),
-    ]);
+      ],
+      ..Default::default()
+    }),
+    // These intentionally provide only generic prompt/context plumbing. Users
+    // can extend them with MCP-specific flags as each CLI evolves.
+    "gemini" => Some(AgentPresetConfig {
+      command: Some("gemini".to_string()),
+      args: vec!["{context_prompt}".to_string()],
+      ..Default::default()
+    }),
+    "opencode" => Some(AgentPresetConfig {
+      command: Some("opencode".to_string()),
+      args: vec!["{context_prompt}".to_string()],
+      ..Default::default()
+    }),
+    _ => None,
   }
-  (command, expand_args(args, context))
 }
 
-fn custom_args(
+fn resolve_agent_config(
   config: &AgentConfig,
-  context: &AgentLaunchContext,
-) -> (String, Vec<String>) {
-  let command = config
-    .command
-    .clone()
-    .unwrap_or_else(|| "codex".to_string());
-  (command, expand_args(config.args.clone(), context))
+  user_presets: &HashMap<String, AgentPresetConfig>,
+) -> Result<ResolvedAgentConfig> {
+  let preset_name = config.preset.clone().or_else(|| match config.kind {
+    Some(AgentKind::Claude) => Some("claude".to_string()),
+    Some(AgentKind::Codex) => Some("codex".to_string()),
+    Some(AgentKind::Custom) => None,
+    None => match config.command.as_deref() {
+      Some("claude") => Some("claude".to_string()),
+      Some("codex") | None => Some("codex".to_string()),
+      Some("gemini") => Some("gemini".to_string()),
+      Some("opencode") => Some("opencode".to_string()),
+      Some(_) => None,
+    },
+  });
+
+  let mut resolved = if let Some(name) = preset_name {
+    resolve_preset(&name, user_presets, &mut HashSet::new())?
+  } else {
+    ResolvedAgentConfig {
+      command: config.command.clone().ok_or_else(|| {
+        anyhow::anyhow!("custom agent config requires command")
+      })?,
+      args: Vec::new(),
+      env: HashMap::new(),
+    }
+  };
+
+  if let Some(command) = &config.command {
+    resolved.command = command.clone();
+  }
+  if !config.args.is_empty() {
+    resolved.args = config.args.clone();
+  }
+  resolved.args.extend(config.extra_args.clone());
+
+  Ok(resolved)
+}
+
+fn resolve_preset(
+  name: &str,
+  user_presets: &HashMap<String, AgentPresetConfig>,
+  seen: &mut HashSet<String>,
+) -> Result<ResolvedAgentConfig> {
+  if !seen.insert(name.to_string()) {
+    bail!("agent preset '{name}' extends itself recursively");
+  }
+
+  let preset = user_presets
+    .get(name)
+    .cloned()
+    .or_else(|| builtin_preset(name))
+    .ok_or_else(|| anyhow::anyhow!("unknown agent preset '{name}'"))?;
+
+  let mut resolved = if let Some(parent) = &preset.extends {
+    resolve_preset(parent, user_presets, seen)?
+  } else {
+    ResolvedAgentConfig {
+      command: String::new(),
+      args: Vec::new(),
+      env: HashMap::new(),
+    }
+  };
+
+  if let Some(command) = preset.command {
+    resolved.command = command;
+  }
+  if !preset.args.is_empty() {
+    resolved.args = preset.args;
+  }
+  resolved.args.extend(preset.extra_args);
+  resolved.env.extend(preset.env);
+
+  if resolved.command.is_empty() {
+    bail!("agent preset '{name}' does not define a command");
+  }
+
+  seen.remove(name);
+  Ok(resolved)
 }
 
 fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
@@ -149,7 +225,13 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
       arg
         .replace("{cwd}", &cwd)
         .replace("{mcp_url}", &context.mcp_url)
+        .replace("{mcp_url_toml}", &format!("{:?}", context.mcp_url))
+        .replace(
+          "{context_prompt_toml}",
+          &format!("{:?}", context.context_prompt),
+        )
         .replace("{context_prompt}", &context.context_prompt)
+        .replace("{claude_mcp_config}", &claude_mcp_config(&context.mcp_url))
     })
     .collect()
 }
@@ -180,7 +262,7 @@ mod tests {
   #[test]
   fn codex_plan_passes_extremely_clear_e2e_instructions() {
     let config = AgentConfig::codex();
-    let plan = build_launch_plan(&config, &context()).unwrap();
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
     assert_eq!(plan.command, "codex");
     assert!(plan.args.contains(&"--cd".to_string()));
@@ -218,7 +300,7 @@ mod tests {
   #[test]
   fn claude_plan_injects_mcp_config_and_prompt() {
     let config = AgentConfig::claude();
-    let plan = build_launch_plan(&config, &context()).unwrap();
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
     assert_eq!(plan.command, "claude");
     assert!(plan.args.contains(&"--append-system-prompt".to_string()));
@@ -230,15 +312,44 @@ mod tests {
   #[test]
   fn custom_plan_expands_templates() {
     let config = AgentConfig {
+      preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
       args: vec!["--url={mcp_url}".to_string(), "--cwd={cwd}".to_string()],
+      extra_args: Vec::new(),
       initial_prompt: None,
     };
-    let plan = build_launch_plan(&config, &context()).unwrap();
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
     assert_eq!(plan.command, "my-agent");
     assert_eq!(plan.args[0], "--url=http://127.0.0.1:3456/mcp");
     assert_eq!(plan.args[1], "--cwd=/tmp/project");
+  }
+
+  #[test]
+  fn user_preset_can_extend_builtin_and_append_flags() {
+    let mut presets = HashMap::new();
+    presets.insert(
+      "codex-fast".to_string(),
+      AgentPresetConfig {
+        extends: Some("codex".to_string()),
+        extra_args: vec!["--model".to_string(), "gpt-5.5".to_string()],
+        ..Default::default()
+      },
+    );
+    let config = AgentConfig {
+      preset: Some("codex-fast".to_string()),
+      extra_args: vec!["--search".to_string()],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &presets, &context()).unwrap();
+
+    assert_eq!(plan.command, "codex");
+    assert!(plan.args.contains(&"--no-alt-screen".to_string()));
+    assert_eq!(
+      &plan.args[plan.args.len() - 3..],
+      ["--model", "gpt-5.5", "--search"]
+    );
   }
 }

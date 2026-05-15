@@ -34,7 +34,9 @@ use rat_salsa::{
 use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 
 // Import only what we need from the crate
-use termin::agent_launcher::{AgentLaunchContext, build_launch_plan};
+use termin::agent_launcher::{
+  AgentLaunchContext, AgentLaunchPlan, build_launch_plan,
+};
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::key::Key;
@@ -177,16 +179,17 @@ impl PollShell {
 }
 
 pub struct PollAgent {
-  receiver: std::sync::Arc<
-    std::sync::Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>,
-  >,
+  receiver: SharedAgentReceiver,
   cached_event: std::sync::Arc<std::sync::Mutex<Option<ShellEvent>>>,
 }
 
+type SharedAgentReceiver =
+  Arc<std::sync::Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>>;
+
 impl PollAgent {
-  pub fn new(receiver: mpsc::UnboundedReceiver<ShellEvent>) -> Self {
+  pub fn new(receiver: SharedAgentReceiver) -> Self {
     Self {
-      receiver: std::sync::Arc::new(std::sync::Mutex::new(Some(receiver))),
+      receiver,
       cached_event: std::sync::Arc::new(std::sync::Mutex::new(None)),
     }
   }
@@ -293,6 +296,7 @@ async fn initialize_app_components(
   Option<AgentTerminal>,
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
+  Option<AgentLaunchPlan>,
   UnboundedReceiver<PendingCommand>,
   TerminAIConfig,
   ChatPosition,
@@ -317,8 +321,15 @@ async fn initialize_app_components(
   };
 
   let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
-  let (agent, agent_rx, mcp_server, config, chat_position, config_error) =
-    initialize_agent(&shell, suggestion_tx, rows, cols).await;
+  let (
+    agent,
+    agent_rx,
+    mcp_server,
+    agent_launch_plan,
+    config,
+    chat_position,
+    config_error,
+  ) = initialize_agent(&shell, suggestion_tx, rows, cols).await;
 
   Ok((
     shell,
@@ -326,6 +337,7 @@ async fn initialize_app_components(
     agent,
     agent_rx,
     mcp_server,
+    agent_launch_plan,
     suggestion_rx,
     config,
     chat_position,
@@ -343,6 +355,7 @@ async fn initialize_agent(
   Option<AgentTerminal>,
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
+  Option<AgentLaunchPlan>,
   TerminAIConfig,
   ChatPosition,
   Option<String>,
@@ -367,6 +380,7 @@ async fn initialize_agent(
             None,
             fallback_rx,
             None,
+            None,
             config,
             chat_position,
             Some(message),
@@ -379,7 +393,11 @@ async fn initialize_agent(
       let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
       let launch_context = AgentLaunchContext::new(cwd.clone(), mcp_url);
 
-      let plan = match build_launch_plan(&config.agent, &launch_context) {
+      let plan = match build_launch_plan(
+        &config.agent,
+        &config.agent_presets,
+        &launch_context,
+      ) {
         Ok(plan) => plan,
         Err(err) => {
           let message = format!("Failed to build AI CLI launch plan: {err}");
@@ -388,6 +406,7 @@ async fn initialize_agent(
             None,
             fallback_rx,
             Some(mcp),
+            None,
             config,
             chat_position,
             Some(message),
@@ -404,28 +423,25 @@ async fn initialize_agent(
           None,
           fallback_rx,
           Some(mcp),
+          None,
           config,
           chat_position,
           Some(message),
         );
       }
 
-      let (agent_rows, agent_cols) = agent_pty_size(rows, cols);
-      let options = ShellSpawnOptions {
-        cwd: Some(plan.cwd),
-        env: plan.env,
-        scrollback_len: 4000,
-      };
-      match AgentTerminal::spawn(
-        &plan.command,
-        &plan.args,
-        agent_rows,
-        agent_cols,
-        options,
-      ) {
+      match spawn_agent_from_plan(&plan, rows, cols) {
         Ok((agent, rx)) => {
           log::info!("AI CLI terminal started: {}", plan.command);
-          return (Some(agent), rx, Some(mcp), config, chat_position, None);
+          return (
+            Some(agent),
+            rx,
+            Some(mcp),
+            Some(plan),
+            config,
+            chat_position,
+            None,
+          );
         }
         Err(err) => {
           let message =
@@ -435,6 +451,7 @@ async fn initialize_agent(
             None,
             fallback_rx,
             Some(mcp),
+            Some(plan),
             config,
             chat_position,
             Some(message),
@@ -452,12 +469,33 @@ async fn initialize_agent(
         None,
         fallback_rx,
         None,
+        None,
         TerminAIConfig::default(),
         ChatPosition::default(),
         Some(error_msg),
       );
     }
   }
+}
+
+fn spawn_agent_from_plan(
+  plan: &AgentLaunchPlan,
+  rows: u16,
+  cols: u16,
+) -> Result<(AgentTerminal, UnboundedReceiver<ShellEvent>)> {
+  let (agent_rows, agent_cols) = agent_pty_size(rows, cols);
+  let options = ShellSpawnOptions {
+    cwd: Some(plan.cwd.clone()),
+    env: plan.env.clone(),
+    scrollback_len: 4000,
+  };
+  AgentTerminal::spawn(
+    &plan.command,
+    &plan.args,
+    agent_rows,
+    agent_cols,
+    options,
+  )
 }
 
 fn main() -> Result<()> {
@@ -490,6 +528,7 @@ fn main() -> Result<()> {
     agent_terminal,
     agent_event_rx,
     mcp_server,
+    agent_launch_plan,
     suggestion_rx,
     config,
     chat_position,
@@ -507,7 +546,8 @@ fn main() -> Result<()> {
   // Create PollShell for rat-salsa event loop integration
   log::debug!("Creating PollShell for event loop");
   let poll_shell = PollShell::new(shell_event_rx);
-  let poll_agent = PollAgent::new(agent_event_rx);
+  let agent_event_rx = Arc::new(std::sync::Mutex::new(Some(agent_event_rx)));
+  let poll_agent = PollAgent::new(Arc::clone(&agent_event_rx));
 
   // Get terminal size for initial state
   let (_, rows) = crossterm::terminal::size()?;
@@ -538,9 +578,12 @@ fn main() -> Result<()> {
     shell,
     agent_terminal,
     _mcp_server: mcp_server,
+    agent_launch_plan,
+    agent_event_rx,
     agent_view: TerminalViewState::new(),
     suggestion_rx,
     pending_command: None,
+    agent_exit_status: None,
     ai_visible: false,
     chat_position,
     scrollback_tracker,
@@ -589,9 +632,12 @@ struct AppState {
   shell: Shell,
   agent_terminal: Option<AgentTerminal>,
   _mcp_server: Option<McpServerHandle>,
+  agent_launch_plan: Option<AgentLaunchPlan>,
+  agent_event_rx: SharedAgentReceiver,
   agent_view: TerminalViewState,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   pending_command: Option<PendingCommand>,
+  agent_exit_status: Option<i32>,
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
   chat_position: ChatPosition,
@@ -642,10 +688,15 @@ impl TerminalViewState {
     viewport_rows: usize,
   ) {
     let max_offset = Self::max_offset(total_rows, viewport_rows);
-    let next = if delta.is_negative() {
-      self.row_offset.saturating_sub(delta.unsigned_abs())
+    let current = if self.follow_tail {
+      max_offset
     } else {
-      self.row_offset.saturating_add(delta as usize)
+      self.row_offset.min(max_offset)
+    };
+    let next = if delta.is_negative() {
+      current.saturating_sub(delta.unsigned_abs())
+    } else {
+      current.saturating_add(delta as usize)
     }
     .min(max_offset);
 
@@ -826,6 +877,36 @@ impl AppState {
       .scroll_lines(delta, total_rows, viewport_rows);
   }
 
+  fn relaunch_agent(&mut self, rows: u16, cols: u16) {
+    let Some(plan) = self.agent_launch_plan.clone() else {
+      self.config_error = Some(
+        "AI CLI cannot be relaunched because no launch plan is available."
+          .to_string(),
+      );
+      self.agent_exit_status = None;
+      return;
+    };
+
+    match spawn_agent_from_plan(&plan, rows, cols) {
+      Ok((agent, rx)) => {
+        self.agent_terminal = Some(agent);
+        *self.agent_event_rx.lock().unwrap() = Some(rx);
+        self.agent_view = TerminalViewState::new();
+        self.agent_output_pending = true;
+        self.agent_exit_status = None;
+        self.config_error = None;
+      }
+      Err(err) => {
+        self.agent_terminal = None;
+        self.agent_exit_status = None;
+        self.config_error = Some(format!(
+          "Failed to relaunch AI CLI '{}': {err}",
+          plan.command
+        ));
+      }
+    }
+  }
+
   /// Handle mouse events when AI overlay is visible
   fn handle_ai_mouse_event(
     &mut self,
@@ -976,7 +1057,15 @@ fn render(
       .style(Style::default().fg(Color::Cyan).bg(Color::Black));
     block.render(overlay_area, buf);
 
-    if let Some(ref agent) = state.agent_terminal {
+    if let Some(status) = state.agent_exit_status {
+      let message = format!(
+        "AI process exited with status {status}.\n\nPress Enter to relaunch."
+      );
+      Paragraph::new(message)
+        .style(Style::default().fg(Color::White))
+        .render(inner_area, buf);
+      ctx.set_screen_cursor(None);
+    } else if let Some(ref agent) = state.agent_terminal {
       if let Ok(vt) = agent.shell().vt.read() {
         let screen = vt.screen();
         let total_rows = screen.total_rows();
@@ -1160,6 +1249,16 @@ fn event(
         }
         break 'm Control::Continue;
       }
+
+      if state.agent_exit_status.is_some()
+        && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        && matches!(code, KeyCode::Enter)
+      {
+        let (cols, rows) = crossterm::terminal::size()?;
+        state.relaunch_agent(rows, cols);
+        break 'm Control::Changed;
+      }
+
       if let Some(key_combo) = key_combo
         && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
       {
@@ -1288,6 +1387,8 @@ fn event(
     }
     AppEvent::AgentExited(code) => {
       log::info!("AI CLI exited with code: {}", code);
+      state.agent_terminal = None;
+      state.agent_exit_status = Some(*code);
       Control::Changed
     }
   };
