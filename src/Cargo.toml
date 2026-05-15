@@ -95,6 +95,9 @@ rat-text = { path = "../rat-salsa/rat-text" }
 rat-cursor = { path = "../rat-salsa/rat-cursor" }
 thiserror = "2.0"
 crokey = "1.3.0"
+rmcp = { version = "1.7.0", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
+axum = "0.8"
+schemars = "1"
 
 [target."cfg(unix)".dependencies]
 daemonize = "0.5.0"

@@ -34,7 +34,9 @@ use termin::agent_launcher::{AgentLaunchContext, build_launch_plan};
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::key::Key;
-use termin::mcp_host::{TerminaiMcpState, start_http_mcp_server};
+use termin::mcp_host::{
+  McpServerHandle, TerminaiMcpState, start_http_mcp_server,
+};
 use termin::mouse::MouseEvent;
 use termin::scrollback::{ScrollbackTracker, process_scrollback};
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
@@ -244,6 +246,7 @@ async fn initialize_app_components(
   UnboundedReceiver<ShellEvent>,
   Option<AgentTerminal>,
   UnboundedReceiver<ShellEvent>,
+  Option<McpServerHandle>,
   UnboundedReceiver<PendingCommand>,
   TerminAIConfig,
   ChatPosition,
@@ -268,7 +271,7 @@ async fn initialize_app_components(
   };
 
   let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
-  let (agent, agent_rx, config, chat_position, config_error) =
+  let (agent, agent_rx, mcp_server, config, chat_position, config_error) =
     initialize_agent(&shell, suggestion_tx, rows, cols).await;
 
   Ok((
@@ -276,6 +279,7 @@ async fn initialize_app_components(
     shell_event_rx,
     agent,
     agent_rx,
+    mcp_server,
     suggestion_rx,
     config,
     chat_position,
@@ -292,6 +296,7 @@ async fn initialize_agent(
 ) -> (
   Option<AgentTerminal>,
   UnboundedReceiver<ShellEvent>,
+  Option<McpServerHandle>,
   TerminAIConfig,
   ChatPosition,
   Option<String>,
@@ -312,12 +317,18 @@ async fn initialize_agent(
         Err(err) => {
           let message = format!("Failed to start Termin.AI MCP server: {err}");
           log::error!("{}", message);
-          return (None, fallback_rx, config, chat_position, Some(message));
+          return (
+            None,
+            fallback_rx,
+            None,
+            config,
+            chat_position,
+            Some(message),
+          );
         }
       };
       log::info!("Termin.AI MCP server listening at {}", mcp.url);
       let mcp_url = mcp.url.clone();
-      drop(mcp);
 
       let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
       let launch_context = AgentLaunchContext::new(cwd.clone(), mcp_url);
@@ -327,18 +338,30 @@ async fn initialize_agent(
         Err(err) => {
           let message = format!("Failed to build AI CLI launch plan: {err}");
           log::error!("{}", message);
-          return (None, fallback_rx, config, chat_position, Some(message));
+          return (
+            None,
+            fallback_rx,
+            Some(mcp),
+            config,
+            chat_position,
+            Some(message),
+          );
         }
       };
 
       let available = which::which(&plan.command).is_ok();
       if !available {
-        let message = format!(
-          "Configured AI CLI '{}' was not found in PATH",
-          plan.command
-        );
+        let message =
+          format!("Configured AI CLI '{}' was not found in PATH", plan.command);
         log::warn!("{}", message);
-        return (None, fallback_rx, config, chat_position, Some(message));
+        return (
+          None,
+          fallback_rx,
+          Some(mcp),
+          config,
+          chat_position,
+          Some(message),
+        );
       }
 
       let overlay_rows = (rows / 2).max(10);
@@ -356,12 +379,20 @@ async fn initialize_agent(
       ) {
         Ok((agent, rx)) => {
           log::info!("AI CLI terminal started: {}", plan.command);
-          return (Some(agent), rx, config, chat_position, None);
+          return (Some(agent), rx, Some(mcp), config, chat_position, None);
         }
         Err(err) => {
-          let message = format!("Failed to start AI CLI '{}': {err}", plan.command);
+          let message =
+            format!("Failed to start AI CLI '{}': {err}", plan.command);
           log::error!("{}", message);
-          return (None, fallback_rx, config, chat_position, Some(message));
+          return (
+            None,
+            fallback_rx,
+            Some(mcp),
+            config,
+            chat_position,
+            Some(message),
+          );
         }
       }
     }
@@ -374,13 +405,13 @@ async fn initialize_agent(
       return (
         None,
         fallback_rx,
+        None,
         TerminAIConfig::default(),
         ChatPosition::default(),
         Some(error_msg),
       );
     }
   }
-
 }
 
 fn main() -> Result<()> {
@@ -412,6 +443,7 @@ fn main() -> Result<()> {
     shell_event_rx,
     agent_terminal,
     agent_event_rx,
+    mcp_server,
     suggestion_rx,
     config,
     chat_position,
@@ -459,6 +491,7 @@ fn main() -> Result<()> {
   let mut state = AppState {
     shell,
     agent_terminal,
+    _mcp_server: mcp_server,
     suggestion_rx,
     pending_command: None,
     ai_visible: false,
@@ -508,6 +541,7 @@ fn main() -> Result<()> {
 struct AppState {
   shell: Shell,
   agent_terminal: Option<AgentTerminal>,
+  _mcp_server: Option<McpServerHandle>,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   pending_command: Option<PendingCommand>,
   ai_visible: bool,
@@ -875,16 +909,14 @@ fn event(
   }
 
   let result = match event {
-    AppEvent::Crossterm(
-      Event::Key(
-        key_event @ KeyEvent {
-          code,
-          modifiers,
-          kind,
-          ..
-        },
-      ),
-    ) => 'm: {
+    AppEvent::Crossterm(Event::Key(
+      key_event @ KeyEvent {
+        code,
+        modifiers,
+        kind,
+        ..
+      },
+    )) => 'm: {
       // Transform KeyEvent into KeyCombination using crokey combiner
       let key_combo = state.key_combiner.transform(*key_event);
       if let Some(key_combo) = key_combo

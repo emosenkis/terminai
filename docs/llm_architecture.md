@@ -31,7 +31,7 @@ Termin.AI no longer embeds its own LLM provider client or Python agent. The AI s
 
 - `src/agent_launcher.rs` builds launch plans for known and custom CLI agents.
 - `src/agent_terminal.rs` wraps the AI child process in a terminal PTY.
-- `src/mcp_host/` exposes host tools over a minimal MCP-compatible JSON-RPC HTTP endpoint.
+- `src/mcp_host/` exposes host tools through the official `rmcp` Streamable HTTP server transport.
 - `src/agent_tools.rs` carries shell input suggestions into the existing approval flow.
 - `src/command/` still classifies suggested input as safe, caution, or dangerous.
 - `src/privacy/` filters terminal contents returned by MCP tools.

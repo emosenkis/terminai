@@ -126,10 +126,7 @@ fn custom_args(
   (command, expand_args(config.args.clone(), context))
 }
 
-fn expand_args(
-  args: Vec<String>,
-  context: &AgentLaunchContext,
-) -> Vec<String> {
+fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
   let cwd = context.cwd.display().to_string();
   args
     .into_iter()

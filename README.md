@@ -213,7 +213,7 @@ Termin.AI consists of:
 **New Termin.AI code (~70%):**
 - `src/agent_launcher.rs` - CLI agent launch planning
 - `src/agent_terminal.rs` - AI CLI PTY terminal
-- `src/mcp_host/` - Host MCP server for terminal context and suggestions
+- `src/mcp_host/` - Host MCP server for terminal context and suggestions, served with `rmcp`
 - `src/command/` - Command parsing, validation, execution
 - `src/privacy/` - Sensitive data filtering
 - `src/app.rs` - Single-shell application (different from mprocs)

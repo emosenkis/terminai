@@ -1,8 +1,14 @@
 use std::sync::{Arc, RwLock};
 
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use serde_json::{Value as JsonValue, json};
+use rmcp::{
+  ServerHandler,
+  handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+  model::{CallToolResult, Content, ErrorData, ServerCapabilities, ServerInfo},
+  tool, tool_handler, tool_router,
+};
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::json;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::agent_tools::PendingCommand;
@@ -11,10 +17,19 @@ use crate::privacy::PrivacyFilter;
 use crate::shell::ReplySender;
 use crate::vt100;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpToolResponse {
-  pub text: String,
-  pub data: JsonValue,
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ReadTerminalArgs {
+  #[serde(default)]
+  pub max_lines: Option<usize>,
+  #[serde(default)]
+  pub include_visible: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct SuggestInputArgs {
+  pub input: String,
+  #[serde(default)]
+  pub explanation: Option<String>,
 }
 
 #[derive(Clone)]
@@ -24,6 +39,7 @@ pub struct TerminaiMcpState {
   privacy_filter: Arc<PrivacyFilter>,
   safety_validator: Arc<SafetyValidator>,
   last_suggestion: Arc<Mutex<Option<PendingCommand>>>,
+  tool_router: ToolRouter<Self>,
 }
 
 impl TerminaiMcpState {
@@ -37,92 +53,37 @@ impl TerminaiMcpState {
       privacy_filter: Arc::new(PrivacyFilter::new()),
       safety_validator: Arc::new(SafetyValidator::new()),
       last_suggestion: Arc::new(Mutex::new(None)),
+      tool_router: Self::tool_router(),
     }
   }
 
-  pub fn tool_definitions() -> JsonValue {
-    json!([
-      {
-        "name": "read_terminal",
-        "description": "Read the user's wrapped terminal screen and recent scrollback. Use this before answering questions about what is happening in the terminal.",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "max_lines": {
-              "type": "integer",
-              "description": "Maximum number of terminal lines to return.",
-              "default": 120
-            },
-            "include_visible": {
-              "type": "boolean",
-              "description": "Include the visible terminal screen as well as scrollback.",
-              "default": true
-            }
-          }
-        }
-      },
-      {
-        "name": "get_terminal_context",
-        "description": "Get concise metadata about the wrapped terminal: cwd, shell, OS, size, mouse mode, and bracketed paste state.",
-        "inputSchema": {
-          "type": "object",
-          "properties": {}
-        }
-      },
-      {
-        "name": "suggest_input",
-        "description": "Suggest exact input for Termin.AI to offer to the user for approval before sending it to the wrapped shell. Do not use this for input to your own AI terminal.",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "input": {
-              "type": "string",
-              "description": "Exact terminal input to send after approval. Use escape sequences such as \\r for Enter, \\u0003 for Ctrl-C, and \\u001b for Escape."
-            },
-            "explanation": {
-              "type": "string",
-              "description": "Brief explanation shown to the user."
-            }
-          },
-          "required": ["input"]
-        }
-      },
-      {
-        "name": "get_suggestion_status",
-        "description": "Return the most recent shell input suggestion queued through suggest_input.",
-        "inputSchema": {
-          "type": "object",
-          "properties": {}
-        }
-      }
-    ])
+  fn tool_result(text: String, data: serde_json::Value) -> CallToolResult {
+    let mut result = CallToolResult::success(vec![Content::text(text)]);
+    result.structured_content = Some(data);
+    result
   }
 
-  pub async fn call_tool(
+  fn lock_error(err: impl std::fmt::Display) -> ErrorData {
+    ErrorData::internal_error(
+      format!("failed to lock terminal parser: {err}"),
+      None,
+    )
+  }
+}
+
+#[tool_router(router = tool_router)]
+impl TerminaiMcpState {
+  #[tool(
+    description = "Read the user's wrapped terminal screen and recent scrollback. Use this before answering questions about what is happening in the terminal."
+  )]
+  pub async fn read_terminal(
     &self,
-    name: &str,
-    args: JsonValue,
-  ) -> Result<McpToolResponse> {
-    match name {
-      "read_terminal" => self.read_terminal(args).await,
-      "get_terminal_context" => self.get_terminal_context().await,
-      "suggest_input" => self.suggest_input(args).await,
-      "get_suggestion_status" => self.get_suggestion_status().await,
-      _ => anyhow::bail!("Unknown Termin.AI MCP tool: {}", name),
-    }
-  }
+    Parameters(args): Parameters<ReadTerminalArgs>,
+  ) -> Result<CallToolResult, ErrorData> {
+    let _include_visible = args.include_visible.unwrap_or(true);
+    let max_lines = args.max_lines.unwrap_or(120).max(1);
 
-  async fn read_terminal(&self, args: JsonValue) -> Result<McpToolResponse> {
-    let max_lines = args
-      .get("max_lines")
-      .and_then(|v| v.as_u64())
-      .unwrap_or(120)
-      .max(1) as usize;
-
-    let parser = self
-      .vt_parser
-      .read()
-      .map_err(|e| anyhow::anyhow!("failed to lock terminal parser: {}", e))?;
+    let parser = self.vt_parser.read().map_err(Self::lock_error)?;
     let screen = parser.screen();
     let rows: Vec<_> = screen.all_rows().collect();
     let start = rows.len().saturating_sub(max_lines);
@@ -149,28 +110,31 @@ impl TerminaiMcpState {
 
     let filtered_lines = self.privacy_filter.filter_lines(&lines);
     let text = filtered_lines.join("\n");
+    let response_text = if text.is_empty() {
+      "The wrapped terminal currently has no readable text.".to_string()
+    } else {
+      text
+    };
 
-    Ok(McpToolResponse {
-      text: if text.is_empty() {
-        "The wrapped terminal currently has no readable text.".to_string()
-      } else {
-        text.clone()
-      },
-      data: json!({
+    Ok(Self::tool_result(
+      response_text,
+      json!({
         "lines": filtered_lines,
         "line_count": lines.len(),
         "total_rows": screen.total_rows(),
         "visible_rows": screen.size().rows,
         "visible_cols": screen.size().cols
       }),
-    })
+    ))
   }
 
-  async fn get_terminal_context(&self) -> Result<McpToolResponse> {
-    let parser = self
-      .vt_parser
-      .read()
-      .map_err(|e| anyhow::anyhow!("failed to lock terminal parser: {}", e))?;
+  #[tool(
+    description = "Get concise metadata about the wrapped terminal: cwd, shell, OS, size, mouse mode, and bracketed paste state."
+  )]
+  pub async fn get_terminal_context(
+    &self,
+  ) -> Result<CallToolResult, ErrorData> {
+    let parser = self.vt_parser.read().map_err(Self::lock_error)?;
     let screen = parser.screen();
     let cwd = std::env::current_dir()
       .unwrap_or_else(|_| std::path::PathBuf::from("/"))
@@ -189,48 +153,58 @@ impl TerminaiMcpState {
       }
     });
 
-    Ok(McpToolResponse {
-      text: format!("cwd: {}\nos: {}", data["cwd"], std::env::consts::OS),
+    Ok(Self::tool_result(
+      format!("cwd: {}\nos: {}", data["cwd"], std::env::consts::OS),
       data,
-    })
+    ))
   }
 
-  async fn suggest_input(&self, args: JsonValue) -> Result<McpToolResponse> {
-    let command = args
-      .get("input")
-      .or_else(|| args.get("command"))
-      .and_then(|v| v.as_str())
-      .ok_or_else(|| anyhow::anyhow!("suggest_input requires input"))?
-      .to_string();
-    let explanation = args
-      .get("explanation")
-      .and_then(|v| v.as_str())
-      .map(ToString::to_string);
-    let risk_level = self.safety_validator.assess_risk(&command);
-    let pending =
-      PendingCommand::new(command.clone(), explanation.clone(), risk_level);
+  #[tool(
+    description = "Suggest exact input for Termin.AI to offer to the user for approval before sending it to the wrapped shell. Do not use this for input to your own AI terminal."
+  )]
+  pub async fn suggest_input(
+    &self,
+    Parameters(args): Parameters<SuggestInputArgs>,
+  ) -> Result<CallToolResult, ErrorData> {
+    let risk_level = self.safety_validator.assess_risk(&args.input);
+    let pending = PendingCommand::new(
+      args.input.clone(),
+      args.explanation.clone(),
+      risk_level,
+    );
 
     {
       let mut last = self.last_suggestion.lock().await;
       *last = Some(pending.clone());
     }
-    self.suggestions.send(pending)?;
 
-    Ok(McpToolResponse {
-      text: format!(
+    self.suggestions.send(pending).map_err(|err| {
+      ErrorData::internal_error(
+        format!("failed to queue shell input suggestion: {err}"),
+        None,
+      )
+    })?;
+
+    Ok(Self::tool_result(
+      format!(
         "Queued shell input suggestion for user approval: {}",
-        command
+        args.input
       ),
-      data: json!({
+      json!({
         "queued": true,
-        "input": command,
-        "explanation": explanation,
+        "input": args.input,
+        "explanation": args.explanation,
         "risk_level": format!("{:?}", risk_level)
       }),
-    })
+    ))
   }
 
-  async fn get_suggestion_status(&self) -> Result<McpToolResponse> {
+  #[tool(
+    description = "Return the most recent shell input suggestion queued through suggest_input."
+  )]
+  pub async fn get_suggestion_status(
+    &self,
+  ) -> Result<CallToolResult, ErrorData> {
     let suggestion = self.last_suggestion.lock().await.clone();
     let data = match suggestion {
       Some(pending) => json!({
@@ -242,9 +216,13 @@ impl TerminaiMcpState {
       None => json!({ "has_suggestion": false }),
     };
 
-    Ok(McpToolResponse {
-      text: data.to_string(),
-      data,
-    })
+    Ok(Self::tool_result(data.to_string(), data))
+  }
+}
+
+#[tool_handler(router = self.tool_router)]
+impl ServerHandler for TerminaiMcpState {
+  fn get_info(&self) -> ServerInfo {
+    ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
   }
 }

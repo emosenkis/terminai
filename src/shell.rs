@@ -1,7 +1,7 @@
 use anyhow::Result;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-use std::io::Write;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -61,13 +61,7 @@ impl Shell {
     cols: u16,
   ) -> Result<(Self, UnboundedReceiver<ShellEvent>)> {
     log::info!("Spawning command: {} {:?} ({}x{})", cmd, args, cols, rows);
-    Self::spawn_internal(
-      cmd,
-      args,
-      rows,
-      cols,
-      ShellSpawnOptions::default(),
-    )
+    Self::spawn_internal(cmd, args, rows, cols, ShellSpawnOptions::default())
   }
 
   /// Spawn a command with explicit arguments and process options.
