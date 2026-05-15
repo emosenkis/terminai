@@ -108,10 +108,15 @@ fn codex_args(
       "workspace-write".to_string(),
       "--ask-for-approval".to_string(),
       "on-request".to_string(),
+      "--no-alt-screen".to_string(),
+      "-c".to_string(),
+      format!("developer_instructions={:?}", context.context_prompt),
       "-c".to_string(),
       format!("mcp_servers.terminai.url={:?}", context.mcp_url),
       "-c".to_string(),
       "mcp_servers.terminai.enabled_tools=[\"read_terminal\",\"get_terminal_context\",\"suggest_input\",\"get_suggestion_status\"]".to_string(),
+      "-c".to_string(),
+      "mcp_servers.terminai.default_tools_approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.tools.read_terminal.approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
@@ -120,7 +125,6 @@ fn codex_args(
       "mcp_servers.terminai.tools.suggest_input.approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.tools.get_suggestion_status.approval_mode=\"approve\"".to_string(),
-      "{context_prompt}".to_string(),
     ]);
   }
   (command, expand_args(args, context))
@@ -183,12 +187,26 @@ mod tests {
     assert!(plan.args.contains(&"/tmp/project".to_string()));
     assert!(plan.args.contains(&"--sandbox".to_string()));
     assert!(plan.args.contains(&"workspace-write".to_string()));
+    assert!(plan.args.contains(&"--no-alt-screen".to_string()));
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
-    let prompt = plan.args.last().unwrap();
-    assert!(prompt.contains("read_terminal before answering"));
-    assert!(prompt.contains("your terminal"));
-    assert!(prompt.contains("suggest_input with the exact input"));
-    assert!(prompt.contains("Do not claim you ran a command"));
+    let developer_instructions = plan
+      .args
+      .iter()
+      .find(|arg| arg.contains("developer_instructions"))
+      .unwrap();
+    assert!(developer_instructions.contains("read_terminal before answering"));
+    assert!(developer_instructions.contains("your terminal"));
+    assert!(
+      developer_instructions.contains("suggest_input with the exact input")
+    );
+    assert!(developer_instructions.contains("Do not claim you ran a command"));
+    assert!(!plan.args.iter().any(|arg| arg == &TERMINAI_AGENT_PROMPT));
+    assert!(
+      plan
+        .args
+        .iter()
+        .any(|arg| arg.contains("default_tools_approval_mode=\"approve\""))
+    );
     assert!(
       plan
         .args
