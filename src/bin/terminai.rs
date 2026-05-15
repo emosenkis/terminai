@@ -10,6 +10,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
 use std::io::Write;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tui::Frame;
 
@@ -45,6 +46,8 @@ use termin::scrollback::{ScrollbackTracker, process_scrollback};
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 
 use termin::shell::{Shell, ShellEvent, ShellSpawnOptions};
+
+const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 
 fn overlay_height_for_rows(rows: u16) -> u16 {
   (rows / 2).max(10)
@@ -889,12 +892,8 @@ impl AppState {
 fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
   log::debug!("init() called, ai_visible={}", state.ai_visible);
 
-  // Start 60fps timer for periodic rendering (like the old code)
-  ctx.add_timer(
-    TimerDef::new()
-      .timer(std::time::Duration::from_millis(16)) // 60fps
-      .repeat_forever(),
-  );
+  // Start the shared render timer; output events only mark pending work.
+  ctx.add_timer(TimerDef::new().timer(RENDER_INTERVAL).repeat_forever());
   log::debug!("Started 60fps render timer");
 
   log::debug!("init() completed");
@@ -1249,7 +1248,6 @@ fn event(
       Control::Continue
     }
     AppEvent::Timer(_) => {
-      // Periodic timer (60fps) - trigger render if terminal output is pending.
       if state.shell_output_pending || state.agent_output_pending {
         state.shell_output_pending = false;
         state.agent_output_pending = false;
@@ -1293,11 +1291,16 @@ fn event(
       Control::Changed
     }
   };
-  Ok(if shell_changed && result == Control::Continue {
-    Control::Changed
-  } else {
-    result
-  })
+  Ok(
+    if shell_changed
+      && result == Control::Continue
+      && !matches!(event, AppEvent::AgentOutput | AppEvent::AgentTermReply(_))
+    {
+      Control::Changed
+    } else {
+      result
+    },
+  )
 }
 
 /// rat-salsa error function - handle errors
