@@ -49,10 +49,7 @@ impl Default for KeyBindingsConfig {
   fn default() -> Self {
     Self {
       activate_overlay: OneOrMoreBindings::Single(key!(ctrl - space)),
-      deactivate_overlay: OneOrMoreBindings::Multiple(vec![
-        key!(ctrl - space),
-        key!(esc),
-      ]),
+      deactivate_overlay: OneOrMoreBindings::Single(key!(ctrl - space)),
       approve: OneOrMoreBindings::Single(key!(y)),
       deny: OneOrMoreBindings::Single(key!(n)),
     }
@@ -369,6 +366,38 @@ default_model: ""
         .extends
         .as_deref(),
       Some("opencode")
+    );
+  }
+
+  #[test]
+  fn test_default_deactivate_overlay_does_not_capture_escape() {
+    let bindings = KeyBindingsConfig::default();
+
+    assert!(bindings.deactivate_overlay.matches(key!(ctrl - space)));
+    assert!(!bindings.deactivate_overlay.matches(key!(esc)));
+  }
+
+  #[test]
+  fn test_deactivate_overlay_can_be_configured_to_escape() {
+    let yaml = r#"
+interface:
+  key_bindings:
+    activate-overlay: "Ctrl-Space"
+    deactivate-overlay: "Esc"
+    approve: "Y"
+    deny: "N"
+providers: []
+default_model: ""
+    "#;
+
+    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .deactivate_overlay
+        .matches(key!(esc))
     );
   }
 
