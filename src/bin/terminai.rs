@@ -8,6 +8,7 @@ use clap::Parser;
 use crokey::{Combiner, KeyCombination};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
+use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,7 +181,7 @@ impl PollShell {
 
 pub struct PollAgent {
   receiver: SharedAgentReceiver,
-  cached_event: std::sync::Arc<std::sync::Mutex<Option<ShellEvent>>>,
+  cached_events: std::sync::Arc<std::sync::Mutex<VecDeque<ShellEvent>>>,
 }
 
 type SharedAgentReceiver =
@@ -190,7 +191,9 @@ impl PollAgent {
   pub fn new(receiver: SharedAgentReceiver) -> Self {
     Self {
       receiver,
-      cached_event: std::sync::Arc::new(std::sync::Mutex::new(None)),
+      cached_events: std::sync::Arc::new(
+        std::sync::Mutex::new(VecDeque::new()),
+      ),
     }
   }
 }
@@ -201,14 +204,21 @@ impl PollEvents<AppEvent, Error> for PollAgent {
   }
 
   fn poll(&mut self) -> Result<bool, Error> {
-    if self.cached_event.lock().unwrap().is_some() {
+    if !self.cached_events.lock().unwrap().is_empty() {
       return Ok(true);
     }
 
     if let Some(ref mut rx) = *self.receiver.lock().unwrap() {
       match rx.try_recv() {
         Ok(event) => {
-          *self.cached_event.lock().unwrap() = Some(event);
+          let mut cached_events = self.cached_events.lock().unwrap();
+          push_coalesced_agent_event(&mut cached_events, event);
+          while let Ok(event) = rx.try_recv() {
+            push_coalesced_agent_event(&mut cached_events, event);
+            if matches!(cached_events.back(), Some(ShellEvent::Exited(_))) {
+              break;
+            }
+          }
           Ok(true)
         }
         Err(mpsc::error::TryRecvError::Empty) => Ok(false),
@@ -220,7 +230,7 @@ impl PollEvents<AppEvent, Error> for PollAgent {
   }
 
   fn read(&mut self) -> Result<Control<AppEvent>, Error> {
-    if let Some(event) = self.cached_event.lock().unwrap().take() {
+    if let Some(event) = self.cached_events.lock().unwrap().pop_front() {
       match event {
         ShellEvent::Output => Ok(Control::Event(AppEvent::AgentOutput)),
         ShellEvent::TermReply(reply) => {
@@ -234,6 +244,18 @@ impl PollEvents<AppEvent, Error> for PollAgent {
       Ok(Control::Continue)
     }
   }
+}
+
+fn push_coalesced_agent_event(
+  events: &mut VecDeque<ShellEvent>,
+  event: ShellEvent,
+) {
+  if matches!(event, ShellEvent::Output)
+    && matches!(events.back(), Some(ShellEvent::Output))
+  {
+    return;
+  }
+  events.push_back(event);
 }
 
 impl PollEvents<AppEvent, Error> for PollShell {
@@ -1450,5 +1472,29 @@ mod tests {
     view.scroll_lines(100, 110, 20);
     assert_eq!(view.row_offset, 90);
     assert!(view.follow_tail);
+  }
+
+  #[test]
+  fn agent_output_events_are_coalesced_without_dropping_control_events() {
+    let mut events = VecDeque::new();
+
+    push_coalesced_agent_event(&mut events, ShellEvent::Output);
+    push_coalesced_agent_event(&mut events, ShellEvent::Output);
+    push_coalesced_agent_event(
+      &mut events,
+      ShellEvent::TermReply("reply".into()),
+    );
+    push_coalesced_agent_event(&mut events, ShellEvent::Output);
+    push_coalesced_agent_event(&mut events, ShellEvent::Output);
+    push_coalesced_agent_event(&mut events, ShellEvent::Exited(0));
+
+    assert!(matches!(events.pop_front(), Some(ShellEvent::Output)));
+    assert!(matches!(
+      events.pop_front(),
+      Some(ShellEvent::TermReply(reply)) if reply == "reply"
+    ));
+    assert!(matches!(events.pop_front(), Some(ShellEvent::Output)));
+    assert!(matches!(events.pop_front(), Some(ShellEvent::Exited(0))));
+    assert!(events.is_empty());
   }
 }
