@@ -47,6 +47,7 @@ pub mod privacy;
 pub mod scrollback;
 pub mod shell;
 pub mod terminai_config;
+pub mod terminai_config_init;
 pub mod terminai_init;
 pub mod ui_layer;
 

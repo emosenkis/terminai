@@ -618,6 +618,39 @@ fn codex_cwd_hook_output(notice: &str) -> serde_json::Value {
   })
 }
 
+fn run_init_config(force: bool) -> Result<()> {
+  let result = termin::terminai_config_init::init_config_files(force)?;
+  println!(
+    "Initialized Termin.AI config directory: {}",
+    result.config_dir.display()
+  );
+  for file in result.files {
+    let action = match file.action {
+      termin::terminai_config_init::ConfigInitAction::Written => "wrote",
+      termin::terminai_config_init::ConfigInitAction::Skipped => "skipped",
+    };
+    println!("{} {}", action, file.path.display());
+  }
+  Ok(())
+}
+
+fn run_init_config_from_args(
+  args: impl IntoIterator<Item = std::ffi::OsString>,
+) -> Result<()> {
+  let mut force = false;
+  for arg in args {
+    if arg == std::ffi::OsStr::new("--force") {
+      force = true;
+    } else {
+      anyhow::bail!(
+        "Unexpected init-config argument: {}\nUsage: terminai init-config [--force]",
+        arg.to_string_lossy()
+      );
+    }
+  }
+  run_init_config(force)
+}
+
 fn percent_decode_path(input: &str) -> String {
   let mut output = Vec::with_capacity(input.len());
   let bytes = input.as_bytes();
@@ -679,13 +712,17 @@ fn rebuild_agent_launch_plan_for_cwd(
 fn main() -> Result<()> {
   let mut raw_args = std::env::args_os();
   let _program = raw_args.next();
-  if raw_args.next().as_deref()
-    == Some(std::ffi::OsStr::new("__terminai_codex_cwd_hook"))
-  {
-    let Some(path) = raw_args.next() else {
-      return Ok(());
-    };
-    return run_codex_cwd_hook(PathBuf::from(path));
+  if let Some(first_arg) = raw_args.next() {
+    if first_arg == std::ffi::OsStr::new("__terminai_codex_cwd_hook") {
+      let Some(path) = raw_args.next() else {
+        return Ok(());
+      };
+      return run_codex_cwd_hook(PathBuf::from(path));
+    }
+
+    if first_arg == std::ffi::OsStr::new("init-config") {
+      return run_init_config_from_args(raw_args);
+    }
   }
 
   // Setup logging to file with rotation
@@ -699,7 +736,6 @@ fn main() -> Result<()> {
     std::process::exit(1);
   }
 
-  // Parse command line arguments
   let args = Args::parse();
 
   log::info!("Termin.AI starting");
