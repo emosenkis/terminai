@@ -9,6 +9,7 @@ use crokey::{Combiner, KeyCombination};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
 use std::collections::VecDeque;
+use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -457,7 +458,7 @@ async fn initialize_agent(
         AgentLaunchContext::new(cwd.clone(), mcp_url)
       };
 
-      let plan = match build_launch_plan(
+      let mut plan = match build_launch_plan(
         &config.agent,
         &config.agent_presets,
         &launch_context,
@@ -479,8 +480,9 @@ async fn initialize_agent(
           );
         }
       };
+      normalize_agent_launch_plan_env(&mut plan);
 
-      let available = which::which(&plan.command).is_ok();
+      let available = agent_command_available(&plan);
       if !available {
         let message =
           format!("Configured AI CLI '{}' was not found in PATH", plan.command);
@@ -570,6 +572,53 @@ fn spawn_agent_from_plan(
     agent_cols,
     options,
   )
+}
+
+fn normalize_agent_launch_plan_env(plan: &mut AgentLaunchPlan) {
+  if let Some(path) = augmented_agent_path(plan.env.get("PATH")) {
+    plan.env.insert("PATH".to_string(), path);
+  }
+}
+
+fn agent_command_available(plan: &AgentLaunchPlan) -> bool {
+  if PathBuf::from(&plan.command).components().count() > 1 {
+    return which::which(&plan.command).is_ok();
+  }
+
+  if let Some(path) = plan.env.get("PATH") {
+    which::which_in(&plan.command, Some(path), &plan.cwd).is_ok()
+  } else {
+    which::which(&plan.command).is_ok()
+  }
+}
+
+fn augmented_agent_path(configured_path: Option<&String>) -> Option<String> {
+  let base_path = configured_path
+    .map(OsString::from)
+    .or_else(|| std::env::var_os("PATH"))?;
+  let mut paths: Vec<PathBuf> = std::env::split_paths(&base_path).collect();
+
+  for path in common_user_bin_dirs() {
+    if !paths.iter().any(|existing| existing == &path) {
+      paths.push(path);
+    }
+  }
+
+  std::env::join_paths(paths)
+    .ok()
+    .and_then(|path| path.into_string().ok())
+}
+
+fn common_user_bin_dirs() -> Vec<PathBuf> {
+  let mut dirs = Vec::new();
+  if let Some(home) = std::env::var_os("HOME") {
+    let home = PathBuf::from(home);
+    dirs.push(home.join(".local/bin"));
+    dirs.push(home.join(".cargo/bin"));
+  }
+  dirs.push(PathBuf::from("/opt/homebrew/bin"));
+  dirs.push(PathBuf::from("/usr/local/bin"));
+  dirs
 }
 
 fn codex_cwd_hook_state_path_for_config(
@@ -1823,6 +1872,34 @@ mod tests {
     );
     assert!(new_plan.args.windows(2).any(|window| window[0] == "-c"
       && window[1].contains("hooks.UserPromptSubmit")));
+  }
+
+  #[test]
+  fn augmented_agent_path_preserves_existing_path_and_adds_user_bins() {
+    let path = augmented_agent_path(Some(&"/custom/bin".to_string())).unwrap();
+    let paths: Vec<PathBuf> =
+      std::env::split_paths(std::ffi::OsStr::new(&path)).collect();
+
+    assert_eq!(paths.first(), Some(&PathBuf::from("/custom/bin")));
+    assert!(paths.contains(&PathBuf::from("/usr/local/bin")));
+    assert!(paths.contains(&PathBuf::from("/opt/homebrew/bin")));
+  }
+
+  #[test]
+  fn normalize_agent_launch_plan_sets_augmented_path() {
+    let mut plan = AgentLaunchPlan {
+      command: "codex".to_string(),
+      args: Vec::new(),
+      env: std::collections::HashMap::new(),
+      cwd: PathBuf::from("/tmp"),
+    };
+
+    normalize_agent_launch_plan_env(&mut plan);
+
+    let path = plan.env.get("PATH").expect("PATH should be set");
+    let paths: Vec<PathBuf> =
+      std::env::split_paths(std::ffi::OsStr::new(path)).collect();
+    assert!(paths.contains(&PathBuf::from("/usr/local/bin")));
   }
 
   #[test]
