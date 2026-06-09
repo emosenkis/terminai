@@ -1,4 +1,5 @@
-use std::sync::{Arc, RwLock};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
 
 use rmcp::{
   ServerHandler,
@@ -9,7 +10,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
 use crate::agent_tools::PendingCommand;
 use crate::command::SafetyValidator;
@@ -38,7 +39,9 @@ pub struct TerminaiMcpState {
   suggestions: mpsc::UnboundedSender<PendingCommand>,
   privacy_filter: Arc<PrivacyFilter>,
   safety_validator: Arc<SafetyValidator>,
-  last_suggestion: Arc<Mutex<Option<PendingCommand>>>,
+  last_suggestion: Arc<AsyncMutex<Option<PendingCommand>>>,
+  cwd: Arc<RwLock<PathBuf>>,
+  pending_cwd_change: Arc<Mutex<Option<PathBuf>>>,
   tool_router: ToolRouter<Self>,
 }
 
@@ -52,8 +55,24 @@ impl TerminaiMcpState {
       suggestions,
       privacy_filter: Arc::new(PrivacyFilter::new()),
       safety_validator: Arc::new(SafetyValidator::new()),
-      last_suggestion: Arc::new(Mutex::new(None)),
+      last_suggestion: Arc::new(AsyncMutex::new(None)),
+      cwd: Arc::new(RwLock::new(
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+      )),
+      pending_cwd_change: Arc::new(Mutex::new(None)),
       tool_router: Self::tool_router(),
+    }
+  }
+
+  pub fn update_cwd(&self, cwd: PathBuf) {
+    if let Ok(mut current) = self.cwd.write() {
+      if *current == cwd {
+        return;
+      }
+      *current = cwd.clone();
+    }
+    if let Ok(mut pending) = self.pending_cwd_change.lock() {
+      *pending = Some(cwd);
     }
   }
 
@@ -136,13 +155,23 @@ impl TerminaiMcpState {
   ) -> Result<CallToolResult, ErrorData> {
     let parser = self.vt_parser.read().map_err(Self::lock_error)?;
     let screen = parser.screen();
-    let cwd = std::env::current_dir()
-      .unwrap_or_else(|_| std::path::PathBuf::from("/"))
+    let cwd = self
+      .cwd
+      .read()
+      .map_err(Self::lock_error)?
       .display()
       .to_string();
+    let cwd_change = self
+      .pending_cwd_change
+      .lock()
+      .map_err(Self::lock_error)?
+      .take()
+      .map(|path| path.display().to_string());
     let shell = std::env::var("SHELL").ok();
     let data = json!({
       "cwd": cwd,
+      "cwd_changed_since_last_context": cwd_change.is_some(),
+      "cwd_change": cwd_change,
       "shell": shell,
       "os": std::env::consts::OS,
       "terminal": {
@@ -154,7 +183,16 @@ impl TerminaiMcpState {
     });
 
     Ok(Self::tool_result(
-      format!("cwd: {}\nos: {}", data["cwd"], std::env::consts::OS),
+      if let Some(cwd_change) = data["cwd_change"].as_str() {
+        format!(
+          "cwd: {}\nos: {}\ncontext update: the user's terminal cwd changed to {}",
+          data["cwd"],
+          std::env::consts::OS,
+          cwd_change
+        )
+      } else {
+        format!("cwd: {}\nos: {}", data["cwd"], std::env::consts::OS)
+      },
       data,
     ))
   }

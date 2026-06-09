@@ -1,4 +1,5 @@
 use rmcp::{ServerHandler, handler::server::wrapper::Parameters};
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::mcp_host::tools::SuggestInputArgs;
@@ -21,6 +22,38 @@ async fn mcp_lists_terminal_tools_for_cli_agents() {
   assert!(state.get_tool("get_terminal_context").is_some());
   assert!(state.get_tool("suggest_input").is_some());
   assert!(state.get_tool("get_suggestion_status").is_some());
+}
+
+#[tokio::test]
+async fn terminal_context_reports_cwd_from_mcp_state() {
+  let (shell, _rx) = Shell::spawn_command(
+    "/bin/sh",
+    &["-c".to_string(), "sleep 1".to_string()],
+    24,
+    80,
+  )
+  .expect("test shell should spawn");
+  let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+  let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+
+  state.update_cwd(PathBuf::from("/tmp/terminai-project"));
+  let first = state.get_terminal_context().await.unwrap();
+  let first_data = first.structured_content.unwrap();
+  assert_eq!(first_data["cwd"], "/tmp/terminai-project");
+  assert_eq!(first_data["cwd_change"], "/tmp/terminai-project");
+  assert_eq!(
+    first_data["cwd_changed_since_last_context"],
+    serde_json::Value::Bool(true)
+  );
+
+  let second = state.get_terminal_context().await.unwrap();
+  let second_data = second.structured_content.unwrap();
+  assert_eq!(second_data["cwd"], "/tmp/terminai-project");
+  assert!(second_data["cwd_change"].is_null());
+  assert_eq!(
+    second_data["cwd_changed_since_last_context"],
+    serde_json::Value::Bool(false)
+  );
 }
 
 #[tokio::test]
