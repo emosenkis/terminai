@@ -5,6 +5,7 @@
 use super::*;
 use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
+use std::sync::{Arc, Mutex};
 use tui::widgets::Widget;
 
 /// Simple reply sender for testing
@@ -15,6 +16,39 @@ impl TermReplySender for TestReplySender {
   fn reply(&self, _reply: compact_str::CompactString) {
     // No-op for testing
   }
+}
+
+#[derive(Clone)]
+struct HostEscapeReplySender {
+  host_escapes: Arc<Mutex<Vec<String>>>,
+}
+
+impl TermReplySender for HostEscapeReplySender {
+  fn reply(&self, _reply: compact_str::CompactString) {}
+
+  fn host_escape(&self, escape: compact_str::CompactString) {
+    self.host_escapes.lock().unwrap().push(escape.to_string());
+  }
+}
+
+#[test]
+fn test_vt100_forwards_current_working_directory_osc() {
+  let host_escapes = Arc::new(Mutex::new(Vec::new()));
+  let mut parser = vt100::Parser::new(
+    24,
+    80,
+    1000,
+    HostEscapeReplySender {
+      host_escapes: host_escapes.clone(),
+    },
+  );
+
+  parser.process(b"\x1b]7;file://host/tmp/project\x07");
+
+  assert_eq!(
+    host_escapes.lock().unwrap().as_slice(),
+    ["\x1b]7;file://host/tmp/project\x07"]
+  );
 }
 
 #[test]

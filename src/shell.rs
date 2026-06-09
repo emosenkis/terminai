@@ -16,6 +16,7 @@ use crate::vt100;
 pub enum ShellEvent {
   Output,
   TermReply(compact_str::CompactString),
+  HostEscape(compact_str::CompactString),
   Exited(u32),
 }
 
@@ -393,5 +394,9 @@ impl crate::vt100::TermReplySender for ReplySender {
   fn reply(&self, reply: compact_str::CompactString) {
     // Send terminal reply back to event loop to write to PTY
     let _ = self.tx.send(ShellEvent::TermReply(reply));
+  }
+
+  fn host_escape(&self, escape: compact_str::CompactString) {
+    let _ = self.tx.send(ShellEvent::HostEscape(escape));
   }
 }

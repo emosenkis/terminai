@@ -140,6 +140,7 @@ pub enum AppEvent {
   /// Shell events
   ShellOutput,
   ShellTermReply(String),
+  ShellHostEscape(String),
   ShellExited(i32),
   AgentOutput,
   AgentTermReply(String),
@@ -236,6 +237,7 @@ impl PollEvents<AppEvent, Error> for PollAgent {
         ShellEvent::TermReply(reply) => {
           Ok(Control::Event(AppEvent::AgentTermReply(reply.to_string())))
         }
+        ShellEvent::HostEscape(_) => Ok(Control::Continue),
         ShellEvent::Exited(code) => {
           Ok(Control::Event(AppEvent::AgentExited(code as i32)))
         }
@@ -296,6 +298,9 @@ impl PollEvents<AppEvent, Error> for PollShell {
         ShellEvent::TermReply(reply) => {
           Ok(Control::Event(AppEvent::ShellTermReply(reply.to_string())))
         }
+        ShellEvent::HostEscape(escape) => Ok(Control::Event(
+          AppEvent::ShellHostEscape(escape.to_string()),
+        )),
         ShellEvent::Exited(code) => {
           Ok(Control::Event(AppEvent::ShellExited(code as i32)))
         }
@@ -1390,6 +1395,13 @@ fn event(
       state.shell.writer.write_all(reply.as_bytes())?;
       state.shell.writer.flush()?;
       log::trace!("Shell term reply sent");
+      Control::Continue
+    }
+    AppEvent::ShellHostEscape(escape) => {
+      let mut stdout = std::io::stdout();
+      stdout.write_all(escape.as_bytes())?;
+      stdout.flush()?;
+      log::trace!("Shell host escape forwarded");
       Control::Continue
     }
     AppEvent::ShellExited(code) => {

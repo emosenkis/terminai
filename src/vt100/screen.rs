@@ -816,8 +816,9 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
       OperatingSystemCommand::ResetDynamicColor(_) => {
         skip!("ResetDynamicColor")
       }
-      OperatingSystemCommand::CurrentWorkingDirectory(_) => {
-        skip!("CurrentWorkingDirectory")
+      OperatingSystemCommand::CurrentWorkingDirectory(cwd) => {
+        let sequence = format!("\x1b]7;{cwd}\x07");
+        self.reply_sender.host_escape(sequence.to_compact_string());
       }
       OperatingSystemCommand::ResetColors(_) => skip!("ResetColors"),
       OperatingSystemCommand::RxvtExtension(_) => skip!("RxvtExtension"),
