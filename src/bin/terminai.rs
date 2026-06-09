@@ -4,7 +4,7 @@
 // Termin.AI - Clean terminal wrapper with AI overlay
 
 use anyhow::{Error, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crokey::{Combiner, KeyCombination};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
 use crossterm::terminal::disable_raw_mode;
@@ -94,11 +94,30 @@ fn render_terminal_history<R: termin::vt100::TermReplySender>(
 }
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(
+  author,
+  version,
+  about,
+  long_about = None,
+  args_conflicts_with_subcommands = true
+)]
 struct Args {
+  #[command(subcommand)]
+  subcommand: Option<CliCommand>,
+
   /// Command to run (if not specified, uses $SHELL)
   #[arg(last = true)]
   command: Vec<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum CliCommand {
+  /// Create default Termin.AI config files in the config directory.
+  InitConfig {
+    /// Replace existing config files instead of leaving them untouched.
+    #[arg(long)]
+    force: bool,
+  },
 }
 
 /// Global state for rat-salsa (implements SalsaContext)
@@ -634,23 +653,6 @@ fn run_init_config(force: bool) -> Result<()> {
   Ok(())
 }
 
-fn run_init_config_from_args(
-  args: impl IntoIterator<Item = std::ffi::OsString>,
-) -> Result<()> {
-  let mut force = false;
-  for arg in args {
-    if arg == std::ffi::OsStr::new("--force") {
-      force = true;
-    } else {
-      anyhow::bail!(
-        "Unexpected init-config argument: {}\nUsage: terminai init-config [--force]",
-        arg.to_string_lossy()
-      );
-    }
-  }
-  run_init_config(force)
-}
-
 fn percent_decode_path(input: &str) -> String {
   let mut output = Vec::with_capacity(input.len());
   let bytes = input.as_bytes();
@@ -719,10 +721,11 @@ fn main() -> Result<()> {
       };
       return run_codex_cwd_hook(PathBuf::from(path));
     }
+  }
 
-    if first_arg == std::ffi::OsStr::new("init-config") {
-      return run_init_config_from_args(raw_args);
-    }
+  let args = Args::parse();
+  if let Some(CliCommand::InitConfig { force }) = args.subcommand {
+    return run_init_config(force);
   }
 
   // Setup logging to file with rotation
@@ -735,8 +738,6 @@ fn main() -> Result<()> {
     eprintln!("Error: {}", e);
     std::process::exit(1);
   }
-
-  let args = Args::parse();
 
   log::info!("Termin.AI starting");
 
@@ -1753,6 +1754,37 @@ mod tests {
     let notice = std::fs::read_to_string(&path).unwrap();
     assert!(notice.contains("/tmp/project"));
     let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn cli_parses_init_config_subcommand() {
+    let args =
+      Args::try_parse_from(["terminai", "init-config", "--force"]).unwrap();
+
+    match args.subcommand {
+      Some(CliCommand::InitConfig { force }) => assert!(force),
+      None => panic!("expected init-config subcommand"),
+    }
+    assert!(args.command.is_empty());
+  }
+
+  #[test]
+  fn cli_preserves_trailing_shell_command() {
+    let args =
+      Args::try_parse_from(["terminai", "--", "echo", "hello"]).unwrap();
+
+    assert!(args.subcommand.is_none());
+    assert_eq!(args.command, vec!["echo", "hello"]);
+  }
+
+  #[test]
+  fn cli_help_lists_init_config() {
+    let mut command = <Args as clap::CommandFactory>::command();
+    let mut help = Vec::new();
+    command.write_long_help(&mut help).unwrap();
+    let help = String::from_utf8(help).unwrap();
+
+    assert!(help.contains("init-config"));
   }
 
   #[test]
