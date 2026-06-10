@@ -31,6 +31,51 @@ impl TermReplySender for HostEscapeReplySender {
   }
 }
 
+#[derive(Clone)]
+struct CapturingReplySender {
+  replies: Arc<Mutex<Vec<String>>>,
+}
+
+impl TermReplySender for CapturingReplySender {
+  fn reply(&self, reply: compact_str::CompactString) {
+    self.replies.lock().unwrap().push(reply.to_string());
+  }
+}
+
+#[test]
+fn test_vt100_replies_to_terminal_status_dsr() {
+  let replies = Arc::new(Mutex::new(Vec::new()));
+  let mut parser = vt100::Parser::new(
+    24,
+    80,
+    1000,
+    CapturingReplySender {
+      replies: replies.clone(),
+    },
+  );
+
+  parser.process(b"\x1b[5n");
+
+  assert_eq!(replies.lock().unwrap().as_slice(), ["\x1b[0n"]);
+}
+
+#[test]
+fn test_vt100_replies_to_cursor_position_dsr() {
+  let replies = Arc::new(Mutex::new(Vec::new()));
+  let mut parser = vt100::Parser::new(
+    24,
+    80,
+    1000,
+    CapturingReplySender {
+      replies: replies.clone(),
+    },
+  );
+
+  parser.process(b"\x1b[2;3H\x1b[6n");
+
+  assert_eq!(replies.lock().unwrap().as_slice(), ["\x1b[2;3R"]);
+}
+
 #[test]
 fn test_vt100_forwards_current_working_directory_osc() {
   let host_escapes = Arc::new(Mutex::new(Vec::new()));

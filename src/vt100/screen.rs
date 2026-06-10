@@ -6,8 +6,9 @@ use termwiz::escape::{
   Action, CSI, ControlCode, DeviceControlMode, Esc, EscCode, OneBased,
   OperatingSystemCommand,
   csi::{
-    CsiParam, Cursor, CursorStyle, DecPrivateMode, DecPrivateModeCode, Edit,
-    EraseInDisplay, EraseInLine, Sgr, TerminalMode, TerminalModeCode, Window,
+    CsiParam, Cursor, CursorStyle, DecPrivateMode, DecPrivateModeCode, Device,
+    Edit, EraseInDisplay, EraseInLine, Sgr, TerminalMode, TerminalModeCode,
+    Window,
   },
 };
 use unicode_width::UnicodeWidthChar as _;
@@ -1322,7 +1323,10 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
           skip!("XtermKeyMode")
         }
       },
-      CSI::Device(device) => skip!("Device: {:?}", device),
+      CSI::Device(device) => match *device {
+        Device::StatusReport => self.reply_sender.reply("\x1b[0n".into()),
+        device => skip!("Device: {:?}", device),
+      },
       CSI::Mouse(mouse) => skip!("Mouse: {:?}", mouse),
       CSI::Window(win) => match *win {
         Window::DeIconify => skip!("DeIconify"),
