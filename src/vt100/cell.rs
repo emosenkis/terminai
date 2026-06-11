@@ -81,6 +81,12 @@ impl Cell {
     self.attrs.bgcolor
   }
 
+  /// Returns the underline color of the cell.
+  #[must_use]
+  pub fn underline_color(&self) -> crate::vt100::attrs::Color {
+    self.attrs.underline_color
+  }
+
   /// Returns whether the cell should be rendered with the bold text
   /// attribute.
   #[must_use]
@@ -120,6 +126,7 @@ impl Cell {
       tui::style::Style::new()
         .fg(attrs.fgcolor.to_tui())
         .bg(attrs.bgcolor.to_tui())
+        .underline_color(attrs.underline_color.to_tui())
         .add_modifier(attrs.mods_to_tui()),
     );
 

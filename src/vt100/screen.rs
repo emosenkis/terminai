@@ -870,7 +870,7 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
           | termwiz::cell::Underline::Dotted
           | termwiz::cell::Underline::Dashed => self.attrs.set_underline(true),
         },
-        Sgr::UnderlineColor(_) => skip!("UnderlineColor"),
+        Sgr::UnderlineColor(color) => self.attrs.underline_color = color.into(),
         Sgr::Blink(_) => skip!("Blink"),
         Sgr::Italic(mode) => self.attrs.set_italic(mode),
         Sgr::Inverse(mode) => self.attrs.set_inverse(mode),

@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::ui_layer::TerminalWidget;
+use crate::vt100::Color;
 use crate::vt100::{self, TermReplySender};
 use std::sync::{Arc, Mutex};
 use tui::widgets::Widget;
@@ -137,9 +138,48 @@ fn test_vt100_colors() {
   parser.process(b"\x1b[31mRed Text\x1b[0m");
 
   let screen = parser.screen();
-  // Verify the text is there (color testing is limited per ratatui docs)
-  let cell = screen.cell(0, 0);
-  assert!(cell.is_some());
+  let cell = screen.cell(0, 0).expect("red text cell should exist");
+  assert_eq!(cell.fgcolor(), Color::Idx(1));
+}
+
+#[test]
+fn test_vt100_preserves_256_color_palette_indices() {
+  let mut parser = vt100::Parser::new(24, 80, 1000, TestReplySender);
+
+  parser.process(b"\x1b[38;5;123mF\x1b[48;5;45mB");
+
+  let screen = parser.screen();
+  let fg = screen.cell(0, 0).expect("foreground cell should exist");
+  let bg = screen.cell(0, 1).expect("background cell should exist");
+  assert_eq!(fg.fgcolor(), Color::Idx(123));
+  assert_eq!(bg.bgcolor(), Color::Idx(45));
+}
+
+#[test]
+fn test_vt100_preserves_truecolor_as_rgb() {
+  let mut parser = vt100::Parser::new(24, 80, 1000, TestReplySender);
+
+  parser.process(b"\x1b[38;2;12;34;56mT");
+
+  let cell = parser
+    .screen()
+    .cell(0, 0)
+    .expect("truecolor cell should exist");
+  assert_eq!(cell.fgcolor(), Color::Rgb(12, 34, 56));
+}
+
+#[test]
+fn test_vt100_preserves_indexed_underline_color() {
+  let mut parser = vt100::Parser::new(24, 80, 1000, TestReplySender);
+
+  parser.process(b"\x1b[4;58;5;201mU");
+
+  let cell = parser
+    .screen()
+    .cell(0, 0)
+    .expect("underline color cell should exist");
+  assert_eq!(cell.underline_color(), Color::Idx(201));
+  assert!(cell.underline());
 }
 
 #[test]

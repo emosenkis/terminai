@@ -53,6 +53,7 @@ const TEXT_MODE_INVERSE: u8 = 0b0000_1000;
 pub struct Attrs {
   pub fgcolor: Color,
   pub bgcolor: Color,
+  pub underline_color: Color,
   pub mode: u8,
 }
 
@@ -122,6 +123,11 @@ impl Attrs {
       attrs
     } else {
       attrs.bgcolor(self.bgcolor)
+    };
+    let attrs = if self.underline_color == other.underline_color {
+      attrs
+    } else {
+      attrs.underline_color(self.underline_color)
     };
     let attrs = if self.bold() == other.bold() {
       attrs

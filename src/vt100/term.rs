@@ -109,6 +109,7 @@ impl BufWrite for ClearAttrs {
 pub struct Attrs {
   fgcolor: Option<crate::vt100::attrs::Color>,
   bgcolor: Option<crate::vt100::attrs::Color>,
+  underline_color: Option<crate::vt100::attrs::Color>,
   bold: Option<bool>,
   italic: Option<bool>,
   underline: Option<bool>,
@@ -123,6 +124,14 @@ impl Attrs {
 
   pub fn bgcolor(mut self, bgcolor: crate::vt100::attrs::Color) -> Self {
     self.bgcolor = Some(bgcolor);
+    self
+  }
+
+  pub fn underline_color(
+    mut self,
+    underline_color: crate::vt100::attrs::Color,
+  ) -> Self {
+    self.underline_color = Some(underline_color);
     self
   }
 
@@ -153,6 +162,7 @@ impl BufWrite for Attrs {
   fn write_buf(&self, buf: &mut Vec<u8>) {
     if self.fgcolor.is_none()
       && self.bgcolor.is_none()
+      && self.underline_color.is_none()
       && self.bold.is_none()
       && self.italic.is_none()
       && self.underline.is_none()
@@ -219,6 +229,26 @@ impl BufWrite for Attrs {
         }
         crate::vt100::attrs::Color::Rgb(r, g, b) => {
           write_param!(48);
+          write_param!(2);
+          write_param!(r);
+          write_param!(g);
+          write_param!(b);
+        }
+      }
+    }
+
+    if let Some(underline_color) = self.underline_color {
+      match underline_color {
+        crate::vt100::attrs::Color::Default => {
+          write_param!(59);
+        }
+        crate::vt100::attrs::Color::Idx(i) => {
+          write_param!(58);
+          write_param!(5);
+          write_param!(i);
+        }
+        crate::vt100::attrs::Color::Rgb(r, g, b) => {
+          write_param!(58);
           write_param!(2);
           write_param!(r);
           write_param!(g);
