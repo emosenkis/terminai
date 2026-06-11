@@ -61,6 +61,23 @@ fn test_vt100_replies_to_terminal_status_dsr() {
 }
 
 #[test]
+fn test_vt100_replies_to_primary_device_attributes() {
+  let replies = Arc::new(Mutex::new(Vec::new()));
+  let mut parser = vt100::Parser::new(
+    24,
+    80,
+    1000,
+    CapturingReplySender {
+      replies: replies.clone(),
+    },
+  );
+
+  parser.process(b"\x1b[c");
+
+  assert_eq!(replies.lock().unwrap().as_slice(), ["\x1b[?1;2c"]);
+}
+
+#[test]
 fn test_vt100_replies_to_cursor_position_dsr() {
   let replies = Arc::new(Mutex::new(Vec::new()));
   let mut parser = vt100::Parser::new(

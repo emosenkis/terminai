@@ -1336,6 +1336,9 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
         }
       },
       CSI::Device(device) => match *device {
+        Device::RequestPrimaryDeviceAttributes => {
+          self.reply_sender.reply("\x1b[?1;2c".into())
+        }
         Device::StatusReport => self.reply_sender.reply("\x1b[0n".into()),
         device => skip!("Device: {:?}", device),
       },
