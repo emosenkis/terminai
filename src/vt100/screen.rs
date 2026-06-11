@@ -836,6 +836,23 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
     }
   }
 
+  fn reply_cursor_position(&self, dec_private: bool) {
+    let pos = self.grid().pos();
+    if dec_private {
+      let row = u32::from(pos.row) + 1;
+      let col = u32::from(pos.col) + 1;
+      self
+        .reply_sender
+        .reply(format!("\x1b[?{row};{col}R").to_compact_string());
+    } else {
+      let es = CSI::Cursor(Cursor::ActivePositionReport {
+        line: OneBased::from_zero_based(pos.row.into()),
+        col: OneBased::from_zero_based(pos.col.into()),
+      });
+      self.reply_sender.reply(es.to_compact_string());
+    }
+  }
+
   fn handle_csi(&mut self, csi: CSI) {
     match csi {
       CSI::Sgr(sgr) => match sgr {
@@ -898,12 +915,7 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
           skip!("ActivePositionReport")
         }
         Cursor::RequestActivePositionReport => {
-          let pos = self.grid().pos();
-          let es = CSI::Cursor(Cursor::ActivePositionReport {
-            line: OneBased::from_zero_based(pos.row.into()),
-            col: OneBased::from_zero_based(pos.col.into()),
-          });
-          self.reply_sender.reply(es.to_compact_string());
+          self.reply_cursor_position(false);
         }
         Cursor::SaveCursor => skip!("SaveCursor"),
         Cursor::RestoreCursor => skip!("RestoreCursor"),
@@ -1431,6 +1443,10 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
           }
           ('K', [CsiParam::P(b'?'), CsiParam::Integer(mode)]) => {
             self.decsel(u16::try_from(*mode).unwrap_or_default());
+            true
+          }
+          ('n', [CsiParam::P(b'?'), CsiParam::Integer(6)]) => {
+            self.reply_cursor_position(true);
             true
           }
           _ => false,
