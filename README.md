@@ -124,6 +124,8 @@ agent:
 
 Termin.AI injects a host MCP server and clear context prompt into known agents. The MCP server exposes `check_for_updates`, `read_terminal`, `get_terminal_context`, `suggest_input`, and `get_suggestion_status`.
 
+Built-in agent presets are YAML reference configs bundled at build time from `config/codex.yaml`, `config/claude.yaml`, `config/opencode.yaml`, and `config/general.yaml`. User `agent-presets` use the same shape and can extend or override those presets.
+
 ## Usage
 
 ### Basic Workflow

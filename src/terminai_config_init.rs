@@ -22,6 +22,12 @@ agent:
   #   - --model
   #   - gpt-5
 
+# Built-in agent preset reference configs are bundled from:
+# - config/codex.yaml
+# - config/claude.yaml
+# - config/opencode.yaml
+# - config/general.yaml
+# Add overrides or new presets here using the same shape.
 agent-presets: {}
 
 providers:

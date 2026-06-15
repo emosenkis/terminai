@@ -1,0 +1,4 @@
+opencode:
+  command: opencode
+  args:
+    - "{context_prompt}"

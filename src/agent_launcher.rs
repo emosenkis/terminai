@@ -2,26 +2,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 
 use crate::terminai_config::{AgentConfig, AgentKind, AgentPresetConfig};
-
-pub const TERMINAI_AGENT_PROMPT: &str = r#"You are running inside Termin.AI, a terminal wrapper that is displaying your CLI as a secondary terminal.
-
-Important Termin.AI rules:
-- While you can perform general coding and other tasks, your base assumption where reasonable is that the user wants help with
-  whatever they're doing in their own terminal.
-- You are NOT typing directly into the user's terminal. Your own terminal is only the AI CLI terminal.
-- When you refer to terminal state, say "your terminal" to the user. Do not call it "the wrapped terminal" or "the host terminal".
-- Before starting to handle any user message, always call the Termin.AI MCP tool check_for_updates.
-- Do not tell the user that you are calling check_for_updates. Silently take into account any updates it returns.
-- To understand the user's terminal, use the Termin.AI MCP tool read_terminal before answering terminal-state questions.
-- To inspect shell metadata, use get_terminal_context.
-- check_for_updates reports user-terminal changes such as cwd changes since your last update check.
-- To help the user run something in their terminal, call suggest_input with the exact input and a short explanation.
-- Do not claim you ran a command in the user's terminal unless Termin.AI confirms the user approved it.
-- Use escape sequences in suggestions: \r for Enter, \u0003 for Ctrl-C, \u001b for Escape.
-"#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLaunchPlan {
@@ -43,7 +27,7 @@ impl AgentLaunchContext {
     Self {
       cwd,
       mcp_url,
-      context_prompt: TERMINAI_AGENT_PROMPT.to_string(),
+      context_prompt: builtin_context_prompt(),
     }
   }
 }
@@ -80,66 +64,70 @@ struct ResolvedAgentConfig {
   env: HashMap<String, String>,
 }
 
-fn builtin_preset(name: &str) -> Option<AgentPresetConfig> {
-  match name {
-    "claude" => Some(AgentPresetConfig {
-      command: Some("claude".to_string()),
-      args: vec![
-      "--append-system-prompt".to_string(),
-      "{context_prompt}".to_string(),
-      "--mcp-config".to_string(),
-      "{claude_mcp_config}".to_string(),
-      "--strict-mcp-config".to_string(),
-      "--permission-mode".to_string(),
-      "default".to_string(),
-      ],
-      ..Default::default()
-    }),
-    "codex" => Some(AgentPresetConfig {
-      command: Some("codex".to_string()),
-      args: vec![
-      "--cd".to_string(),
-      "{cwd}".to_string(),
-      "--sandbox".to_string(),
-      "workspace-write".to_string(),
-      "--ask-for-approval".to_string(),
-      "on-request".to_string(),
-      "--no-alt-screen".to_string(),
-      "-c".to_string(),
-      "developer_instructions={context_prompt_toml}".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.url={mcp_url_toml}".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.enabled_tools=[\"check_for_updates\",\"read_terminal\",\"get_terminal_context\",\"suggest_input\",\"get_suggestion_status\"]".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.default_tools_approval_mode=\"approve\"".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.tools.check_for_updates.approval_mode=\"approve\"".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.tools.read_terminal.approval_mode=\"approve\"".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.tools.get_terminal_context.approval_mode=\"approve\"".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.tools.suggest_input.approval_mode=\"approve\"".to_string(),
-      "-c".to_string(),
-      "mcp_servers.terminai.tools.get_suggestion_status.approval_mode=\"approve\"".to_string(),
-      ],
-      ..Default::default()
-    }),
-    // These intentionally provide only generic prompt/context plumbing. Users
-    // can extend them with MCP-specific flags as each CLI evolves.
-    "gemini" => Some(AgentPresetConfig {
-      command: Some("gemini".to_string()),
-      args: vec!["{context_prompt}".to_string()],
-      ..Default::default()
-    }),
-    "opencode" => Some(AgentPresetConfig {
-      command: Some("opencode".to_string()),
-      args: vec!["{context_prompt}".to_string()],
-      ..Default::default()
-    }),
-    _ => None,
+const BUILTIN_AGENT_PRESET_CONFIGS: &[(&str, &str)] = &[
+  ("config/codex.yaml", include_str!("../config/codex.yaml")),
+  ("config/claude.yaml", include_str!("../config/claude.yaml")),
+  (
+    "config/opencode.yaml",
+    include_str!("../config/opencode.yaml"),
+  ),
+  (
+    "config/general.yaml",
+    include_str!("../config/general.yaml"),
+  ),
+];
+
+#[derive(Debug, Default)]
+struct BuiltinAgentConfig {
+  context_prompt: Option<String>,
+  presets: HashMap<String, AgentPresetConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct BuiltinAgentConfigFile {
+  #[serde(default)]
+  context_prompt: Option<String>,
+  #[serde(flatten)]
+  presets: HashMap<String, AgentPresetConfig>,
+}
+
+fn builtin_agent_config() -> Result<BuiltinAgentConfig> {
+  let mut config = BuiltinAgentConfig::default();
+
+  for (path, contents) in BUILTIN_AGENT_PRESET_CONFIGS {
+    let file_config: BuiltinAgentConfigFile = serde_yaml::from_str(contents)
+      .with_context(|| format!("failed to parse bundled {path}"))?;
+
+    if let Some(context_prompt) = file_config.context_prompt {
+      if config.context_prompt.replace(context_prompt).is_some() {
+        bail!("bundled context-prompt is defined more than once");
+      }
+    }
+
+    for (name, preset) in file_config.presets {
+      if config.presets.insert(name.clone(), preset).is_some() {
+        bail!("bundled agent preset '{name}' is defined more than once");
+      }
+    }
   }
+
+  Ok(config)
+}
+
+fn builtin_context_prompt() -> String {
+  builtin_agent_config()
+    .expect("bundled agent YAML must parse")
+    .context_prompt
+    .expect("bundled agent YAML must define context-prompt")
+}
+
+fn builtin_agent_presets() -> Result<HashMap<String, AgentPresetConfig>> {
+  Ok(builtin_agent_config()?.presets)
+}
+
+fn builtin_preset(name: &str) -> Result<Option<AgentPresetConfig>> {
+  Ok(builtin_agent_presets()?.remove(name))
 }
 
 fn resolve_agent_config(
@@ -153,7 +141,6 @@ fn resolve_agent_config(
     None => match config.command.as_deref() {
       Some("claude") => Some("claude".to_string()),
       Some("codex") | None => Some("codex".to_string()),
-      Some("gemini") => Some("gemini".to_string()),
       Some("opencode") => Some("opencode".to_string()),
       Some(_) => None,
     },
@@ -191,11 +178,12 @@ fn resolve_preset(
     bail!("agent preset '{name}' extends itself recursively");
   }
 
-  let preset = user_presets
-    .get(name)
-    .cloned()
-    .or_else(|| builtin_preset(name))
-    .ok_or_else(|| anyhow::anyhow!("unknown agent preset '{name}'"))?;
+  let preset = if let Some(preset) = user_presets.get(name).cloned() {
+    preset
+  } else {
+    builtin_preset(name)?
+      .ok_or_else(|| anyhow::anyhow!("unknown agent preset '{name}'"))?
+  };
 
   let mut resolved = if let Some(parent) = &preset.extends {
     resolve_preset(parent, user_presets, seen)?
@@ -238,8 +226,7 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
           "{context_prompt_toml}",
           &toml_string(&context.context_prompt),
         )
-        .replace("{context_prompt}", &context.context_prompt)
-        .replace("{claude_mcp_config}", &claude_mcp_config(&context.mcp_url)),
+        .replace("{context_prompt}", &context.context_prompt),
     );
   }
 
@@ -248,18 +235,6 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
 
 fn toml_string(value: &str) -> String {
   format!("{value:?}")
-}
-
-fn claude_mcp_config(mcp_url: &str) -> String {
-  serde_json::json!({
-    "mcpServers": {
-      "terminai": {
-        "type": "http",
-        "url": mcp_url
-      }
-    }
-  })
-  .to_string()
 }
 
 #[cfg(test)]
@@ -271,6 +246,27 @@ mod tests {
       PathBuf::from("/tmp/project"),
       "http://127.0.0.1:3456/mcp".to_string(),
     )
+  }
+
+  #[test]
+  fn bundled_agent_presets_are_parseable_reference_configs() {
+    let presets = builtin_agent_presets().unwrap();
+
+    assert!(presets.contains_key("codex"));
+    assert!(presets.contains_key("claude"));
+    assert!(presets.contains_key("opencode"));
+    assert!(!presets.contains_key("gemini"));
+    assert_eq!(
+      presets.get("codex").unwrap().command.as_deref(),
+      Some("codex")
+    );
+    assert!(
+      builtin_agent_config()
+        .unwrap()
+        .context_prompt
+        .unwrap()
+        .contains("check_for_updates")
+    );
   }
 
   #[test]
@@ -305,7 +301,8 @@ mod tests {
       developer_instructions.contains("suggest_input with the exact input")
     );
     assert!(developer_instructions.contains("Do not claim you ran a command"));
-    assert!(!plan.args.iter().any(|arg| arg == &TERMINAI_AGENT_PROMPT));
+    let context = context();
+    assert!(!plan.args.iter().any(|arg| arg == &context.context_prompt));
     assert!(
       plan
         .args
