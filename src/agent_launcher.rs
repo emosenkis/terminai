@@ -9,11 +9,15 @@ use crate::terminai_config::{AgentConfig, AgentKind, AgentPresetConfig};
 pub const TERMINAI_AGENT_PROMPT: &str = r#"You are running inside Termin.AI, a terminal wrapper that is displaying your CLI as a secondary terminal.
 
 Important Termin.AI rules:
+- While you can perform general coding and other tasks, your base assumption where reasonable is that the user wants help with
+  whatever they're doing in their own terminal.
 - You are NOT typing directly into the user's terminal. Your own terminal is only the AI CLI terminal.
 - When you refer to terminal state, say "your terminal" to the user. Do not call it "the wrapped terminal" or "the host terminal".
+- Before starting to handle any user message, always call the Termin.AI MCP tool check_for_updates.
+- Do not tell the user that you are calling check_for_updates. Silently take into account any updates it returns.
 - To understand the user's terminal, use the Termin.AI MCP tool read_terminal before answering terminal-state questions.
 - To inspect shell metadata, use get_terminal_context.
-- get_terminal_context also reports when the user's terminal cwd changed since your last context check.
+- check_for_updates reports user-terminal changes such as cwd changes since your last update check.
 - To help the user run something in their terminal, call suggest_input with the exact input and a short explanation.
 - Do not claim you ran a command in the user's terminal unless Termin.AI confirms the user approved it.
 - Use escape sequences in suggestions: \r for Enter, \u0003 for Ctrl-C, \u001b for Escape.
@@ -32,7 +36,6 @@ pub struct AgentLaunchContext {
   pub cwd: PathBuf,
   pub mcp_url: String,
   pub context_prompt: String,
-  pub codex_cwd_hook_command: Option<String>,
 }
 
 impl AgentLaunchContext {
@@ -41,13 +44,7 @@ impl AgentLaunchContext {
       cwd,
       mcp_url,
       context_prompt: TERMINAI_AGENT_PROMPT.to_string(),
-      codex_cwd_hook_command: None,
     }
-  }
-
-  pub fn with_codex_cwd_hook_command(mut self, command: String) -> Self {
-    self.codex_cwd_hook_command = Some(command);
-    self
   }
 }
 
@@ -113,9 +110,11 @@ fn builtin_preset(name: &str) -> Option<AgentPresetConfig> {
       "-c".to_string(),
       "mcp_servers.terminai.url={mcp_url_toml}".to_string(),
       "-c".to_string(),
-      "mcp_servers.terminai.enabled_tools=[\"read_terminal\",\"get_terminal_context\",\"suggest_input\",\"get_suggestion_status\"]".to_string(),
+      "mcp_servers.terminai.enabled_tools=[\"check_for_updates\",\"read_terminal\",\"get_terminal_context\",\"suggest_input\",\"get_suggestion_status\"]".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.default_tools_approval_mode=\"approve\"".to_string(),
+      "-c".to_string(),
+      "mcp_servers.terminai.tools.check_for_updates.approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.tools.read_terminal.approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
@@ -124,8 +123,6 @@ fn builtin_preset(name: &str) -> Option<AgentPresetConfig> {
       "mcp_servers.terminai.tools.suggest_input.approval_mode=\"approve\"".to_string(),
       "-c".to_string(),
       "mcp_servers.terminai.tools.get_suggestion_status.approval_mode=\"approve\"".to_string(),
-      "-c".to_string(),
-      "{codex_cwd_hook_config}".to_string(),
       ],
       ..Default::default()
     }),
@@ -230,27 +227,8 @@ fn resolve_preset(
 fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
   let cwd = context.cwd.display().to_string();
   let mut expanded = Vec::new();
-  let mut iter = args.into_iter().peekable();
 
-  while let Some(arg) = iter.next() {
-    if arg == "-c"
-      && matches!(iter.peek(), Some(next) if next == "{codex_cwd_hook_config}")
-    {
-      iter.next();
-      if let Some(command) = &context.codex_cwd_hook_command {
-        expanded.push("-c".to_string());
-        expanded.push(codex_cwd_hook_config(command));
-      }
-      continue;
-    }
-
-    if arg == "{codex_cwd_hook_config}" {
-      if let Some(command) = &context.codex_cwd_hook_command {
-        expanded.push(codex_cwd_hook_config(command));
-      }
-      continue;
-    }
-
+  for arg in args {
     expanded.push(
       arg
         .replace("{cwd}", &cwd)
@@ -270,13 +248,6 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
 
 fn toml_string(value: &str) -> String {
   format!("{value:?}")
-}
-
-fn codex_cwd_hook_config(command: &str) -> String {
-  format!(
-    "hooks.UserPromptSubmit=[{{hooks=[{{type=\"command\",command={},timeout=5,statusMessage=\"Checking Termin.AI context\"}}]}}]",
-    toml_string(command)
-  )
 }
 
 fn claude_mcp_config(mcp_url: &str) -> String {
@@ -314,11 +285,20 @@ mod tests {
     assert!(plan.args.contains(&"workspace-write".to_string()));
     assert!(plan.args.contains(&"--no-alt-screen".to_string()));
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
+    assert!(
+      plan
+        .args
+        .iter()
+        .any(|arg| arg.contains("check_for_updates"))
+    );
     let developer_instructions = plan
       .args
       .iter()
       .find(|arg| arg.contains("developer_instructions"))
       .unwrap();
+    assert!(developer_instructions.contains("always call"));
+    assert!(developer_instructions.contains("check_for_updates"));
+    assert!(developer_instructions.contains("Do not tell the user"));
     assert!(developer_instructions.contains("read_terminal before answering"));
     assert!(developer_instructions.contains("your terminal"));
     assert!(
@@ -338,30 +318,6 @@ mod tests {
         .iter()
         .any(|arg| arg.contains("approval_mode=\"approve\""))
     );
-  }
-
-  #[test]
-  fn codex_plan_registers_cwd_hook_when_context_supplies_command() {
-    let config = AgentConfig::codex();
-    let context = context().with_codex_cwd_hook_command(
-      "/tmp/terminai-hook --state /tmp/state".to_string(),
-    );
-    let plan = build_launch_plan(&config, &HashMap::new(), &context).unwrap();
-
-    let hook_config = plan
-      .args
-      .windows(2)
-      .find_map(|window| {
-        if window[0] == "-c" && window[1].contains("hooks.UserPromptSubmit") {
-          Some(&window[1])
-        } else {
-          None
-        }
-      })
-      .expect("codex cwd hook config should be present");
-    assert!(hook_config.contains("hook"));
-    assert!(hook_config.contains("UserPromptSubmit"));
-    assert!(hook_config.contains("/tmp/terminai-hook --state /tmp/state"));
   }
 
   #[test]

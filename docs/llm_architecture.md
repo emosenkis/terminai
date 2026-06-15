@@ -39,6 +39,7 @@ Termin.AI no longer embeds its own LLM provider client or Python agent. The AI s
 ## MCP Tools
 
 - `read_terminal`: returns visible shell output and recent scrollback.
+- `check_for_updates`: returns pending Termin.AI context updates, such as cwd changes, for agents to check before handling each user message.
 - `get_terminal_context`: returns cwd, shell, OS, terminal dimensions, mouse mode, and bracketed paste state.
 - `suggest_input`: queues exact shell input for user approval.
 - `get_suggestion_status`: reports the most recent queued suggestion.

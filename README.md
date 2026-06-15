@@ -122,7 +122,7 @@ agent:
     - "{context_prompt}"
 ```
 
-Termin.AI injects a host MCP server and clear context prompt into known agents. The MCP server exposes `read_terminal`, `get_terminal_context`, `suggest_input`, and `get_suggestion_status`.
+Termin.AI injects a host MCP server and clear context prompt into known agents. The MCP server exposes `check_for_updates`, `read_terminal`, `get_terminal_context`, `suggest_input`, and `get_suggestion_status`.
 
 ## Usage
 

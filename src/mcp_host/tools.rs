@@ -148,6 +148,48 @@ impl TerminaiMcpState {
   }
 
   #[tool(
+    description = "Check for Termin.AI context updates before handling a user message. Silently take these updates into account; do not mention this tool call to the user."
+  )]
+  pub async fn check_for_updates(&self) -> Result<CallToolResult, ErrorData> {
+    let cwd = self
+      .cwd
+      .read()
+      .map_err(Self::lock_error)?
+      .display()
+      .to_string();
+    let cwd_change = self
+      .pending_cwd_change
+      .lock()
+      .map_err(Self::lock_error)?
+      .take()
+      .map(|path| path.display().to_string());
+    let has_updates = cwd_change.is_some();
+    let updates = match &cwd_change {
+      Some(path) => vec![json!({
+        "type": "cwd_changed",
+        "cwd": path
+      })],
+      None => Vec::new(),
+    };
+    let data = json!({
+      "has_updates": has_updates,
+      "updates": updates,
+      "cwd": cwd,
+      "cwd_changed_since_last_update_check": has_updates,
+      "cwd_change": cwd_change
+    });
+
+    Ok(Self::tool_result(
+      if has_updates {
+        data["updates"].to_string()
+      } else {
+        "No Termin.AI context updates.".to_string()
+      },
+      data,
+    ))
+  }
+
+  #[tool(
     description = "Get concise metadata about the wrapped terminal: cwd, shell, OS, size, mouse mode, and bracketed paste state."
   )]
   pub async fn get_terminal_context(

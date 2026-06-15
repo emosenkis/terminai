@@ -18,10 +18,36 @@ async fn mcp_lists_terminal_tools_for_cli_agents() {
   let (tx, _suggestion_rx) = mpsc::unbounded_channel();
   let state = TerminaiMcpState::new(shell.vt.clone(), tx);
 
+  assert!(state.get_tool("check_for_updates").is_some());
   assert!(state.get_tool("read_terminal").is_some());
   assert!(state.get_tool("get_terminal_context").is_some());
   assert!(state.get_tool("suggest_input").is_some());
   assert!(state.get_tool("get_suggestion_status").is_some());
+}
+
+#[tokio::test]
+async fn check_for_updates_reports_cwd_change_once() {
+  let (shell, _rx) = Shell::spawn_command(
+    "/bin/sh",
+    &["-c".to_string(), "sleep 1".to_string()],
+    24,
+    80,
+  )
+  .expect("test shell should spawn");
+  let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+  let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+
+  state.update_cwd(PathBuf::from("/tmp/terminai-project"));
+  let first = state.check_for_updates().await.unwrap();
+  let first_data = first.structured_content.unwrap();
+  assert_eq!(first_data["has_updates"], serde_json::Value::Bool(true));
+  assert_eq!(first_data["cwd_change"], "/tmp/terminai-project");
+  assert_eq!(first_data["updates"][0]["type"], "cwd_changed");
+
+  let second = state.check_for_updates().await.unwrap();
+  let second_data = second.structured_content.unwrap();
+  assert_eq!(second_data["has_updates"], serde_json::Value::Bool(false));
+  assert!(second_data["cwd_change"].is_null());
 }
 
 #[tokio::test]

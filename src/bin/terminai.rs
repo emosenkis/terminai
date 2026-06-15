@@ -48,7 +48,7 @@ use termin::mcp_host::{
 };
 use termin::mouse::MouseEvent;
 use termin::scrollback::{ScrollbackTracker, process_scrollback};
-use termin::terminai_config::{AgentKind, ChatPosition, TerminAIConfig};
+use termin::terminai_config::{ChatPosition, TerminAIConfig};
 
 use termin::shell::{Shell, ShellEvent, ShellSpawnOptions};
 
@@ -345,7 +345,6 @@ async fn initialize_app_components(
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
   Option<TerminaiMcpState>,
-  Option<PathBuf>,
   Option<AgentLaunchPlan>,
   UnboundedReceiver<PendingCommand>,
   TerminAIConfig,
@@ -376,7 +375,6 @@ async fn initialize_app_components(
     agent_rx,
     mcp_server,
     mcp_state,
-    codex_cwd_hook_state_path,
     agent_launch_plan,
     config,
     chat_position,
@@ -390,7 +388,6 @@ async fn initialize_app_components(
     agent_rx,
     mcp_server,
     mcp_state,
-    codex_cwd_hook_state_path,
     agent_launch_plan,
     suggestion_rx,
     config,
@@ -410,7 +407,6 @@ async fn initialize_agent(
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
   Option<TerminaiMcpState>,
-  Option<PathBuf>,
   Option<AgentLaunchPlan>,
   TerminAIConfig,
   ChatPosition,
@@ -438,7 +434,6 @@ async fn initialize_agent(
             None,
             None,
             None,
-            None,
             config,
             chat_position,
             Some(message),
@@ -449,14 +444,7 @@ async fn initialize_agent(
       let mcp_url = mcp.url.clone();
 
       let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-      let codex_cwd_hook_state_path =
-        codex_cwd_hook_state_path_for_config(&config);
-      let launch_context = if let Some(path) = &codex_cwd_hook_state_path {
-        AgentLaunchContext::new(cwd.clone(), mcp_url)
-          .with_codex_cwd_hook_command(codex_cwd_hook_command(path))
-      } else {
-        AgentLaunchContext::new(cwd.clone(), mcp_url)
-      };
+      let launch_context = AgentLaunchContext::new(cwd.clone(), mcp_url);
 
       let mut plan = match build_launch_plan(
         &config.agent,
@@ -472,7 +460,6 @@ async fn initialize_agent(
             fallback_rx,
             Some(mcp),
             Some(mcp_state),
-            codex_cwd_hook_state_path,
             None,
             config,
             chat_position,
@@ -492,7 +479,6 @@ async fn initialize_agent(
           fallback_rx,
           Some(mcp),
           Some(mcp_state),
-          codex_cwd_hook_state_path,
           None,
           config,
           chat_position,
@@ -508,7 +494,6 @@ async fn initialize_agent(
             rx,
             Some(mcp),
             Some(mcp_state),
-            codex_cwd_hook_state_path,
             Some(plan),
             config,
             chat_position,
@@ -524,7 +509,6 @@ async fn initialize_agent(
             fallback_rx,
             Some(mcp),
             Some(mcp_state),
-            codex_cwd_hook_state_path,
             Some(plan),
             config,
             chat_position,
@@ -542,7 +526,6 @@ async fn initialize_agent(
       return (
         None,
         fallback_rx,
-        None,
         None,
         None,
         None,
@@ -621,71 +604,6 @@ fn common_user_bin_dirs() -> Vec<PathBuf> {
   dirs
 }
 
-fn codex_cwd_hook_state_path_for_config(
-  config: &TerminAIConfig,
-) -> Option<PathBuf> {
-  if config.agent.effective_kind() != AgentKind::Codex {
-    return None;
-  }
-  Some(
-    std::env::temp_dir()
-      .join(format!("terminai-codex-cwd-{}.txt", std::process::id())),
-  )
-}
-
-fn shell_quote(value: &str) -> String {
-  if value.is_empty() {
-    return "''".to_string();
-  }
-  format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn codex_cwd_hook_command(state_path: &PathBuf) -> String {
-  let exe =
-    std::env::current_exe().unwrap_or_else(|_| PathBuf::from("terminai"));
-  format!(
-    "{} __terminai_codex_cwd_hook {}",
-    shell_quote(&exe.display().to_string()),
-    shell_quote(&state_path.display().to_string())
-  )
-}
-
-fn write_codex_cwd_hook_notice(path: &PathBuf, cwd: &PathBuf) -> Result<()> {
-  let notice = format!(
-    "Termin.AI context update: the user's terminal cwd is now {}.",
-    cwd.display()
-  );
-  let tmp = path.with_extension("tmp");
-  std::fs::write(&tmp, notice)?;
-  std::fs::rename(tmp, path)?;
-  Ok(())
-}
-
-fn run_codex_cwd_hook(state_path: PathBuf) -> Result<()> {
-  let notice = match std::fs::read_to_string(&state_path) {
-    Ok(notice) => notice,
-    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-    Err(err) => return Err(err.into()),
-  };
-
-  let _ = std::fs::remove_file(&state_path);
-  if notice.trim().is_empty() {
-    return Ok(());
-  }
-
-  println!("{}", codex_cwd_hook_output(&notice));
-  Ok(())
-}
-
-fn codex_cwd_hook_output(notice: &str) -> serde_json::Value {
-  serde_json::json!({
-    "hookSpecificOutput": {
-      "hookEventName": "UserPromptSubmit",
-      "additionalContext": notice
-    }
-  })
-}
-
 fn run_init_config(force: bool) -> Result<()> {
   let result = termin::terminai_config_init::init_config_files(force)?;
   println!(
@@ -744,34 +662,17 @@ fn rebuild_agent_launch_plan_for_cwd(
   plan: &AgentLaunchPlan,
   config: &TerminAIConfig,
   cwd: PathBuf,
-  codex_cwd_hook_state_path: Option<&PathBuf>,
 ) -> Result<AgentLaunchPlan> {
   let mcp_url = plan
     .env
     .get("TERMINAI_MCP_URL")
     .cloned()
     .unwrap_or_default();
-  let launch_context = if let Some(path) = codex_cwd_hook_state_path {
-    AgentLaunchContext::new(cwd, mcp_url)
-      .with_codex_cwd_hook_command(codex_cwd_hook_command(path))
-  } else {
-    AgentLaunchContext::new(cwd, mcp_url)
-  };
+  let launch_context = AgentLaunchContext::new(cwd, mcp_url);
   build_launch_plan(&config.agent, &config.agent_presets, &launch_context)
 }
 
 fn main() -> Result<()> {
-  let mut raw_args = std::env::args_os();
-  let _program = raw_args.next();
-  if let Some(first_arg) = raw_args.next() {
-    if first_arg == std::ffi::OsStr::new("__terminai_codex_cwd_hook") {
-      let Some(path) = raw_args.next() else {
-        return Ok(());
-      };
-      return run_codex_cwd_hook(PathBuf::from(path));
-    }
-  }
-
   let args = Args::parse();
   if let Some(CliCommand::InitConfig { force }) = args.subcommand {
     return run_init_config(force);
@@ -804,7 +705,6 @@ fn main() -> Result<()> {
     agent_event_rx,
     mcp_server,
     mcp_state,
-    codex_cwd_hook_state_path,
     agent_launch_plan,
     suggestion_rx,
     config,
@@ -857,7 +757,6 @@ fn main() -> Result<()> {
       .map(|plan| plan.cwd.clone())
       .or_else(|| std::env::current_dir().ok()),
     mcp_state,
-    codex_cwd_hook_state_path,
     shell,
     agent_terminal,
     _mcp_server: mcp_server,
@@ -914,7 +813,6 @@ fn main() -> Result<()> {
 struct AppState {
   shell_cwd: Option<PathBuf>,
   mcp_state: Option<TerminaiMcpState>,
-  codex_cwd_hook_state_path: Option<PathBuf>,
   shell: Shell,
   agent_terminal: Option<AgentTerminal>,
   _mcp_server: Option<McpServerHandle>,
@@ -1150,12 +1048,7 @@ impl AppState {
     self.shell_cwd = Some(cwd.clone());
 
     if let Some(plan) = self.agent_launch_plan.as_ref() {
-      match rebuild_agent_launch_plan_for_cwd(
-        plan,
-        &self.config,
-        cwd.clone(),
-        self.codex_cwd_hook_state_path.as_ref(),
-      ) {
+      match rebuild_agent_launch_plan_for_cwd(plan, &self.config, cwd.clone()) {
         Ok(plan) => self.agent_launch_plan = Some(plan),
         Err(err) => {
           log::error!("Failed to rebuild AI launch plan for cwd change: {err}");
@@ -1168,13 +1061,6 @@ impl AppState {
 
     if let Some(mcp_state) = &self.mcp_state {
       mcp_state.update_cwd(cwd);
-    }
-
-    if let Some(path) = &self.codex_cwd_hook_state_path
-      && let Err(err) =
-        write_codex_cwd_hook_notice(path, self.shell_cwd.as_ref().unwrap())
-    {
-      log::error!("Failed to write Codex cwd hook notice: {err}");
     }
   }
 
@@ -1778,34 +1664,6 @@ mod tests {
   }
 
   #[test]
-  fn codex_cwd_hook_output_matches_user_prompt_submit_schema() {
-    let output = codex_cwd_hook_output("cwd changed");
-
-    assert_eq!(
-      output["hookSpecificOutput"]["hookEventName"],
-      "UserPromptSubmit"
-    );
-    assert_eq!(
-      output["hookSpecificOutput"]["additionalContext"],
-      "cwd changed"
-    );
-    assert!(output.get("decision").is_none());
-  }
-
-  #[test]
-  fn codex_cwd_hook_notice_is_written_for_later_consumption() {
-    let path = std::env::temp_dir()
-      .join(format!("terminai-test-cwd-hook-{}.txt", std::process::id()));
-    let _ = std::fs::remove_file(&path);
-
-    write_codex_cwd_hook_notice(&path, &PathBuf::from("/tmp/project")).unwrap();
-
-    let notice = std::fs::read_to_string(&path).unwrap();
-    assert!(notice.contains("/tmp/project"));
-    let _ = std::fs::remove_file(&path);
-  }
-
-  #[test]
   fn cli_parses_init_config_subcommand() {
     let args =
       Args::try_parse_from(["terminai", "init-config", "--force"]).unwrap();
@@ -1854,7 +1712,6 @@ mod tests {
       &old_plan,
       &config,
       PathBuf::from("/new/project"),
-      Some(&PathBuf::from("/tmp/terminai-codex-cwd.txt")),
     )
     .unwrap();
 
@@ -1870,8 +1727,6 @@ mod tests {
       new_plan.env.get("TERMINAI_MCP_URL").map(String::as_str),
       Some("http://127.0.0.1:1234/mcp")
     );
-    assert!(new_plan.args.windows(2).any(|window| window[0] == "-c"
-      && window[1].contains("hooks.UserPromptSubmit")));
   }
 
   #[test]
