@@ -23,16 +23,6 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Install Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
     - name: Cache Rust dependencies
       uses: actions/cache@v4
       with:
@@ -45,62 +35,8 @@ jobs:
           ${{ runner.os }}-cargo-test-
           ${{ runner.os }}-cargo-
 
-    - name: Cache Python dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          python/.venv
-        key: ${{ runner.os }}-python-${{ hashFiles('python/uv.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-python-
-
-    - name: Set up Python agent
-      run: |
-        cd python
-        uv sync --frozen
-
     - name: Run Rust tests
       run: cargo test --release -p termin --lib
-
-  # Run Python tests in parallel
-  test-python:
-    name: Python Tests
-    runs-on: macos-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Install Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-    - name: Cache Python dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          python/.venv
-        key: ${{ runner.os }}-python-${{ hashFiles('python/uv.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-python-
-
-    - name: Set up Python agent
-      run: |
-        cd python
-        uv sync --frozen
-
-    - name: Run Python tests
-      run: |
-        cd python
-        uv run pytest
 
   # Build release binary in parallel
   build-release:
@@ -119,16 +55,6 @@ jobs:
         toolchain: stable
         profile: minimal
         override: true
-
-    - name: Install Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install uv
-      run: |
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
     - name: Cache Rust dependencies
       uses: actions/cache@v4
@@ -159,7 +85,6 @@ jobs:
     #
     #     # Verify installation
     #     ls -la "$INSTALL_DIR/bin/terminai"
-    #     ls -la "$INSTALL_DIR/lib/terminai/python/terminai_agent"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -167,5 +92,4 @@ jobs:
         name: terminai-macos-${{ github.sha }}
         path: |
           target/release/terminai
-          python/
         retention-days: 30

@@ -16,10 +16,6 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install dependencies for formula testing
-      run: |
-        brew install uv
-
     - name: Create temporary tap for testing
       run: |
         # Create a temporary tap structure

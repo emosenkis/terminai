@@ -28,7 +28,7 @@ class Terminai < Formula
   def caveats
     <<~EOS
       Termin.AI runs your configured CLI agent in a PTY-backed overlay.
-      It does not manage model providers or API keys itself.
+      It does not store AI credentials or choose models itself.
 
       Recommended setup:
         $ terminai init-config
