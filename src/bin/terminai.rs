@@ -681,8 +681,7 @@ fn main() -> Result<()> {
   // Setup logging to file with rotation
   termin::terminai_init::setup_logging()?;
 
-  // Load environment variables from terminai.env (for API keys)
-  // This must happen before AI initialization
+  // Load optional user environment variables from terminai.env.
   if let Err(e) = termin::env_loader::load_env_file() {
     log::error!("Failed to load terminai.env: {}", e);
     eprintln!("Error: {}", e);

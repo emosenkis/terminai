@@ -498,7 +498,6 @@ safe_commands = ["ls", "pwd"]
 - Event handling and rendering
 
 **`src/config.rs`** - Configuration
-- Load AI settings
 - Safety/privacy config
 - Keybindings
 - NO process management config
@@ -514,17 +513,14 @@ safe_commands = ["ls", "pwd"]
 - Command approval UI
 - Input handling
 
-**`src/llm/`** - LLM client
-- Multi-provider API client
-- Streaming responses
-- API key management
-- Provider abstraction
+**`src/agent_launcher.rs`** - CLI agent launch plans
+- Loads bundled YAML presets
+- Expands MCP/context templates
+- Resolves user preset overrides
 
-**`src/ai/`** - AI assistant
-- Conversation management
-- Context extraction from terminal
-- Prompt engineering
-- Response handling
+**`src/agent_terminal.rs`** - AI CLI terminal
+- PTY-backed agent process
+- Terminal rendering and input forwarding
 
 **`src/command/`** - Command handling
 - Parse commands from markdown

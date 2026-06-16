@@ -255,7 +255,7 @@ mod tests {
     assert!(presets.contains_key("codex"));
     assert!(presets.contains_key("claude"));
     assert!(presets.contains_key("opencode"));
-    assert!(!presets.contains_key("gemini"));
+    assert!(!presets.contains_key("deprecated-agent"));
     assert_eq!(
       presets.get("codex").unwrap().command.as_deref(),
       Some("codex")

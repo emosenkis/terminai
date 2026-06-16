@@ -63,38 +63,23 @@ impl App {
 - No focus management between components
 - Uses tui_textarea for input (single widget, no composability)
 
-### Current AI UI (src/ai_proc/ui.rs)
+### Current AI Terminal UI
 
 ```rust
-pub struct AIChatUI<'a> {
-    input: TextArea<'a>,  // tui_textarea widget
-}
-
-impl AIChatUI {
-    pub fn render(&mut self, process: &AIChatProcess, area: Rect, buf: &mut Buffer) {
-        // Layout: [conversation (min 3), input (3), error (3)]
-        // Render conversation as Paragraph with markdown
-        // Render input as TextArea
-        // Render approval popup if pending command
-    }
-
-    pub fn input_event(&mut self, event: impl Into<tui_textarea::Input>) {
-        self.input.input(event);
-    }
+pub struct App {
+    agent_terminal: Option<AgentTerminal>,
+    ai_visible: bool,
 }
 ```
 
-**Components in AI modal:**
-1. **Conversation view**: Scrollable markdown display (currently no scrollbar)
-2. **Input area**: Multi-line text input (tui_textarea)
-3. **Error message**: Optional error display
-4. **Approval popup**: Modal dialog for command approval (Y/N)
+**Components in AI overlay:**
+1. **Agent terminal**: Real PTY-backed CLI agent UI.
+2. **Host MCP server**: Exposes terminal context and shell-input suggestions.
+3. **Approval dialog**: Confirms suggested shell input before forwarding.
 
 **Current limitations:**
-- No focus management between components
-- No scrollbar on conversation view
-- Input is always "focused" when modal visible
-- Cannot navigate to buttons or other controls with keyboard
+- Overlay focus is binary: wrapped shell or AI terminal.
+- Approval flow is intentionally minimal.
 
 ---
 
@@ -1241,7 +1226,7 @@ AppEvent::SendAIMessage(msg, context) => {
 ### Code Locations
 
 - **Current terminai.rs**: `/var/home/eitan/projects/termin.ai/src/bin/terminai.rs`
-- **Current AI UI**: `/var/home/eitan/projects/termin.ai/src/ai_proc/ui.rs`
+- **Current AI terminal**: `/var/home/eitan/projects/termin.ai/src/agent_terminal.rs`
 - **rat-salsa examples**: `/var/home/eitan/projects/termin.ai/rat-salsa/rat-salsa/examples/`
 - **markdown-reader**: `/var/home/eitan/projects/termin.ai/tui-markdown/markdown-reader/src/`
 

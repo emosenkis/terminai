@@ -6,7 +6,7 @@
 #   ./scripts/install-macos.sh
 #
 # This script builds and installs Termin.AI on Mac OS.
-# It requires Rust, Python 3.11+, and uv to be installed.
+# It requires Rust to be installed.
 #
 
 set -e
@@ -43,35 +43,6 @@ fi
 
 echo_info "Rust version: $(rustc --version)"
 
-# Check for Python 3.11+
-if ! command -v python3 &> /dev/null; then
-  echo_error "Python 3 is not installed. Install from: https://www.python.org/"
-  exit 1
-fi
-
-PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-PYTHON_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
-PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
-
-echo_info "Python version: $PYTHON_VERSION"
-
-if [[ "$PYTHON_MAJOR" -lt 3 ]] || [[ "$PYTHON_MAJOR" -eq 3 && "$PYTHON_MINOR" -lt 11 ]]; then
-  echo_error "Python 3.11 or higher is required (found $PYTHON_VERSION)"
-  exit 1
-fi
-
-# Check for uv
-if ! command -v uv &> /dev/null; then
-  echo_warn "uv is not installed. Installing via Homebrew..."
-  if ! command -v brew &> /dev/null; then
-    echo_error "Homebrew is not installed. Install from: https://brew.sh/"
-    exit 1
-  fi
-  brew install uv
-fi
-
-echo_info "uv version: $(uv --version)"
-
 # Build the Rust binary (only terminai, not termcap test utility)
 echo_info "Building Rust binary..."
 cargo build --release -p termin --bin terminai
@@ -80,30 +51,16 @@ cargo build --release -p termin --bin terminai
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local}"
 BIN_DIR="$INSTALL_DIR/bin"
 LIB_DIR="$INSTALL_DIR/lib/terminai"
-PYTHON_DIR="$LIB_DIR/python"
 
 echo_info "Installing to: $INSTALL_DIR"
 
 # Create directories
 mkdir -p "$BIN_DIR"
-mkdir -p "$PYTHON_DIR"
 
 # Copy the binary
 echo_info "Installing binary to $BIN_DIR/terminai..."
 cp target/release/terminai "$BIN_DIR/terminai"
 chmod +x "$BIN_DIR/terminai"
-
-# Copy Python agent
-echo_info "Installing Python agent to $PYTHON_DIR..."
-cp -r python/terminai_agent "$PYTHON_DIR/"
-cp python/pyproject.toml "$PYTHON_DIR/"
-cp python/uv.lock "$PYTHON_DIR/"
-[ -f python/README.md ] && cp python/README.md "$PYTHON_DIR/"
-
-# Install Python dependencies
-echo_info "Installing Python dependencies with uv..."
-cd "$PYTHON_DIR"
-uv sync --frozen
 
 echo ""
 echo_info "Installation complete!"
@@ -120,12 +77,11 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   echo ""
 fi
 
-echo "To use Termin.AI, you need to set an API key:"
+echo "To use Termin.AI, install and authenticate a supported CLI agent:"
 echo ""
-echo "  export ANTHROPIC_API_KEY=\"sk-ant-...\"  # For Claude"
-echo "  export OPENAI_API_KEY=\"sk-...\"         # For GPT-4"
-echo "  export GEMINI_API_KEY=\"...\"            # For Gemini"
-echo "  export OPENROUTER_API_KEY=\"sk-or-...\"  # For OpenRouter"
+echo "  codex login"
+echo "  # or"
+echo "  claude auth"
 echo ""
 echo "Then run: terminai"
 echo ""

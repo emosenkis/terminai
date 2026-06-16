@@ -184,7 +184,7 @@ See the help window (`?` key) for complete keybindings.
 **Current Version:** 0.1.0 (Alpha)
 
 ### Completed ✅
-- LLM client with multi-provider support
+- PTY-backed CLI agent overlay
 - Command parsing and safety validation
 - Privacy filtering
 - Terminal virtualization
@@ -193,8 +193,6 @@ See the help window (`?` key) for complete keybindings.
 
 ### In Progress 🚧
 - Command execution workflow
-- Streaming AI responses in UI
-- Input handling in AI overlay
 - History persistence
 
 ### Planned 📋
@@ -256,9 +254,7 @@ Portions of terminal virtualization code are from [mprocs](https://github.com/pv
 ## Credits
 
 - **mprocs** by pvolok - Terminal virtualization foundation
-- **Anthropic Claude** - AI capabilities
 - **Ratatui** - Terminal UI framework
-- **genai** - Multi-provider LLM client
 
 ---
 

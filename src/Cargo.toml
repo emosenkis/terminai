@@ -79,7 +79,6 @@ itoa = "1"
 rustix = { version = "1", features = ["all-apis"] }
 signal-hook = "0.3"
 
-# TERMIN.AI: LLM client dependencies
 regex = "1.10"
 dotenvy = "0.15"
 tui-textarea = "0.7.0"
@@ -112,9 +111,6 @@ tempfile = "3.8"
 env_logger = "0.11"
 
 [features]
-# Enable integration tests that require a running Ollama instance
-# Run with: cargo test --features ollama-tests
-ollama-tests = []
 snapshot-tests = []
 
 [lints.clippy]

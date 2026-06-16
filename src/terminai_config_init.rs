@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub const DEFAULT_TERMINAI_YAML: &str = r#"# Termin.AI configuration
 #
 # This file lives in the Termin.AI config directory. Edit it to choose the
-# AI terminal agent, overlay behavior, providers, and custom agent presets.
+# AI terminal agent, overlay behavior, and custom agent presets.
 
 interface:
   chat-position: bottom
@@ -29,46 +29,13 @@ agent:
 # - config/general.yaml
 # Add overrides or new presets here using the same shape.
 agent-presets: {}
-
-providers:
-  - name: openai
-    display_name: OpenAI
-    api_key_env: OPENAI_API_KEY
-    models:
-      - name: GPT-5
-        model: gpt-5
-  - name: anthropic
-    display_name: Anthropic
-    api_key_env: ANTHROPIC_API_KEY
-    models:
-      - name: Claude Sonnet 4.5
-        model: claude-sonnet-4-5
-  - name: gemini
-    display_name: Gemini
-    api_key_env: GEMINI_API_KEY
-    models:
-      - name: Gemini 2.5 Pro
-        model: gemini-2.5-pro
-  - name: openrouter
-    display_name: OpenRouter
-    api_key_env: OPENROUTER_API_KEY
-    models: []
-  - name: ollama
-    display_name: Ollama
-    models: []
-
-default_model: openai/gpt-5
 "#;
 
 pub const DEFAULT_TERMINAI_ENV: &str = r#"# Termin.AI environment variables
 #
-# Add API keys here if you want Termin.AI to load them automatically.
+# Add environment variables here if you want Termin.AI to load them automatically.
 # This file is created with owner-only permissions on Unix.
 
-# OPENAI_API_KEY=
-# ANTHROPIC_API_KEY=
-# GEMINI_API_KEY=
-# OPENROUTER_API_KEY=
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -201,7 +168,7 @@ mod tests {
     assert!(
       std::fs::read_to_string(dir.join("terminai.env"))
         .unwrap()
-        .contains("OPENAI_API_KEY")
+        .contains("environment variables")
     );
 
     let _ = std::fs::remove_dir_all(result.config_dir);
@@ -213,8 +180,6 @@ mod tests {
       serde_yaml::from_str(DEFAULT_TERMINAI_YAML).unwrap();
 
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
-    assert_eq!(config.default_model, "openai/gpt-5");
-    assert!(config.find_provider("openai").is_some());
   }
 
   #[test]

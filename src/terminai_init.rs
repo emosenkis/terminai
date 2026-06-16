@@ -21,10 +21,9 @@ pub fn setup_logging() -> Result<()> {
   let cache_dir = get_cache_dir();
 
   #[cfg(debug_assertions)]
-  let log_spec =
-    "info,terminai=debug,genai=debug,reqwest=debug,tui_markdown=error";
+  let log_spec = "info,terminai=debug,tui_markdown=error";
   #[cfg(not(debug_assertions))]
-  let log_spec = "info,genai=debug,reqwest=debug,tui_markdown=error";
+  let log_spec = "info,tui_markdown=error";
 
   flexi_logger::Logger::try_with_env_or_str(log_spec)?
     .log_to_file(

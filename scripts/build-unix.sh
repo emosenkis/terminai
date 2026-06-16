@@ -52,9 +52,6 @@ cargo build -p termin --bin terminai --release --target=$TRIPLE
 
 cp target/$TRIPLE/release/terminai release/terminai-$VERSION-$OS_ARCH/terminai
 
-# Copy Python agent
-cp -r python release/terminai-$VERSION-$OS_ARCH/
-
 tar -czvf release/terminai-$VERSION-$OS_ARCH.tar.gz \
   -C release/terminai-$VERSION-$OS_ARCH \
-  terminai python
+  terminai

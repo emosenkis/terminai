@@ -12,83 +12,6 @@ use crate::{
   yaml_val::{Val, value_to_string},
 };
 
-// TERMIN.AI: Start - AI Configuration
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct AIConfig {
-  /// Whether AI assistance is enabled
-  #[serde(default = "default_ai_enabled")]
-  pub enabled: bool,
-
-  /// Provider name (anthropic, openai, gemini, ollama, openrouter)
-  #[serde(default = "default_provider")]
-  pub provider: String,
-
-  /// Model name (optional, uses provider default if not specified)
-  #[serde(default)]
-  pub model: Option<String>,
-
-  /// Custom endpoint URL (optional, for OpenRouter or custom deployments)
-  #[serde(default)]
-  pub endpoint: Option<String>,
-
-  /// Which environment variable to use for API key (optional)
-  /// If not specified, uses the provider's default env var
-  #[serde(default)]
-  pub api_key_env: Option<String>,
-}
-
-fn default_ai_enabled() -> bool {
-  false
-}
-
-fn default_provider() -> String {
-  "anthropic".to_string()
-}
-
-impl Default for AIConfig {
-  fn default() -> Self {
-    Self {
-      enabled: false,
-      provider: "anthropic".to_string(),
-      model: None,
-      endpoint: None,
-      api_key_env: None,
-    }
-  }
-}
-
-impl AIConfig {
-  /// Get the effective endpoint URL
-  /// For OpenRouter, defaults to https://openrouter.ai/api/v1 if not specified
-  pub fn effective_endpoint(&self) -> Option<String> {
-    if let Some(ref endpoint) = self.endpoint {
-      Some(endpoint.clone())
-    } else if self.provider == "openrouter" {
-      Some("https://openrouter.ai/api/v1".to_string())
-    } else {
-      None
-    }
-  }
-
-  /// Get the environment variable name to use for the API key
-  /// Uses api_key_env if specified, otherwise falls back to provider default
-  pub fn effective_api_key_env(&self) -> Option<String> {
-    if let Some(ref env_var) = self.api_key_env {
-      return Some(env_var.clone());
-    }
-
-    match self.provider.as_str() {
-      "anthropic" => Some("ANTHROPIC_API_KEY".to_string()),
-      "openai" => Some("OPENAI_API_KEY".to_string()),
-      "gemini" => Some("GEMINI_API_KEY".to_string()),
-      "openrouter" => Some("OPENROUTER_API_KEY".to_string()),
-      "ollama" => None,
-      _ => None,
-    }
-  }
-}
-// TERMIN.AI: End
-
 pub struct ConfigContext {
   pub path: PathBuf,
 }
@@ -101,8 +24,6 @@ pub struct Config {
   pub scrollback_len: usize,
   pub proc_list_width: usize,
   pub proc_list_title: String,
-  // TERMIN.AI: AI configuration
-  pub ai: Option<AIConfig>,
 }
 
 impl Config {
@@ -149,13 +70,6 @@ impl Config {
         settings.proc_list_title.clone()
       };
 
-    // TERMIN.AI: Parse AI configuration
-    let ai = if let Some(ai_val) = config.get(&Value::from("ai")) {
-      Some(serde_yaml::from_value(ai_val.raw().clone())?)
-    } else {
-      None
-    };
-
     let config = Config {
       procs,
       server,
@@ -164,7 +78,6 @@ impl Config {
       scrollback_len: settings.scrollback_len,
       proc_list_width: settings.proc_list_width,
       proc_list_title,
-      ai,
     };
 
     Ok(config)
@@ -179,7 +92,6 @@ impl Config {
       scrollback_len: settings.scrollback_len,
       proc_list_width: settings.proc_list_width,
       proc_list_title: settings.proc_list_title.clone(),
-      ai: None, // TERMIN.AI: Default to no AI config
     }
   }
 }
@@ -451,153 +363,4 @@ pub fn cmd_from_shell(shell: &str) -> CommandBuilder {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_ai_config_default() {
-    let config = AIConfig::default();
-    assert!(!config.enabled);
-    assert_eq!(config.provider, "anthropic");
-    assert!(config.model.is_none());
-    assert!(config.endpoint.is_none());
-    assert!(config.api_key_env.is_none());
-  }
-
-  #[test]
-  fn test_ai_config_effective_endpoint_none_for_standard_providers() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "anthropic".to_string(),
-      model: None,
-      endpoint: None,
-      api_key_env: None,
-    };
-    assert_eq!(config.effective_endpoint(), None);
-  }
-
-  #[test]
-  fn test_ai_config_effective_endpoint_custom() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "openai".to_string(),
-      model: None,
-      endpoint: Some("https://custom.endpoint.com/v1".to_string()),
-      api_key_env: None,
-    };
-    assert_eq!(
-      config.effective_endpoint(),
-      Some("https://custom.endpoint.com/v1".to_string())
-    );
-  }
-
-  #[test]
-  fn test_ai_config_effective_endpoint_openrouter_default() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "openrouter".to_string(),
-      model: Some("anthropic/claude-3-5-sonnet".to_string()),
-      endpoint: None,
-      api_key_env: None,
-    };
-    assert_eq!(
-      config.effective_endpoint(),
-      Some("https://openrouter.ai/api/v1".to_string())
-    );
-  }
-
-  #[test]
-  fn test_ai_config_effective_endpoint_openrouter_custom() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "openrouter".to_string(),
-      model: None,
-      endpoint: Some("https://custom-openrouter.com/v1".to_string()),
-      api_key_env: None,
-    };
-    assert_eq!(
-      config.effective_endpoint(),
-      Some("https://custom-openrouter.com/v1".to_string())
-    );
-  }
-
-  #[test]
-  fn test_ai_config_effective_api_key_env_default() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "anthropic".to_string(),
-      model: None,
-      endpoint: None,
-      api_key_env: None,
-    };
-    assert_eq!(
-      config.effective_api_key_env(),
-      Some("ANTHROPIC_API_KEY".to_string())
-    );
-  }
-
-  #[test]
-  fn test_ai_config_effective_api_key_env_custom() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "anthropic".to_string(),
-      model: None,
-      endpoint: None,
-      api_key_env: Some("MY_CUSTOM_KEY".to_string()),
-    };
-    assert_eq!(
-      config.effective_api_key_env(),
-      Some("MY_CUSTOM_KEY".to_string())
-    );
-  }
-
-  #[test]
-  fn test_ai_config_effective_api_key_env_openrouter() {
-    let config = AIConfig {
-      enabled: true,
-      provider: "openrouter".to_string(),
-      model: None,
-      endpoint: None,
-      api_key_env: None,
-    };
-    assert_eq!(
-      config.effective_api_key_env(),
-      Some("OPENROUTER_API_KEY".to_string())
-    );
-  }
-
-  #[test]
-  fn test_ai_config_yaml_deserialize() {
-    let yaml = r#"
-      enabled: true
-      provider: openai
-      model: gpt-4-turbo
-      endpoint: https://api.openai.com/v1
-      api_key_env: CUSTOM_OPENAI_KEY
-    "#;
-
-    let config: AIConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(config.enabled);
-    assert_eq!(config.provider, "openai");
-    assert_eq!(config.model, Some("gpt-4-turbo".to_string()));
-    assert_eq!(
-      config.endpoint,
-      Some("https://api.openai.com/v1".to_string())
-    );
-    assert_eq!(config.api_key_env, Some("CUSTOM_OPENAI_KEY".to_string()));
-  }
-
-  #[test]
-  fn test_ai_config_yaml_deserialize_minimal() {
-    let yaml = r#"
-      provider: gemini
-    "#;
-
-    let config: AIConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(!config.enabled); // Default is false
-    assert_eq!(config.provider, "gemini");
-    assert!(config.model.is_none());
-    assert!(config.endpoint.is_none());
-    assert!(config.api_key_env.is_none());
-  }
-}
+mod tests {}
