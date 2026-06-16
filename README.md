@@ -78,8 +78,8 @@ claude auth
 2. Create a config file (optional):
 ```bash
 mkdir -p ~/.config/terminai
-cp terminai.example.yaml ~/.config/terminai/config.yaml
-# Edit config.yaml to set your preferences
+cp terminai.example.yaml ~/.config/terminai/terminai.yaml
+# Edit terminai.yaml to set your preferences
 ```
 
 3. Launch Termin.AI:
