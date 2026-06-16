@@ -11,12 +11,11 @@ class Terminai < Formula
 
   def install
     # Build the Rust binary (only terminai, not termcap test utility)
-    system "cargo", "install", "--bin", "terminai", *std_cargo_args(path: "src")
+    system "cargo", "build", "--release", "-p", "termin", "--bin", "terminai"
 
-    # Move the binary to libexec and create a wrapper script at bin/terminai
-    mv bin/"terminai", libexec/"terminai-unwrapped"
+    # Install the binary to libexec and create a wrapper script at bin/terminai.
+    libexec.install "target/release/terminai" => "terminai-unwrapped"
 
-    # Create wrapper script.
     (bin/"terminai").write <<~EOS
       #!/bin/bash
       exec "#{libexec}/terminai-unwrapped" "$@"
