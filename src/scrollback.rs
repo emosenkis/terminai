@@ -229,6 +229,51 @@ pub fn render_scrollback_to_buffer<T: TermReplySender>(
   line_idx
 }
 
+pub fn render_rows_to_buffer(
+  rows: &[vt100::Row],
+  buf: &mut tui::buffer::Buffer,
+  start_x: u16,
+  start_y: u16,
+  max_width: u16,
+) -> usize {
+  let mut line_idx = 0;
+  for row in rows {
+    let row_cols = row.cols().min(max_width);
+    for col in 0..row_cols {
+      if let Some(buf_cell) =
+        buf.cell_mut((start_x + col, start_y + line_idx as u16))
+      {
+        if let Some(cell) = row.get(col) {
+          *buf_cell = cell.to_tui();
+          if !cell.has_contents() {
+            buf_cell.modifier |= Modifier::EMPTY;
+          }
+        }
+      }
+    }
+    line_idx += 1;
+  }
+  line_idx
+}
+
+pub fn process_pending_native_scrollback<T: TermReplySender + Clone>(
+  parser: &mut vt100::Parser<T>,
+  buf: &mut tui::buffer::Buffer,
+  area: tui::layout::Rect,
+) -> u16 {
+  let rows_to_scroll = parser
+    .pending_native_scrollback_len()
+    .min(area.height as usize);
+  if rows_to_scroll == 0 {
+    return 0;
+  }
+
+  let rows = parser.drain_pending_native_scrollback(rows_to_scroll);
+  render_rows_to_buffer(&rows, buf, area.x, area.y, area.width);
+
+  rows.len() as u16
+}
+
 /// High-level function to process scrollback injection in a single call.
 ///
 /// This combines detection, range calculation, and rendering into one

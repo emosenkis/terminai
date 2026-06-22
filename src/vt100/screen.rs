@@ -191,6 +191,17 @@ impl<Reply: TermReplySender> Screen<Reply> {
     self.grid().scrollback_len()
   }
 
+  pub fn pending_native_scrollback_len(&self) -> usize {
+    self.grid().pending_native_scrollback_len()
+  }
+
+  pub fn drain_pending_native_scrollback(
+    &mut self,
+    count: usize,
+  ) -> Vec<crate::vt100::row::Row> {
+    self.grid_mut().drain_pending_native_scrollback(count)
+  }
+
   pub fn set_scrollback(&mut self, rows: usize) {
     self.grid_mut().set_scrollback(rows);
   }

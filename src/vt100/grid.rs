@@ -17,6 +17,7 @@ pub struct Grid {
   saved_origin_mode: bool,
   scrollback_len: usize,
   scrollback_offset: usize,
+  pending_native_scrollback: VecDeque<crate::vt100::row::Row>,
 }
 
 impl Grid {
@@ -38,6 +39,7 @@ impl Grid {
       saved_origin_mode: false,
       scrollback_len,
       scrollback_offset: 0,
+      pending_native_scrollback: VecDeque::new(),
     }
   }
 
@@ -287,6 +289,15 @@ impl Grid {
     self.scrollback_offset
   }
 
+  pub fn pending_native_scrollback_len(&self) -> usize {
+    self.pending_native_scrollback.len()
+  }
+
+  pub fn drain_pending_native_scrollback(&mut self, count: usize) -> Vec<Row> {
+    let count = count.min(self.pending_native_scrollback.len());
+    self.pending_native_scrollback.drain(0..count).collect()
+  }
+
   pub fn set_scrollback(&mut self, rows: usize) {
     self.scrollback_offset = rows.min(self.row0());
   }
@@ -405,6 +416,7 @@ impl Grid {
       let removed = self.rows.remove(row0 + usize::from(self.scroll_top));
       if self.scrollback_len > 0 && !self.scroll_region_active() {
         if let Some(removed) = removed {
+          self.pending_native_scrollback.push_back(removed.clone());
           self.rows.insert(row0, removed);
         }
         while self.rows.len() - self.size.rows as usize > self.scrollback_len {

@@ -10,7 +10,8 @@
 
 use super::*;
 use crate::scrollback::{
-  ScrollbackTracker, process_scrollback, render_scrollback_to_buffer,
+  ScrollbackTracker, process_pending_native_scrollback, process_scrollback,
+  render_scrollback_to_buffer,
 };
 use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
@@ -83,6 +84,41 @@ fn test_process_scrollback_no_content() {
 
   assert_eq!(scroll_lines, 0);
   assert!(!tracker.has_pending_scrollback());
+}
+
+#[test]
+fn test_pending_native_scrollback_survives_vt_scrollback_cap() {
+  let mut parser = vt100::Parser::new(5, 40, 3, TestReplySender);
+
+  for i in 0..12 {
+    parser.process(format!("Line {i:02}\r\n").as_bytes());
+  }
+
+  assert_eq!(
+    parser.screen().scrollback_len(),
+    3,
+    "test should exercise a tiny capped VT scrollback"
+  );
+  assert!(
+    parser.screen().row0() <= 3,
+    "retained VT scrollback should have been capped"
+  );
+  assert!(
+    parser.pending_native_scrollback_len() > parser.screen().row0(),
+    "native delivery queue should retain rows independently of VT history"
+  );
+
+  let area = Rect::new(0, 0, 40, 5);
+  let mut first_frame = Buffer::empty(area);
+  let scrolled =
+    process_pending_native_scrollback(&mut parser, &mut first_frame, area);
+
+  assert_eq!(scrolled, 5);
+  assert_eq!(buffer_line(&first_frame, 0), "Line 00");
+  assert_eq!(buffer_line(&first_frame, 1), "Line 01");
+  assert_eq!(buffer_line(&first_frame, 2), "Line 02");
+  assert_eq!(buffer_line(&first_frame, 3), "Line 03");
+  assert_eq!(buffer_line(&first_frame, 4), "Line 04");
 }
 
 #[test]

@@ -58,6 +58,17 @@ impl<Reply: TermReplySender + Clone> Parser<Reply> {
     self.screen.set_scrollback(rows);
   }
 
+  pub fn pending_native_scrollback_len(&self) -> usize {
+    self.screen.pending_native_scrollback_len()
+  }
+
+  pub fn drain_pending_native_scrollback(
+    &mut self,
+    count: usize,
+  ) -> Vec<crate::vt100::row::Row> {
+    self.screen.drain_pending_native_scrollback(count)
+  }
+
   /// Returns a reference to a `Screen` object containing the terminal
   /// state.
   #[must_use]

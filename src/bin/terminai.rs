@@ -47,7 +47,9 @@ use termin::mcp_host::{
   McpServerHandle, TerminaiMcpState, start_http_mcp_server,
 };
 use termin::mouse::MouseEvent;
-use termin::scrollback::{ScrollbackTracker, process_scrollback};
+use termin::scrollback::{
+  ScrollbackTracker, process_pending_native_scrollback,
+};
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 
 use termin::shell::{Shell, ShellEvent, ShellSpawnOptions};
@@ -1204,12 +1206,11 @@ fn render(
 
   // Detect when content has scrolled in the VT100 terminal
   // and push scrolled lines to the host terminal's native scrollback
-  let scroll_up_lines = if let Ok(vt) = state.shell.vt.read() {
-    let screen = vt.screen();
+  let scroll_up_lines = if let Ok(mut vt) = state.shell.vt.write() {
     let buf = frame.buffer_mut();
-    process_scrollback(&mut state.scrollback_tracker, screen, buf, area)
+    process_pending_native_scrollback(&mut vt, buf, area)
   } else {
-    log::error!("Failed to acquire read lock on VT");
+    log::error!("Failed to acquire write lock on VT");
     0
   };
 
@@ -1218,7 +1219,12 @@ fn render(
     log::trace!(
       "Scrolling up {} lines (pending: {})",
       scroll_up_lines,
-      state.scrollback_tracker.has_pending_scrollback()
+      state
+        .shell
+        .vt
+        .read()
+        .map(|vt| vt.pending_native_scrollback_len() > 0)
+        .unwrap_or(false)
     );
     frame.set_scroll_up(scroll_up_lines);
   }
@@ -1382,10 +1388,9 @@ fn event(
   // Track if any state changed requiring re-render
   let mut shell_changed = state.process_agent_suggestions();
 
-  // Check for VT scrollback changes
+  // Check for VT rows waiting to be pushed into native scrollback.
   if let Ok(vt) = state.shell.vt.read() {
-    let screen = vt.screen();
-    if screen.total_rows() > state.scrollback_tracker.last_total_rows() {
+    if vt.pending_native_scrollback_len() > 0 {
       shell_changed = true;
     }
   } else {
