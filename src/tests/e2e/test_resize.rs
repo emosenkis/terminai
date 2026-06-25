@@ -17,6 +17,7 @@ use tui::{
   buffer::Cell,
   layout::{Position, Size},
   widgets::{Block, Widget},
+  TerminalOptions, Viewport,
 };
 
 #[derive(Debug)]
@@ -698,6 +699,62 @@ fn test_resize_after_ai_overlay_forces_blank_cells_to_redraw() {
   );
 
   insta::assert_snapshot!("resize_after_ai_overlay_corruption", report);
+}
+
+#[test]
+fn test_resize_after_native_scrollback_does_not_drift_into_lower_band() {
+  let backend = StickyClearBackend::new(16, 6);
+  let mut terminal = tui::Terminal::with_options(
+    backend,
+    TerminalOptions {
+      viewport: Viewport::Inline(6),
+    },
+  )
+  .unwrap();
+
+  terminal
+    .draw(|f| {
+      f.buffer_mut()
+        .set_string(0, 0, "shell row 0", tui::style::Style::reset());
+      f.set_scroll_up(1);
+      f.set_cursor_position(Position::new(0, 2));
+      f.render_widget(Block::bordered().title("AI"), f.area());
+    })
+    .unwrap();
+
+  terminal
+    .backend_mut()
+    .set_cursor_position(Position::new(0, 5))
+    .unwrap();
+  terminal.backend_mut().resize(16, 10);
+
+  let mut frame_area = None;
+  terminal
+    .draw(|f| {
+      let area = f.area();
+      frame_area = Some(area);
+      f.buffer_mut()
+        .set_string(area.x, area.y, "shell row 1", tui::style::Style::reset());
+      f.render_widget(Block::bordered().title("AI"), area);
+    })
+    .unwrap();
+
+  let actual = terminal.backend().buffer_lines();
+  let report = format!(
+    "After native scrollback leaves the physical cursor on the last row, a resize must still \
+     render the next frame from the top-left of the physical terminal.\n\
+     Frame area after resize: {:?}\n\n\
+     Physical screen after redraw:\n{}\n\n\
+     The modal must not be anchored in a lower screen band.",
+    frame_area.unwrap(),
+    actual
+      .iter()
+      .map(|line| format!("|{line}|"))
+      .collect::<Vec<_>>()
+      .join("\n")
+  );
+
+  insta::assert_snapshot!("resize_after_native_scrollback_lower_band", report);
 }
 
 #[test]
