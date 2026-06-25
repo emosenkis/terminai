@@ -703,16 +703,17 @@ fn test_resize_after_ai_overlay_forces_blank_cells_to_redraw() {
 #[test]
 fn test_resize_after_native_scrollback_does_not_drift_into_lower_band() {
   let backend = StickyClearBackend::new(16, 6);
-  let mut options = crate::terminai_init::terminal_options().ratatui_options;
-  if let tui::Viewport::Inline(height) = &mut options.viewport {
-    *height = 6;
-  }
-  let mut terminal = tui::Terminal::with_options(backend, options).unwrap();
+  let mut terminal =
+    crate::terminai_init::create_ratatui_terminal(backend).unwrap();
 
   terminal
     .draw(|f| {
-      f.buffer_mut()
-        .set_string(0, 0, "shell row 0", tui::style::Style::reset());
+      f.buffer_mut().set_string(
+        0,
+        0,
+        "shell row 0",
+        tui::style::Style::reset(),
+      );
       f.set_scroll_up(1);
       f.set_cursor_position(Position::new(0, 2));
       f.render_widget(Block::bordered().title("AI"), f.area());
@@ -730,8 +731,12 @@ fn test_resize_after_native_scrollback_does_not_drift_into_lower_band() {
     .draw(|f| {
       let area = f.area();
       frame_area = Some(area);
-      f.buffer_mut()
-        .set_string(area.x, area.y, "shell row 1", tui::style::Style::reset());
+      f.buffer_mut().set_string(
+        area.x,
+        area.y,
+        "shell row 1",
+        tui::style::Style::reset(),
+      );
       f.render_widget(Block::bordered().title("AI"), area);
     })
     .unwrap();

@@ -13,7 +13,11 @@ use crossterm::cursor::SetCursorStyle;
 use crossterm::event::KeyboardEnhancementFlags;
 use flexi_logger::{Cleanup, Criterion, FileSpec, Naming};
 use rat_salsa::terminal::{CrosstermTerminal, SalsaOptions};
-use tui::{TerminalOptions, Viewport};
+use std::io::stdout;
+use tui::{
+  Terminal, TerminalOptions, Viewport,
+  backend::{Backend, CrosstermBackend},
+};
 
 /// Setup logging to file with rotation
 pub fn setup_logging() -> Result<()> {
@@ -63,9 +67,30 @@ pub(crate) fn terminal_options() -> SalsaOptions {
   }
 }
 
+fn create_ratatui_terminal_with_options<B: Backend>(
+  backend: B,
+  options: &SalsaOptions,
+) -> Result<Terminal<B>> {
+  Ok(Terminal::with_options(
+    backend,
+    options.ratatui_options.clone(),
+  )?)
+}
+
+pub(crate) fn create_ratatui_terminal<B: Backend>(
+  backend: B,
+) -> Result<Terminal<B>> {
+  create_ratatui_terminal_with_options(backend, &terminal_options())
+}
+
 /// Create the terminal on the main screen with native scrollback support.
 pub fn create_terminal() -> Result<CrosstermTerminal> {
-  Ok(CrosstermTerminal::with_options(terminal_options())?)
+  let options = terminal_options();
+  let terminal = create_ratatui_terminal_with_options(
+    CrosstermBackend::new(stdout()),
+    &options,
+  )?;
+  Ok(CrosstermTerminal::from_ratatui_terminal(terminal, options))
 }
 
 /// Get the cache directory for terminai
