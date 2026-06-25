@@ -12,7 +12,122 @@
 use super::*;
 use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
-use tui::widgets::Widget;
+use tui::{
+  backend::{Backend, ClearType, TestBackend, WindowSize},
+  buffer::Cell,
+  layout::{Position, Size},
+  widgets::{Block, Widget},
+};
+
+#[derive(Debug)]
+struct StickyClearBackend {
+  inner: TestBackend,
+}
+
+impl StickyClearBackend {
+  fn new(width: u16, height: u16) -> Self {
+    Self {
+      inner: TestBackend::new(width, height),
+    }
+  }
+
+  fn resize(&mut self, width: u16, height: u16) {
+    self.inner.resize(width, height);
+  }
+
+  fn buffer_lines(&self) -> Vec<String> {
+    let buffer = self.inner.buffer();
+    buffer
+      .content
+      .chunks(buffer.area.width as usize)
+      .map(|row| row.iter().map(|cell| cell.symbol()).collect())
+      .collect()
+  }
+}
+
+impl Backend for StickyClearBackend {
+  fn draw<'a, I>(&mut self, content: I) -> std::io::Result<()>
+  where
+    I: Iterator<Item = (u16, u16, &'a Cell)>,
+  {
+    self.inner.draw(content)
+  }
+
+  fn hide_cursor(&mut self) -> std::io::Result<()> {
+    self.inner.hide_cursor()
+  }
+
+  fn show_cursor(&mut self) -> std::io::Result<()> {
+    self.inner.show_cursor()
+  }
+
+  fn get_cursor_position(&mut self) -> std::io::Result<Position> {
+    self.inner.get_cursor_position()
+  }
+
+  fn set_cursor_position<P: Into<Position>>(
+    &mut self,
+    position: P,
+  ) -> std::io::Result<()> {
+    self.inner.set_cursor_position(position)
+  }
+
+  fn clear(&mut self) -> std::io::Result<()> {
+    Ok(())
+  }
+
+  fn clear_region(&mut self, _clear_type: ClearType) -> std::io::Result<()> {
+    Ok(())
+  }
+
+  fn size(&self) -> std::io::Result<Size> {
+    self.inner.size()
+  }
+
+  fn window_size(&mut self) -> std::io::Result<WindowSize> {
+    self.inner.window_size()
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    self.inner.flush()
+  }
+
+  fn append_lines(&mut self, n: u16) -> std::io::Result<()> {
+    self.inner.append_lines(n)
+  }
+
+  fn scroll_region_up(
+    &mut self,
+    region: std::ops::Range<u16>,
+    line_count: u16,
+  ) -> std::io::Result<()> {
+    self.inner.scroll_region_up(region, line_count)
+  }
+
+  fn scroll_region_down(
+    &mut self,
+    region: std::ops::Range<u16>,
+    line_count: u16,
+  ) -> std::io::Result<()> {
+    self.inner.scroll_region_down(region, line_count)
+  }
+
+  #[cfg(feature = "native-scrolling")]
+  fn stream_lines_to_scrollback(
+    &mut self,
+    content: &[Cell],
+    width: u16,
+    line_count: u16,
+    screen_height: u16,
+  ) -> std::io::Result<()> {
+    self.inner.stream_lines_to_scrollback(
+      content,
+      width,
+      line_count,
+      screen_height,
+    )
+  }
+}
 
 /// Simple reply sender for testing (no-op implementation)
 #[derive(Clone)]
@@ -526,6 +641,63 @@ fn test_resize_widget_rendering_smaller() {
     .unwrap();
 
   harness.assert_buffer_contains("Short text");
+}
+
+#[test]
+fn test_resize_after_ai_overlay_forces_blank_cells_to_redraw() {
+  let backend = StickyClearBackend::new(10, 4);
+  let mut terminal = tui::Terminal::new(backend).unwrap();
+
+  terminal
+    .draw(|f| {
+      let area = f.area();
+      f.buffer_mut()
+        .set_string(0, 0, "shell", tui::style::Style::reset());
+      f.buffer_mut()
+        .set_string(2, 1, "AI MODAL", tui::style::Style::reset());
+      f.buffer_mut()
+        .set_string(2, 2, "Press", tui::style::Style::reset());
+      f.render_widget(
+        Block::bordered(),
+        tui::layout::Rect::new(1, 0, area.width - 2, area.height),
+      );
+    })
+    .unwrap();
+
+  terminal.backend_mut().resize(12, 4);
+
+  terminal
+    .draw(|f| {
+      f.buffer_mut()
+        .set_string(0, 0, "shell", tui::style::Style::reset());
+    })
+    .unwrap();
+
+  let expected = [
+    "shell       ",
+    "            ",
+    "            ",
+    "            ",
+  ];
+  let actual = terminal.backend().buffer_lines();
+  let report = format!(
+    "Resize while AI overlay is visible, then render the closed-overlay shell frame.\n\
+     Expected physical screen after redraw:\n{}\n\n\
+     Actual physical screen after redraw:\n{}\n\n\
+     Stale overlay glyphs in the actual screen prove that blank cells were not redrawn after resize.",
+    expected
+      .iter()
+      .map(|line| format!("|{line}|"))
+      .collect::<Vec<_>>()
+      .join("\n"),
+    actual
+      .iter()
+      .map(|line| format!("|{line}|"))
+      .collect::<Vec<_>>()
+      .join("\n")
+  );
+
+  insta::assert_snapshot!("resize_after_ai_overlay_corruption", report);
 }
 
 #[test]
