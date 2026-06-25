@@ -1,0 +1,19 @@
+---
+source: src/tests/e2e/test_resize.rs
+assertion_line: 700
+expression: report
+---
+Resize while AI overlay is visible, then render the closed-overlay shell frame.
+Expected physical screen after redraw:
+|shell       |
+|            |
+|            |
+|            |
+
+Actual physical screen after redraw:
+|shell       |
+|            |
+|            |
+|            |
+
+The actual screen must not contain stale AI overlay text or border glyphs.

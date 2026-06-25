@@ -684,7 +684,7 @@ fn test_resize_after_ai_overlay_forces_blank_cells_to_redraw() {
     "Resize while AI overlay is visible, then render the closed-overlay shell frame.\n\
      Expected physical screen after redraw:\n{}\n\n\
      Actual physical screen after redraw:\n{}\n\n\
-     Stale overlay glyphs in the actual screen prove that blank cells were not redrawn after resize.",
+     The actual screen must not contain stale AI overlay text or border glyphs.",
     expected
       .iter()
       .map(|line| format!("|{line}|"))
