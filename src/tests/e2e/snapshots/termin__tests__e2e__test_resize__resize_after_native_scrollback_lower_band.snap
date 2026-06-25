@@ -1,0 +1,20 @@
+---
+source: src/tests/e2e/test_resize.rs
+expression: report
+---
+After native scrollback leaves the physical cursor on the last row, a resize must still render the next frame from the top-left of the physical terminal.
+Frame area after resize: Rect { x: 0, y: 0, width: 16, height: 10 }
+
+Physical screen after redraw:
+|┌AI────────────┐|
+|│              │|
+|│              │|
+|│              │|
+|│              │|
+|│              │|
+|│              │|
+|│              │|
+|│              │|
+|└──────────────┘|
+
+The modal must not be anchored in a lower screen band.

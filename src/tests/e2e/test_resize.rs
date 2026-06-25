@@ -17,7 +17,6 @@ use tui::{
   buffer::Cell,
   layout::{Position, Size},
   widgets::{Block, Widget},
-  TerminalOptions, Viewport,
 };
 
 #[derive(Debug)]
@@ -704,13 +703,11 @@ fn test_resize_after_ai_overlay_forces_blank_cells_to_redraw() {
 #[test]
 fn test_resize_after_native_scrollback_does_not_drift_into_lower_band() {
   let backend = StickyClearBackend::new(16, 6);
-  let mut terminal = tui::Terminal::with_options(
-    backend,
-    TerminalOptions {
-      viewport: Viewport::Inline(6),
-    },
-  )
-  .unwrap();
+  let mut options = crate::terminai_init::terminal_options().ratatui_options;
+  if let tui::Viewport::Inline(height) = &mut options.viewport {
+    *height = 6;
+  }
+  let mut terminal = tui::Terminal::with_options(backend, options).unwrap();
 
   terminal
     .draw(|f| {

@@ -4,7 +4,7 @@
 //! testability and separation of concerns:
 //!
 //! - [`setup_logging`]: Configure file-based logging with rotation
-//! - [`create_terminal`]: Create the rat-salsa terminal with inline viewport
+//! - [`create_terminal`]: Create the rat-salsa terminal
 //! - [`get_cache_dir`]: Get the XDG cache directory for terminai
 //! - [`get_log_path`]: Get the full path to the log file
 
@@ -44,11 +44,8 @@ pub fn setup_logging() -> Result<()> {
   Ok(())
 }
 
-/// Create the terminal with inline mode (native scrollback support)
-pub fn create_terminal() -> Result<CrosstermTerminal> {
-  let (_, rows) = crossterm::terminal::size()?;
-
-  let options = SalsaOptions {
+pub(crate) fn terminal_options() -> SalsaOptions {
+  SalsaOptions {
     alternate_screen: false,
     mouse_capture: false, // Don't capture mouse - allow native scrolling
     bracketed_paste: true,
@@ -60,12 +57,15 @@ pub fn create_terminal() -> Result<CrosstermTerminal> {
       | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
     shutdown_clear: false,
     ratatui_options: TerminalOptions {
-      viewport: Viewport::Inline(rows),
+      viewport: Viewport::Fullscreen,
     },
     ..Default::default()
-  };
+  }
+}
 
-  Ok(CrosstermTerminal::with_options(options)?)
+/// Create the terminal on the main screen with native scrollback support.
+pub fn create_terminal() -> Result<CrosstermTerminal> {
+  Ok(CrosstermTerminal::with_options(terminal_options())?)
 }
 
 /// Get the cache directory for terminai
