@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Terminai is an AI terminal overlay for Codex, Claude Code, and custom CLI agents.">
+    <meta property="og:title" content="Terminai">
+    <meta property="og:description" content="A transparent terminal wrapper that gives your AI CLI agent live terminal context and approved shell suggestions.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://terminai.app">
+    <meta name="theme-color" content="#0b1020">
+    <title>Terminai | AI in your real terminal</title>
+    <link rel="canonical" href="https://terminai.app">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header" aria-label="Primary">
+      <a class="brand" href="#top" aria-label="Terminai home">
+        <span class="brand-mark">t</span>
+        <span>Terminai</span>
+      </a>
+      <nav>
+        <a href="#workflow">Workflow</a>
+        <a href="#agents">Agents</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/emosenkis/termin.ai">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">AI terminal overlay for real CLI agents</p>
+          <h1 id="hero-title">Terminai</h1>
+          <p class="hero-lede">
+            Keep your shell as the source of truth. Press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to open Codex, Claude Code, or your own agent in a live terminal overlay with safe access to the session underneath.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#install">Install</a>
+            <a class="button secondary" href="https://github.com/emosenkis/termin.ai">View source</a>
+          </div>
+        </div>
+
+        <div class="terminal-demo" aria-label="Terminai terminal overlay example">
+          <div class="terminal-topbar">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">~/project - terminai</span>
+          </div>
+          <div class="terminal-grid">
+            <pre class="shell-pane" aria-label="Wrapped shell output"><span class="muted">$</span> npm run build
+
+<span class="danger">Error: Cannot find module 'react-router-dom'</span>
+  imported from src/App.tsx
+
+<span class="muted">Press Ctrl+Space</span></pre>
+            <div class="agent-pane" aria-label="AI overlay">
+              <div class="pane-title">AI Assistant - Codex</div>
+              <pre><span class="user">You:</span> why did this fail?
+
+<span class="ai">Codex:</span> The build is failing because the package is not installed in this project. I can queue the install command for your approval.
+
+<span class="tool">suggest_input</span> npm install react-router-dom</pre>
+            </div>
+            <div class="approval" aria-label="Shell input approval">
+              <strong>The AI suggests shell input</strong>
+              <code>npm install react-router-dom</code>
+              <span>Approve? <b>Y</b> / N</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="signal-band" aria-label="Highlights">
+        <div>
+          <strong>Real terminal IO</strong>
+          <span>Your agent runs in a PTY, not a web chat imitation.</span>
+        </div>
+        <div>
+          <strong>MCP context</strong>
+          <span>Agents can read terminal state through Terminai tools.</span>
+        </div>
+        <div>
+          <strong>Approval first</strong>
+          <span>Suggested shell input waits for your confirmation.</span>
+        </div>
+      </section>
+
+      <section class="section" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-heading">
+          <p class="eyebrow">How it feels</p>
+          <h2 id="workflow-title">A shell that can explain itself</h2>
+          <p>Terminai stays out of the way until you need help. The overlay is a real terminal running the agent you already use, with controlled access to the wrapped shell.</p>
+        </div>
+
+        <div class="examples">
+          <article class="example-card">
+            <h3>Read the current terminal</h3>
+            <pre class="mini-terminal"><span class="muted">$</span> git status --short
+ M src/app.rs
+?? docs/index.html
+
+<span class="user">You:</span> summarize what I changed
+<span class="ai">Claude:</span> You have one Rust modification and a new Pages file. I can inspect the diff before suggesting next steps.</pre>
+          </article>
+
+          <article class="example-card">
+            <h3>Queue safe shell input</h3>
+            <pre class="mini-terminal"><span class="user">You:</span> run the focused test
+<span class="ai">Codex:</span> I found a matching test target.
+
+<span class="tool">suggest_input</span>
+cargo test -p termin agent_launcher
+
+<span class="ok">Waiting for approval...</span></pre>
+          </article>
+
+          <article class="example-card">
+            <h3>Bring your own agent</h3>
+            <pre class="mini-terminal"><span class="muted">agent:</span>
+  kind: custom
+  command: my-agent
+  args:
+    - --mcp-url
+    - "{mcp_url}"
+    - "{context_prompt}"</pre>
+          </article>
+        </div>
+      </section>
+
+      <section class="section split" id="agents" aria-labelledby="agents-title">
+        <div class="section-heading">
+          <p class="eyebrow">Agent support</p>
+          <h2 id="agents-title">Use the AI CLI you trust</h2>
+          <p>Terminai does not own your model credentials or provider routing. Your configured CLI handles auth and model selection; Terminai provides the terminal wrapper, MCP server, and approval flow.</p>
+        </div>
+        <div class="agent-list" aria-label="Supported agent types">
+          <div>
+            <span class="badge">Codex</span>
+            <p>Bundled preset injects Terminai MCP tools and context into Codex.</p>
+          </div>
+          <div>
+            <span class="badge">Claude Code</span>
+            <p>Bundled preset starts Claude with a strict MCP config and Terminai system context.</p>
+          </div>
+          <div>
+            <span class="badge">Custom</span>
+            <p>Point Terminai at any CLI that can consume the MCP URL and context prompt.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section install" id="install" aria-labelledby="install-title">
+        <div class="section-heading">
+          <p class="eyebrow">Get started</p>
+          <h2 id="install-title">Install, authenticate, launch</h2>
+          <p>Install Terminai, sign in to your preferred AI CLI, then start a wrapped shell.</p>
+        </div>
+        <div class="install-grid">
+          <div>
+            <h3>Homebrew</h3>
+            <pre><code>brew tap emosenkis/termin.ai https://github.com/emosenkis/termin.ai.git
+brew install terminai</code></pre>
+          </div>
+          <div>
+            <h3>Source</h3>
+            <pre><code>git clone https://github.com/emosenkis/termin.ai.git
+cd termin.ai
+cargo build --release -p termin</code></pre>
+          </div>
+          <div>
+            <h3>Config</h3>
+            <pre><code>mkdir -p ~/.config/terminai
+terminai init-config
+terminai</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Terminai is MIT licensed.</span>
+      <a href="https://github.com/emosenkis/termin.ai">github.com/emosenkis/termin.ai</a>
+    </footer>
+  </body>
+</html>
