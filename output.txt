@@ -1,0 +1,43 @@
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      ┌ AI Terminal ────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                     │
+│                                                                     │
+│Press Enter to relaunch.                                             │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     ┌┌┌┌ ┌┌┌┌ ┌┌┌ ┌┌┌┌┌┌┌┌┌┌┌┌┌┌┌ AI Terminal ───────────────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                                │
+│                                                                                                │
+│Press Enter to relaunch.                                                                        │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+│                                                                                                │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
+    ujust --choose                                          │ Show available commands
+                      
+    ujust toggle-user-motd                                  │ Toggle this banner on/off
+                      
+    ujust aurora-cli                                        │ Enable terminal bling
+                      
+    brew help                                               │ Manage command line packages
+                      
+                                                                                                  
+                      
+  Like servers? Check out ucore https://github.com/ublue-os/ucore                                 
+                      
+                                                                                                  
+                      
+  • 󰊤 Issues https://github.com/ublue-os/aurora/issues                                            

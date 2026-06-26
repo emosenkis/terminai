@@ -1,0 +1,544 @@
+                                         │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                        │
+│                                                                                        │
+│Press Enter to relaunch.                                                                │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+eitan at aurora in /var/home/eitan   New deployment staged 🤖                            
+➜                                                                                         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                        │
+│                                                                                        │
+│Press Enter to relaunch.                                                                │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+  • 󰙯 Discord https://discord.getaurora.dev                                               
+                                                                                          
+                                                                                          
+                                                                                          
+eitan at aurora in /var/home/eitan   New deployment staged 🤖                            
+➜                                                                                         
+
+
+
+
+
+
+
+
+
+
+┌ AI Terminal ──────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                       │
+│                                                                                       │
+│Press Enter to relaunch.                                                               │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+  • 󰈙 Documentation https://docs.getaurora.dev/guides/basic-usage                        
+                                                                                         
+  • 󰊌 Discuss https://github.com/ublue-os/aurora/discussions                             
+                                                                                         
+  • 󰙯 Discord https://discord.getaurora.dev                                              
+                                                                                         
+                                                                                         
+                                                                                         
+eitan at aurora in /var/home/eitan   New deployment staged 🤖                           
+➜                                                                                        
+
+
+┌ AI Terminal ──────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                       │
+│                                                                                       │
+│Press Enter to relaunch.                                                               │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+  • 󰊤 Issues https://github.com/ublue-os/aurora/issues                                   
+                                                                                         
+  • 󰈙 Documentation https://docs.getaurora.dev/guides/basic-usage                        
+                                                                                         
+  • 󰊌 Discuss https://github.com/ublue-os/aurora/discussions                             
+                                                                                         
+  • 󰙯 Discord https://discord.getaurora.dev                                              
+                                                                                         
+┌ AI Terminal ──────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                       │
+│                                                                                       │
+│Press Enter to relaunch.                                                               │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+                                                                                         
+  • 󰊤 Issues https://github.com/ublue-os/aurora/issues                                   
+                                                                                         
+  • 󰈙 Documentation https://docs.getaurora.dev/guides/basic-usage                        
+┌ AI Terminal ──────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                       │
+│                                                                                       │
+│Press Enter to relaunch.                                                               │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+│                                                                                       │
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                        │
+│                                                                                        │
+│Press Enter to relaunch.                                                                │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                        │
+│                                                                                        │
+│Press Enter to relaunch.                                                                │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                        │
+│                                                                                        │
+│Press Enter to relaunch.                                                                │
+│                                                                                        │
+│                                                                                        │
+│                                                                                        │
+┌ AI Terminal ────────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                         │
+│                                                                                         │
+│Press Enter to relaunch.                                                                 │
+│                                                                                         │
+│                                                                                         │
+┌ AI Terminal ────────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                         │
+│                                                                                         │
+│Press Enter to relaunch.                                                                 │
+│                                                                                         │
+│                                                                                         │
+│                                                                                         │
+│                                                                                         │
+│                                                                                         │
+│                                                                                         │
+│                                                                                         │
+│                                                                                       ┌ AI Terminal ──────────────────────────────────────────────────────────────────────────│AI process exited with status 2.                                                       │                                                                                   ┌ AI Terminal ─────────────────────────────────────────────────────────────────────────┌ AI Terminal ────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                     │
+│                                                                                     │
+│Press Enter to relaunch.                                                             │
+│                                                                                     │
+│                                                                                     │
+│                                                                                     │
+│                                                                                     │
+│                                                                                     │
+│                                                                                     │
+│                                                                                     │
+│                                                                                    ┌ AI Terminal ──────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                   │
+│                                                                                   │
+│Press Enter to relaunch.                                                           │
+│                                                                                   │
+│                                                                                   │
+│                                                                                   │
+│                                                                                   │
+│                                                                                   │
+│                                                                                   │
+│                                                                                   │
+│                                                                                  ┌ AI Terminal ────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                 │
+│                                                                                 │
+│Press Enter to relaunch.                                                         │
+│                                                                                 │
+│                                                                                 │
+│                                                                                 │
+│                                                                                 │
+│                                                                                 │
+│                                                                                 │
+│                                                                                 │
+│                                                                                 ┌ AI Terminal ───────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                │
+│                                                                                │
+│Press Enter to relaunch.                                                        │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                               ┌ AI Terminal ─────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                              │
+│                                                                              │
+│Press Enter to relaunch.                                                      │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                             ┌ AI Terminal ───────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                            │
+│                                                                            │
+│Press Enter to relaunch.                                                    │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            ┌ AI Terminal ──────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                           │
+│                                                                           │
+│Press Enter to relaunch.                                                   │
+│                                                                           │
+│                                                                           │
+│                                                                           │
+│                                                                           │
+│                                                                           │
+│                                                                           │
+│                                                                           │
+│                                                                           ┌ AI Terminal ─────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                          │
+│                                                                          │
+│Press Enter to relaunch.                                                  │
+│                                                                          │
+│                                                                          │
+│                                                                          │
+│                                                                          │
+│                                                                          │
+│                                                                          │
+│                                                                          │
+│                                                                        ┌ AI Terminal ───────────────────────────────────────────────────────────┌ AI Terminal ──────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                       │
+│                                                                       │
+│Press Enter to relaunch.                                               │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       ┌ AI Terminal ─────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                      │
+│                                                                      │
+│Press Enter to relaunch.                                              │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      │
+│                                                                      ┌ AI Terminal ────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                     │
+│                                                                     │
+│Press Enter to relaunch.                                             │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                     │
+│                                                                    ┌ AI Terminal ──────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                   │
+│                                                                   │
+│Press Enter to relaunch.                                           │
+│                                                                   │
+│                                                                   │
+│                                                                   │
+│                                                                   │
+│                                                                   │
+│                                                                   │
+│                                                                   │
+│                                                                   ┌ AI Terminal ─────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                  │
+│                                                                  │
+│Press Enter to relaunch.                                          │
+│                                                                  │
+│                                                                  │
+│                                                                  │
+│                                                                  │
+│                                                                  │
+│                                                                  │
+│                                                                  │
+│                                                                 ┌ AI Terminal ───────────────────────────────────────────────────┐
+│AI process exited with status 2.                                ┌ AI Terminal ──────────────────────────────────────────────────┐
+│AI process exited with status 2.                               │
+│                                                               │
+│Press Enter to relaunch.                                       │
+│                                                               │
+│                                                               │
+│                                                               │
+│                                                               │
+│                                                               │
+│                                                               │
+│                                                               │
+│                                                               │
+┌ AI Terminal ─────────────────────────────────────────────────┐
+│AI process exited with status 2.                              │
+│                                                              │
+│Press Enter to relaunch.                                      │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+┌ AI Terminal ────────────────────────────────────────────────┐
+│AI process exited with status 2.                             │
+│                                                             │
+│Press Enter to relaunch.                                     │
+│                                                             │
+│                                                             │
+│                                                             │
+│                                                             │
+│                                                             │
+│                                                             │
+│                                                             │
+│                                                             │
+│                                                            ┌ AI Terminal ──────────────────────────────────────────────┐
+│AI process exited with status 2.                           │
+│                                                           │
+│Press Enter to relaunch.                                   │
+│                                                           │
+│                                                           │
+│                                                           │
+│                                                           │
+│                                                           │
+│                                                           │
+│                                                           │
+│                                                           │
+│                                                           ┌ AI Terminal ─────────────────────────────────────────────┐
+│AI process exited with status 2.                          │
+│                                                          │
+│Press Enter to relaunch.                                  │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+┌ AI Terminal ────────────────────────────────────────────┐
+│AI process exited with status 2.                         │
+│                                                         │
+│Press Enter to relaunch.                                 │
+│                                                         │
+│                                                         │
+│                                                         │
+│                                                         │
+│                                                         │
+│                                                         │
+│                                                         │
+│                                                         │
+│                                                         │
+┌ AI Terminal ──────────────────────────────────────────┐
+│AI process exited with status 2.                       │
+│                                                       │
+│Press Enter to relaunch.                               │
+│                                                       │
+│                                                       │
+│                                                       │
+│                                                       │
+│                                                       │
+│                                                       │
+│                                                       │
+│                                                       │
+│                                                       │
+┌ AI Terminal ────────────────────────────────────────┐
+│AI process exited with status 2.                     │
+│                                                     │
+│Press Enter to relaunch.                             │
+│                                                     │
+│                                                     │
+│                                                     │
+│                                                     │
+│                                                     │
+│                                                     │
+│                                                     │
+│                                                     │
+│                                                     │
+┌ AI Terminal ───────────────────────────────────────┐
+│AI process exited with status 2.                    │
+│                                                    │
+│Press Enter to relaunch.                            │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+│                                                    │
+┌ AI Terminal ──────────────────────────────────────┐
+│AI process exited with status 2.                   │
+│                                                   │
+│Press Enter to relaunch.                           │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   │
+│                                                   ┌ AI Terminal ─────────────────────────────────────┐
+│AI process exited with status 2.                  │
+│                                                  │
+│Press Enter to relaunch.                          │
+│                                                  │
+│                                                  │
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────────────────────────────────┌ AI Terminal ─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                                                  │
+│                                                                                                                  │
+│Press Enter to relaunch.                                                                                          │
+│                                                                                                                  │
+│                                                                                                                  │
+│                                                                                                                  │
+│                                                                                                                  │
+│                                                                                                                  │
+│                                                                                                                  │
+│                                                                                                                  │
+│                                                                                                                  ┌ AI Terminal ────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                                                 │
+│                                                                                                                 │
+│Press Enter to relaunch.                                                                                         │
+│                                                                                                                 │
+│                                                                                                                 │
+│                                                                                                                 │
+│                                                                                                                 │
+│                                                                                                                 │
+│                                                                                                                 │
+│                                                                                                                 │
+                                                                                                                  
+┌ AI Terminal ───────────────────────────────────────────────────────────────────────────────────────────────────┐
+│AI process exited with status 2.                                                                                │
+│                                                                                                                │
+│Press Enter to relaunch.                                                                                        │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+│                                                                                                                │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                                                                                  
+                                                                                                                  
+  KDE powers your desktop! Donate to KDE https://kde.org/donate                                                   
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+  • 󰊤 Issues https://github.com/ublue-os/aurora/issues                                                            
+                                                                                                                  
+  • 󰈙 Documentation https://docs.getaurora.dev/guides/basic-usage                                                 
+                                                                                                                  
+  • 󰊌 Discuss https://github.com/ublue-os/aurora/discussions                                                      
+                                                                                                                  
+  • 󰙯 Discord https://discord.getaurora.dev                                                                       
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+eitan at aurora in /var/home/eitan   New deployment staged 🤖                                                    
+➜                                                                                                                 
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  
+                                                                                                                  

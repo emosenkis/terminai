@@ -219,14 +219,14 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
   for arg in args {
     expanded.push(
       arg
-        .replace("{cwd}", &cwd)
-        .replace("{mcp_url}", &context.mcp_url)
-        .replace("{mcp_url_toml}", &toml_string(&context.mcp_url))
+        .replace("{{cwd}}", &cwd)
+        .replace("{{mcp_url}}", &context.mcp_url)
+        .replace("{{toml mcp_url}}", &toml_string(&context.mcp_url))
+        .replace("{{context_prompt}}", &context.context_prompt)
         .replace(
-          "{context_prompt_toml}",
+          "{{toml context_prompt}}",
           &toml_string(&context.context_prompt),
-        )
-        .replace("{context_prompt}", &context.context_prompt),
+        ),
     );
   }
 

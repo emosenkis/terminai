@@ -2,7 +2,7 @@ claude:
   command: claude
   args:
     - --append-system-prompt
-    - "{context_prompt}"
+    - "{{context_prompt}}"
     - --mcp-config
-    - '{"mcpServers":{"terminai":{"type":"http","url":"{mcp_url}"}}}'
+    - '{"mcpServers":{"terminai":{"type":"http","url":"{{mcp_url}}"}}}'
     - --strict-mcp-config

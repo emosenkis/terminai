@@ -1,4 +1,4 @@
 opencode:
   command: opencode
   args:
-    - "{context_prompt}"
+    - "{{context_prompt}}"

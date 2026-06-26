@@ -1,17 +1,11 @@
 codex:
   command: codex
   args:
-    - --cd
-    - "{cwd}"
-    - --sandbox
-    - workspace-write
-    - --ask-for-approval
-    - on-request
     - --no-alt-screen
     - -c
-    - "developer_instructions={context_prompt_toml}"
+    - "developer_instructions={{toml context_prompt}}"
     - -c
-    - "mcp_servers.terminai.url={mcp_url_toml}"
+    - "mcp_servers.terminai.url={{toml mcp_url}}"
     - -c
     - 'mcp_servers.terminai.enabled_tools=["check_for_updates","read_terminal","get_terminal_context","suggest_input","get_suggestion_status"]'
     - -c
