@@ -7,7 +7,11 @@ use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
 use crokey::{Combiner, KeyCombination};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
-use crossterm::terminal::disable_raw_mode;
+use crossterm::{
+  cursor::MoveTo,
+  execute,
+  terminal::{Clear as TerminalClear, ClearType, disable_raw_mode},
+};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::Write;
@@ -337,13 +341,12 @@ impl PollEvents<AppEvent, Error> for PollShell {
 // Use TerminalWidget from ui_layer module
 use termin::ui_layer::TerminalWidget;
 
-/// Helper to initialize shell and AI process asynchronously
+/// Helper to initialize shell and prepare AI integration asynchronously
 async fn initialize_app_components(
   command: Vec<String>,
 ) -> Result<(
   Shell,
   UnboundedReceiver<ShellEvent>,
-  Option<AgentTerminal>,
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
   Option<TerminaiMcpState>,
@@ -373,7 +376,6 @@ async fn initialize_app_components(
 
   let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
   let (
-    agent,
     agent_rx,
     mcp_server,
     mcp_state,
@@ -381,12 +383,11 @@ async fn initialize_app_components(
     config,
     chat_position,
     config_error,
-  ) = initialize_agent(&shell, suggestion_tx, rows, cols).await;
+  ) = prepare_agent(&shell, suggestion_tx).await;
 
   Ok((
     shell,
     shell_event_rx,
-    agent,
     agent_rx,
     mcp_server,
     mcp_state,
@@ -398,14 +399,11 @@ async fn initialize_app_components(
   ))
 }
 
-/// Initialize external AI CLI terminal.
-async fn initialize_agent(
+/// Prepare external AI CLI configuration without launching the AI process.
+async fn prepare_agent(
   shell: &Shell,
   suggestion_tx: mpsc::UnboundedSender<PendingCommand>,
-  rows: u16,
-  cols: u16,
 ) -> (
-  Option<AgentTerminal>,
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
   Option<TerminaiMcpState>,
@@ -431,7 +429,6 @@ async fn initialize_agent(
           let message = format!("Failed to start Termin.AI MCP server: {err}");
           log::error!("{}", message);
           return (
-            None,
             fallback_rx,
             None,
             None,
@@ -458,7 +455,6 @@ async fn initialize_agent(
           let message = format!("Failed to build AI CLI launch plan: {err}");
           log::error!("{}", message);
           return (
-            None,
             fallback_rx,
             Some(mcp),
             Some(mcp_state),
@@ -471,53 +467,15 @@ async fn initialize_agent(
       };
       normalize_agent_launch_plan_env(&mut plan);
 
-      let available = agent_command_available(&plan);
-      if !available {
-        let message =
-          format!("Configured AI CLI '{}' was not found in PATH", plan.command);
-        log::warn!("{}", message);
-        return (
-          None,
-          fallback_rx,
-          Some(mcp),
-          Some(mcp_state),
-          None,
-          config,
-          chat_position,
-          Some(message),
-        );
-      }
-
-      match spawn_agent_from_plan(&plan, rows, cols) {
-        Ok((agent, rx)) => {
-          log::info!("AI CLI terminal started: {}", plan.command);
-          return (
-            Some(agent),
-            rx,
-            Some(mcp),
-            Some(mcp_state),
-            Some(plan),
-            config,
-            chat_position,
-            None,
-          );
-        }
-        Err(err) => {
-          let message =
-            format!("Failed to start AI CLI '{}': {err}", plan.command);
-          log::error!("{}", message);
-          return (
-            None,
-            fallback_rx,
-            Some(mcp),
-            Some(mcp_state),
-            Some(plan),
-            config,
-            chat_position,
-            Some(message),
-          );
-        }
-      }
+      return (
+        fallback_rx,
+        Some(mcp),
+        Some(mcp_state),
+        Some(plan),
+        config,
+        chat_position,
+        None,
+      );
     }
     Err(e) => {
       let error_msg = format!("{:#}", e);
@@ -526,7 +484,6 @@ async fn initialize_agent(
         error_msg
       );
       return (
-        None,
         fallback_rx,
         None,
         None,
@@ -622,6 +579,12 @@ fn run_init_config(force: bool) -> Result<()> {
   Ok(())
 }
 
+fn clear_host_terminal() -> std::io::Result<()> {
+  let mut stdout = std::io::stdout();
+  execute!(stdout, TerminalClear(ClearType::All), MoveTo(0, 0))?;
+  stdout.flush()
+}
+
 fn percent_decode_path(input: &str) -> String {
   let mut output = Vec::with_capacity(input.len());
   let bytes = input.as_bytes();
@@ -691,18 +654,18 @@ fn main() -> Result<()> {
   }
 
   log::info!("Termin.AI starting");
+  clear_host_terminal()?;
 
   // Create tokio runtime for async operations
   // NOTE: PollTokio requires manual runtime initialization (cannot use #[tokio::main])
   log::debug!("Creating tokio runtime");
   let tokio_rt = tokio::runtime::Runtime::new()?;
 
-  // Initialize shell and AI asynchronously
+  // Initialize shell and prepare AI integration asynchronously
   log::debug!("Initializing shell and AI components");
   let (
     shell,
     shell_event_rx,
-    agent_terminal,
     agent_event_rx,
     mcp_server,
     mcp_state,
@@ -713,8 +676,7 @@ fn main() -> Result<()> {
     config_error,
   ) = tokio_rt.block_on(initialize_app_components(args.command))?;
   log::info!(
-    "Shell and AI components initialized, agent_present={}, chat_position={:?}",
-    agent_terminal.is_some(),
+    "Shell and AI components initialized, agent_deferred=true, chat_position={:?}",
     chat_position
   );
 
@@ -759,7 +721,7 @@ fn main() -> Result<()> {
       .or_else(|| std::env::current_dir().ok()),
     mcp_state,
     shell,
-    agent_terminal,
+    agent_terminal: None,
     _mcp_server: mcp_server,
     agent_launch_plan,
     agent_event_rx,
@@ -935,6 +897,14 @@ impl AppState {
   /// Show the AI modal and enable mouse tracking
   fn show_ai_modal(&mut self) -> std::io::Result<()> {
     if !self.ai_visible {
+      if self.agent_terminal.is_none()
+        && self.agent_exit_status.is_none()
+        && self.config_error.is_none()
+      {
+        let (cols, rows) = crossterm::terminal::size()?;
+        self.launch_agent(rows, cols);
+      }
+
       // Always enable mouse capture when showing AI modal (for our UI to handle mouse events)
       use crossterm::ExecutableCommand;
       use crossterm::event::EnableMouseCapture;
@@ -1088,17 +1058,32 @@ impl AppState {
   }
 
   fn relaunch_agent(&mut self, rows: u16, cols: u16) {
+    self.launch_agent(rows, cols);
+  }
+
+  fn launch_agent(&mut self, rows: u16, cols: u16) {
     let Some(plan) = self.agent_launch_plan.clone() else {
       self.config_error = Some(
-        "AI CLI cannot be relaunched because no launch plan is available."
+        "AI CLI cannot be launched because no launch plan is available."
           .to_string(),
       );
       self.agent_exit_status = None;
       return;
     };
 
+    if !agent_command_available(&plan) {
+      self.agent_terminal = None;
+      self.agent_exit_status = None;
+      self.config_error = Some(format!(
+        "Configured AI CLI '{}' was not found in PATH",
+        plan.command
+      ));
+      return;
+    }
+
     match spawn_agent_from_plan(&plan, rows, cols) {
       Ok((agent, rx)) => {
+        log::info!("AI CLI terminal started: {}", plan.command);
         self.agent_terminal = Some(agent);
         *self.agent_event_rx.lock().unwrap() = Some(rx);
         self.agent_view = TerminalViewState::new();
@@ -1109,10 +1094,8 @@ impl AppState {
       Err(err) => {
         self.agent_terminal = None;
         self.agent_exit_status = None;
-        self.config_error = Some(format!(
-          "Failed to relaunch AI CLI '{}': {err}",
-          plan.command
-        ));
+        self.config_error =
+          Some(format!("Failed to start AI CLI '{}': {err}", plan.command));
       }
     }
   }
