@@ -57,7 +57,7 @@ use termin::mcp_host::{
 };
 use termin::mouse::MouseEvent;
 use termin::scrollback::{
-  ScrollbackTracker, process_pending_native_scrollback,
+  ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 
@@ -1411,18 +1411,16 @@ fn render(
     state.ai_visible
   );
 
-  // Detect when content has scrolled in the VT100 terminal
-  // and push scrolled lines to the host terminal's native scrollback
-  let scroll_up_lines = if let Ok(mut vt) = state.shell.vt.write() {
-    let buf = frame.buffer_mut();
-    process_pending_native_scrollback(&mut vt, buf, area)
+  // Push pending VT rows to the host terminal's native scrollback in one
+  // backend stream, instead of throttling to one viewport per render.
+  let scroll_snapshot = if let Ok(mut vt) = state.shell.vt.write() {
+    drain_pending_native_scrollback_snapshot(&mut vt, area.width)
   } else {
     log::error!("Failed to acquire write lock on VT");
-    0
+    None
   };
 
-  // Push rendered scrollback lines to native scrollback
-  if scroll_up_lines > 0 {
+  if let Some((content, scroll_up_lines)) = scroll_snapshot {
     log::trace!(
       "Scrolling up {} lines (pending: {})",
       scroll_up_lines,
@@ -1433,7 +1431,7 @@ fn render(
         .map(|vt| vt.pending_native_scrollback_len() > 0)
         .unwrap_or(false)
     );
-    frame.set_scroll_up(scroll_up_lines);
+    frame.set_scroll_snapshot(content, area.width, scroll_up_lines);
   }
 
   let buf = frame.buffer_mut();

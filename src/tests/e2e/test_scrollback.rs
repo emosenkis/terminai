@@ -10,11 +10,14 @@
 
 use super::*;
 use crate::scrollback::{
-  ScrollbackTracker, process_pending_native_scrollback, process_scrollback,
+  ScrollbackTracker, drain_pending_native_scrollback_snapshot,
+  process_pending_native_scrollback, process_scrollback,
   render_scrollback_to_buffer,
 };
 use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
+use tui::Terminal;
+use tui::backend::TestBackend;
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::widgets::Widget;
@@ -133,6 +136,53 @@ fn test_pending_native_scrollback_is_bounded_under_output_burst() {
     parser.pending_native_scrollback_len() <= 100_000,
     "pending native scrollback should be capped at the fixed burst limit"
   );
+}
+
+#[test]
+fn test_pending_native_scrollback_snapshot_drains_all_pending_rows() {
+  let mut parser = vt100::Parser::new(5, 8, 100, TestReplySender);
+
+  for i in 0..20 {
+    parser.process(format!("{i:07}\r\n").as_bytes());
+  }
+
+  let pending = parser.pending_native_scrollback_len();
+  assert!(
+    pending > 5,
+    "test should have more pending rows than a viewport"
+  );
+
+  let (_content, rows) =
+    drain_pending_native_scrollback_snapshot(&mut parser, 8).unwrap();
+
+  assert_eq!(rows, pending);
+  assert_eq!(parser.pending_native_scrollback_len(), 0);
+}
+
+#[test]
+fn test_native_scroll_snapshot_can_exceed_viewport_height() {
+  let backend = TestBackend::new(5, 4);
+  let mut terminal = Terminal::new(backend).unwrap();
+
+  terminal
+    .draw(|frame| {
+      let mut content = Vec::new();
+      for row in 0..6 {
+        let symbol = ((b'a' + row) as char).to_string();
+        for _ in 0..5 {
+          let mut cell = tui::buffer::Cell::default();
+          cell.set_symbol(&symbol);
+          content.push(cell);
+        }
+      }
+
+      frame.set_scroll_snapshot(content, 5, 6);
+    })
+    .unwrap();
+
+  terminal.backend().assert_scrollback_lines([
+    "aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff",
+  ]);
 }
 
 #[test]

@@ -117,7 +117,7 @@ impl Backend for StickyClearBackend {
     &mut self,
     content: &[Cell],
     width: u16,
-    line_count: u16,
+    line_count: usize,
     screen_height: u16,
   ) -> std::io::Result<()> {
     self.inner.stream_lines_to_scrollback(
