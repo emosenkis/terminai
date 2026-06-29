@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
 use crokey::KeyCombination;
@@ -161,24 +161,35 @@ pub struct TerminAIConfig {
 }
 
 impl TerminAIConfig {
+  pub fn path() -> Result<PathBuf> {
+    let config_dir = xdg::BaseDirectories::with_prefix("terminai");
+    config_dir.find_config_file("terminai.yaml").ok_or_else(|| {
+      // Build expected path for error message
+      let expected_path = config_dir
+        .get_config_home()
+        .map(|p| p.join("terminai.yaml"))
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "~/.config/terminai/terminai.yaml".to_string());
+      anyhow::anyhow!(
+        "Configuration file not found. Expected at: {}",
+        expected_path
+      )
+    })
+  }
+
+  pub fn expected_path() -> Result<PathBuf> {
+    let config_dir = xdg::BaseDirectories::with_prefix("terminai");
+    config_dir
+      .get_config_home()
+      .ok_or_else(|| {
+        anyhow::anyhow!("Failed to determine Termin.AI config directory")
+      })
+      .map(|path| path.join("terminai.yaml"))
+  }
+
   /// Load configuration from XDG config directory (~/.config/terminai/terminai.yaml)
   pub fn load() -> Result<Self> {
-    let config_dir = xdg::BaseDirectories::with_prefix("terminai");
-    let config_path =
-      config_dir
-        .find_config_file("terminai.yaml")
-        .ok_or_else(|| {
-          // Build expected path for error message
-          let expected_path = config_dir
-            .get_config_home()
-            .map(|p| p.join("terminai.yaml"))
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "~/.config/terminai/terminai.yaml".to_string());
-          anyhow::anyhow!(
-            "Configuration file not found. Expected at: {}",
-            expected_path
-          )
-        })?;
+    let config_path = Self::path()?;
 
     log::info!("Loading configuration from: {}", config_path.display());
     let config_content = std::fs::read_to_string(&config_path)?;

@@ -12,11 +12,16 @@ use crossterm::{
   execute,
   terminal::{Clear as TerminalClear, ClearType, disable_raw_mode},
 };
+use notify::{
+  Event as NotifyEvent, EventKind as NotifyEventKind, RecommendedWatcher,
+  RecursiveMode, Watcher,
+};
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tui::Frame;
@@ -172,6 +177,7 @@ pub enum AppEvent {
   AgentOutput,
   AgentTermReply(String),
   AgentExited(i32),
+  ConfigChanged,
 }
 
 impl From<rat_salsa::event::RenderedEvent> for AppEvent {
@@ -215,6 +221,89 @@ pub struct PollAgent {
 type SharedAgentReceiver =
   Arc<std::sync::Mutex<Option<mpsc::UnboundedReceiver<ShellEvent>>>>;
 
+pub struct PollConfigWatcher {
+  _watcher: Option<RecommendedWatcher>,
+  receiver: std_mpsc::Receiver<()>,
+  pending: bool,
+}
+
+impl PollConfigWatcher {
+  pub fn new(paths: Vec<PathBuf>) -> Self {
+    let (tx, rx) = std_mpsc::channel();
+    let file_names: std::collections::HashSet<OsString> = paths
+      .iter()
+      .filter_map(|path| path.file_name().map(OsString::from))
+      .collect();
+    let watch_dirs: std::collections::HashSet<PathBuf> = paths
+      .iter()
+      .filter_map(|path| path.parent().map(PathBuf::from))
+      .collect();
+
+    let watcher = match notify::recommended_watcher(
+      move |result: notify::Result<NotifyEvent>| match result {
+        Ok(event) if notify_event_matches(&event, &file_names) => {
+          let _ = tx.send(());
+        }
+        Ok(_) => {}
+        Err(err) => log::warn!("Config watcher error: {err}"),
+      },
+    ) {
+      Ok(mut watcher) => {
+        for dir in watch_dirs {
+          if dir.exists() {
+            if let Err(err) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
+              log::warn!(
+                "Failed to watch config directory {}: {err}",
+                dir.display()
+              );
+            } else {
+              log::info!("Watching config directory {}", dir.display());
+            }
+          } else {
+            log::debug!(
+              "Config directory does not exist yet, not watching {}",
+              dir.display()
+            );
+          }
+        }
+        Some(watcher)
+      }
+      Err(err) => {
+        log::warn!("Failed to create config watcher: {err}");
+        None
+      }
+    };
+
+    Self {
+      _watcher: watcher,
+      receiver: rx,
+      pending: false,
+    }
+  }
+}
+
+fn notify_event_matches(
+  event: &NotifyEvent,
+  file_names: &std::collections::HashSet<OsString>,
+) -> bool {
+  if !matches!(
+    event.kind,
+    NotifyEventKind::Any
+      | NotifyEventKind::Create(_)
+      | NotifyEventKind::Modify(_)
+      | NotifyEventKind::Remove(_)
+      | NotifyEventKind::Other
+  ) {
+    return false;
+  }
+
+  event.paths.iter().any(|path| {
+    path
+      .file_name()
+      .is_some_and(|file_name| file_names.contains(file_name))
+  })
+}
+
 impl PollAgent {
   pub fn new(receiver: SharedAgentReceiver) -> Self {
     Self {
@@ -222,6 +311,37 @@ impl PollAgent {
       cached_events: std::sync::Arc::new(
         std::sync::Mutex::new(VecDeque::new()),
       ),
+    }
+  }
+}
+
+impl PollEvents<AppEvent, Error> for PollConfigWatcher {
+  fn as_any(&self) -> &dyn std::any::Any {
+    self
+  }
+
+  fn poll(&mut self) -> Result<bool, Error> {
+    if self.pending {
+      return Ok(true);
+    }
+
+    match self.receiver.try_recv() {
+      Ok(()) => {
+        while self.receiver.try_recv().is_ok() {}
+        self.pending = true;
+        Ok(true)
+      }
+      Err(std_mpsc::TryRecvError::Empty) => Ok(false),
+      Err(std_mpsc::TryRecvError::Disconnected) => Ok(false),
+    }
+  }
+
+  fn read(&mut self) -> Result<Control<AppEvent>, Error> {
+    if self.pending {
+      self.pending = false;
+      Ok(Control::Event(AppEvent::ConfigChanged))
+    } else {
+      Ok(Control::Continue)
     }
   }
 }
@@ -585,6 +705,15 @@ fn clear_host_terminal() -> std::io::Result<()> {
   stdout.flush()
 }
 
+fn config_watch_paths() -> Vec<PathBuf> {
+  let mut paths = Vec::new();
+  if let Ok(path) = TerminAIConfig::expected_path() {
+    paths.push(path);
+  }
+  paths.push(termin::env_loader::env_file_path());
+  paths
+}
+
 fn percent_decode_path(input: &str) -> String {
   let mut output = Vec::with_capacity(input.len());
   let bytes = input.as_bytes();
@@ -688,6 +817,7 @@ fn main() -> Result<()> {
   let poll_shell = PollShell::new(shell_event_rx);
   let agent_event_rx = Arc::new(std::sync::Mutex::new(Some(agent_event_rx)));
   let poll_agent = PollAgent::new(Arc::clone(&agent_event_rx));
+  let poll_config = PollConfigWatcher::new(config_watch_paths());
 
   // Get terminal size for initial state
   let (_, rows) = crossterm::terminal::size()?;
@@ -722,7 +852,7 @@ fn main() -> Result<()> {
     mcp_state,
     shell,
     agent_terminal: None,
-    _mcp_server: mcp_server,
+    mcp_server,
     agent_launch_plan,
     agent_event_rx,
     agent_view: TerminalViewState::new(),
@@ -758,6 +888,7 @@ fn main() -> Result<()> {
       .poll(PollCrossterm)
       .poll(poll_shell) // Phase 2: PollShell integrated into rat-salsa framework
       .poll(poll_agent)
+      .poll(poll_config)
       .poll(PollRendered)
       .poll(PollTokio::new(tokio_rt)),
   ) {
@@ -778,7 +909,7 @@ struct AppState {
   mcp_state: Option<TerminaiMcpState>,
   shell: Shell,
   agent_terminal: Option<AgentTerminal>,
-  _mcp_server: Option<McpServerHandle>,
+  mcp_server: Option<McpServerHandle>,
   agent_launch_plan: Option<AgentLaunchPlan>,
   agent_event_rx: SharedAgentReceiver,
   agent_view: TerminalViewState,
@@ -1032,6 +1163,79 @@ impl AppState {
 
     if let Some(mcp_state) = &self.mcp_state {
       mcp_state.update_cwd(cwd);
+    }
+  }
+
+  fn reload_config(&mut self) {
+    let env_reload_error =
+      if let Err(err) = termin::env_loader::reload_env_file() {
+        let message = format!("Failed to reload terminai.env: {err:#}");
+        log::error!("{message}");
+        Some(message)
+      } else {
+        None
+      };
+
+    let config = match TerminAIConfig::load() {
+      Ok(config) => config,
+      Err(err) => {
+        let message = format!("Failed to reload terminai.yaml: {err:#}");
+        log::error!("{message}");
+        self.config_error = Some(message);
+        return;
+      }
+    };
+
+    let cwd = self
+      .shell_cwd
+      .clone()
+      .or_else(|| std::env::current_dir().ok())
+      .unwrap_or_else(|| PathBuf::from("."));
+    let mcp_url = self
+      .mcp_server
+      .as_ref()
+      .map(|server| server.url.clone())
+      .or_else(|| {
+        self
+          .agent_launch_plan
+          .as_ref()
+          .and_then(|plan| plan.env.get("TERMINAI_MCP_URL").cloned())
+      });
+
+    self.chat_position = config.interface.chat_position;
+    self.config = config;
+
+    if let Some(mcp_state) = &self.mcp_state {
+      mcp_state.update_cwd(cwd.clone());
+    }
+
+    let Some(mcp_url) = mcp_url else {
+      self.agent_launch_plan = None;
+      self.config_error = Some(
+        "Reloaded config, but Termin.AI MCP server is unavailable. Restart to enable AI launches."
+          .to_string(),
+      );
+      return;
+    };
+
+    let launch_context = AgentLaunchContext::new(cwd, mcp_url);
+    match build_launch_plan(
+      &self.config.agent,
+      &self.config.agent_presets,
+      &launch_context,
+    ) {
+      Ok(mut plan) => {
+        normalize_agent_launch_plan_env(&mut plan);
+        self.agent_launch_plan = Some(plan);
+        self.config_error = env_reload_error;
+        log::info!("Termin.AI configuration reloaded");
+      }
+      Err(err) => {
+        let message = format!("Failed to rebuild AI CLI launch plan: {err}");
+        log::error!("{message}");
+        self.agent_launch_plan = None;
+        self.config_error = Some(message);
+      }
     }
   }
 
@@ -1597,6 +1801,11 @@ fn event(
       state.agent_exit_status = Some(*code);
       Control::Changed
     }
+    AppEvent::ConfigChanged => {
+      log::info!("Config file change detected");
+      state.reload_config();
+      Control::Changed
+    }
   };
   Ok(
     if shell_changed
@@ -1684,7 +1893,11 @@ mod tests {
   #[test]
   fn rebuild_agent_launch_plan_updates_expanded_cwd_args() {
     let config = TerminAIConfig {
-      agent: termin::terminai_config::AgentConfig::codex(),
+      agent: termin::terminai_config::AgentConfig {
+        command: Some("my-agent".to_string()),
+        args: vec!["--workdir".to_string(), "{{cwd}}".to_string()],
+        ..Default::default()
+      },
       ..Default::default()
     };
     let old_context = AgentLaunchContext::new(
@@ -1703,12 +1916,9 @@ mod tests {
     .unwrap();
 
     assert_eq!(new_plan.cwd, PathBuf::from("/new/project"));
-    assert!(
-      new_plan
-        .args
-        .windows(2)
-        .any(|window| { window[0] == "--cd" && window[1] == "/new/project" })
-    );
+    assert!(new_plan.args.windows(2).any(|window| {
+      window[0] == "--workdir" && window[1] == "/new/project"
+    }));
     assert!(!new_plan.args.iter().any(|arg| arg == "/old/project"));
     assert_eq!(
       new_plan.env.get("TERMINAI_MCP_URL").map(String::as_str),

@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 
 /// Get the path to the terminai.env file in the config directory
-fn get_env_file_path() -> PathBuf {
+pub fn env_file_path() -> PathBuf {
   let xdg_dirs = xdg::BaseDirectories::with_prefix("terminai");
   xdg_dirs
     .get_config_home()
@@ -61,7 +61,15 @@ fn has_insecure_permissions(_path: &std::path::Path) -> Result<bool> {
 /// - The file exists but cannot be read
 /// - The file exists but contains invalid syntax
 pub fn load_env_file() -> Result<()> {
-  let env_path = get_env_file_path();
+  load_env_file_with_override(false)
+}
+
+pub fn reload_env_file() -> Result<()> {
+  load_env_file_with_override(true)
+}
+
+fn load_env_file_with_override(override_existing: bool) -> Result<()> {
+  let env_path = env_file_path();
 
   // If the file doesn't exist, that's fine - just return
   if !env_path.exists() {
@@ -83,12 +91,21 @@ pub fn load_env_file() -> Result<()> {
   }
 
   // Load the environment variables from the file
-  dotenvy::from_path(&env_path).with_context(|| {
-    format!(
-      "Failed to load environment variables from {}",
-      env_path.display()
-    )
-  })?;
+  if override_existing {
+    dotenvy::from_path_override(&env_path).with_context(|| {
+      format!(
+        "Failed to reload environment variables from {}",
+        env_path.display()
+      )
+    })?;
+  } else {
+    dotenvy::from_path(&env_path).with_context(|| {
+      format!(
+        "Failed to load environment variables from {}",
+        env_path.display()
+      )
+    })?;
+  }
 
   log::info!("Loaded environment variables from {}", env_path.display());
 
@@ -102,7 +119,7 @@ mod tests {
 
   #[test]
   fn test_get_env_file_path() {
-    let path = get_env_file_path();
+    let path = env_file_path();
     assert!(path.ends_with("terminai.env"));
   }
 
