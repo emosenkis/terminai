@@ -2,6 +2,8 @@ use std::collections::VecDeque;
 
 use super::{Cell, attrs::Attrs, row::Row};
 
+const MAX_PENDING_NATIVE_SCROLLBACK_ROWS: usize = 100_000;
+
 #[derive(Clone, Debug)]
 pub struct Grid {
   size: Size,
@@ -293,6 +295,19 @@ impl Grid {
     self.pending_native_scrollback.len()
   }
 
+  fn max_pending_native_scrollback_len(&self) -> usize {
+    MAX_PENDING_NATIVE_SCROLLBACK_ROWS
+  }
+
+  fn push_pending_native_scrollback(&mut self, row: Row) {
+    self.pending_native_scrollback.push_back(row);
+
+    let max_len = self.max_pending_native_scrollback_len();
+    while self.pending_native_scrollback.len() > max_len {
+      self.pending_native_scrollback.pop_front();
+    }
+  }
+
   pub fn drain_pending_native_scrollback(&mut self, count: usize) -> Vec<Row> {
     let count = count.min(self.pending_native_scrollback.len());
     self.pending_native_scrollback.drain(0..count).collect()
@@ -416,7 +431,7 @@ impl Grid {
       let removed = self.rows.remove(row0 + usize::from(self.scroll_top));
       if self.scrollback_len > 0 && !self.scroll_region_active() {
         if let Some(removed) = removed {
-          self.pending_native_scrollback.push_back(removed.clone());
+          self.push_pending_native_scrollback(removed.clone());
           self.rows.insert(row0, removed);
         }
         while self.rows.len() - self.size.rows as usize > self.scrollback_len {

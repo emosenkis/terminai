@@ -3,7 +3,10 @@ use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{
+  Arc, RwLock,
+  atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::encode_term::{KeyCodeEncodeModes, encode_key, encode_mouse_event};
@@ -14,10 +17,37 @@ use crate::vt100;
 // Shell events
 #[derive(Debug)]
 pub enum ShellEvent {
-  Output,
+  Output(OutputWakeup),
   TermReply(compact_str::CompactString),
   HostEscape(compact_str::CompactString),
   Exited(u32),
+}
+
+#[derive(Clone, Debug)]
+pub struct OutputWakeup {
+  pending: Arc<AtomicBool>,
+}
+
+impl OutputWakeup {
+  pub fn new() -> Self {
+    Self {
+      pending: Arc::new(AtomicBool::new(false)),
+    }
+  }
+
+  fn mark_pending(&self) -> bool {
+    !self.pending.swap(true, Ordering::AcqRel)
+  }
+
+  pub fn clear(&self) {
+    self.pending.store(false, Ordering::Release);
+  }
+}
+
+fn send_output_event(tx: &UnboundedSender<ShellEvent>, wakeup: &OutputWakeup) {
+  if wakeup.mark_pending() {
+    let _ = tx.send(ShellEvent::Output(wakeup.clone()));
+  }
 }
 
 // Shell manager - simplified from mprocs' Inst
@@ -147,6 +177,7 @@ impl Shell {
     // Spawn thread to read PTY output (pattern from mprocs' inst.rs)
     let vt_clone = vt.clone();
     let event_tx_clone = event_tx.clone();
+    let output_wakeup = OutputWakeup::new();
     std::thread::spawn(move || {
       let mut buf = vec![0u8; 32 * 1024];
 
@@ -175,7 +206,7 @@ impl Shell {
 
                 // Send event if this chunk caused scrolling
                 if rows_after > rows_before {
-                  let _ = event_tx_clone.send(ShellEvent::Output);
+                  send_output_event(&event_tx_clone, &output_wakeup);
                 }
               }
 
@@ -184,7 +215,7 @@ impl Shell {
 
             // Always send at least one event per read, even if no scrolling occurred
             // (in case the last chunk didn't cause scrolling but earlier ones did)
-            let _ = event_tx_clone.send(ShellEvent::Output);
+            send_output_event(&event_tx_clone, &output_wakeup);
           }
           Err(e) => {
             log::error!("PTY read error: {}", e);

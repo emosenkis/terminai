@@ -122,6 +122,20 @@ fn test_pending_native_scrollback_survives_vt_scrollback_cap() {
 }
 
 #[test]
+fn test_pending_native_scrollback_is_bounded_under_output_burst() {
+  let mut parser = vt100::Parser::new(1, 1, 1, TestReplySender);
+
+  for _ in 0..100_100 {
+    parser.process(b"x\r\n");
+  }
+
+  assert!(
+    parser.pending_native_scrollback_len() <= 100_000,
+    "pending native scrollback should be capped at the fixed burst limit"
+  );
+}
+
+#[test]
 fn test_process_scrollback_content_within_screen() {
   // Content fits on screen - no scrollback
   let mut parser = vt100::Parser::new(10, 80, 100, TestReplySender);
