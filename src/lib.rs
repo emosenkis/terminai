@@ -28,6 +28,7 @@ pub mod settings;
 pub mod state;
 pub mod term;
 pub mod theme;
+pub mod ui_approval;
 pub mod ui_keymap;
 pub mod ui_procs;
 pub mod ui_term;

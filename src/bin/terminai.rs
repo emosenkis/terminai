@@ -60,6 +60,7 @@ use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
+use termin::ui_approval::render_shell_input_approval;
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
 
@@ -1553,30 +1554,7 @@ fn render(
     }
 
     if let Some(pending) = &state.pending_command {
-      let approval_area = Rect {
-        x: overlay_area.x,
-        y: overlay_area.y,
-        width: overlay_area.width,
-        height: overlay_area.height.min(7),
-      };
-      Clear.render(approval_area, buf);
-      let message = format!(
-        "The AI suggests shell input:\n\n{}\n\n{}  Approve? (Y/N)",
-        pending.command,
-        pending
-          .explanation
-          .as_deref()
-          .unwrap_or("No explanation provided.")
-      );
-      Paragraph::new(message)
-        .block(
-          Block::default()
-            .borders(Borders::ALL)
-            .title(" Shell Input Approval ")
-            .style(Style::default().fg(Color::Yellow)),
-        )
-        .style(Style::default().fg(Color::White))
-        .render(approval_area, buf);
+      render_shell_input_approval(area, buf, pending);
       ctx.set_screen_cursor(None);
     }
   }

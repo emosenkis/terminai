@@ -3,6 +3,9 @@
 // Tests for the AI assistant overlay UI and interactions
 
 use super::*;
+use crate::agent_tools::PendingCommand;
+use crate::command::RiskLevel;
+use crate::ui_approval::{approval_modal_area, render_shell_input_approval};
 use crossterm::event::{KeyCode, KeyModifiers};
 use tui::layout::Rect;
 use tui::widgets::Widget;
@@ -51,24 +54,98 @@ fn test_ai_overlay_ui_rendering() {
 fn test_command_approval_ui() {
   let mut harness = TestHarness::new();
 
-  // Simulate a pending command approval
-  let command = "git status";
-  let risk_message = "This command is safe to run.";
+  let pending = PendingCommand::new(
+    "git status".to_string(),
+    Some("This command is safe to run.".to_string()),
+    RiskLevel::Safe,
+  );
 
   harness
     .terminal
     .draw(|f| {
       let area = f.area();
-      let overlay_area = centered_rect(80, 50, area);
-
-      let approval_widget =
-        MockCommandApprovalWidget::new(command, risk_message);
-      f.render_widget(approval_widget, overlay_area);
+      render_shell_input_approval(area, f.buffer_mut(), &pending);
     })
     .unwrap();
 
   harness.assert_buffer_contains("git status");
   harness.assert_buffer_contains("safe");
+}
+
+#[test]
+fn test_command_approval_modal_is_centered() {
+  let outer = Rect::new(10, 4, 100, 40);
+  let area = approval_modal_area(outer);
+
+  assert_eq!(area.width, 80);
+  assert_eq!(area.height, 12);
+  assert_eq!(area.x, 20);
+  assert_eq!(area.y, 18);
+}
+
+#[test]
+fn test_command_approval_renders_whitespace_escapes_as_whitespace() {
+  let mut harness = TestHarness::new();
+  let pending = PendingCommand::new(
+    "printf one\\ntwo\\r\\ttab".to_string(),
+    Some("Whitespace escapes should be readable.".to_string()),
+    RiskLevel::Safe,
+  );
+
+  harness
+    .terminal
+    .draw(|f| {
+      render_shell_input_approval(f.area(), f.buffer_mut(), &pending);
+    })
+    .unwrap();
+
+  let buffer = harness.buffer_as_string();
+  assert!(buffer.contains("printf one"));
+  assert!(buffer.contains("two"));
+  assert!(buffer.contains("  tab"));
+  assert!(!buffer.contains("\\n"));
+  assert!(!buffer.contains("\\r"));
+  assert!(!buffer.contains("\\t"));
+}
+
+#[test]
+fn test_command_approval_renders_non_whitespace_escapes_escaped() {
+  let mut harness = TestHarness::new();
+  let pending = PendingCommand::new(
+    "cancel \\u0003 and esc \u{1b}".to_string(),
+    Some("Control escapes should stay explicit.".to_string()),
+    RiskLevel::Safe,
+  );
+
+  harness
+    .terminal
+    .draw(|f| {
+      render_shell_input_approval(f.area(), f.buffer_mut(), &pending);
+    })
+    .unwrap();
+
+  let buffer = harness.buffer_as_string();
+  assert!(buffer.contains("cancel \\u0003 and esc \\u001b"));
+}
+
+#[test]
+#[cfg(feature = "snapshot-tests")]
+fn test_command_approval_snapshot() {
+  let mut harness = TestHarness::new();
+  let pending = PendingCommand::new(
+    "cargo test --manifest-path src/Cargo.toml very_long_filter_name_that_wraps_cleanly\\n\\u0003".to_string(),
+    Some("Run the focused regression test before approving.".to_string()),
+    RiskLevel::Safe,
+  );
+
+  harness
+    .terminal
+    .draw(|f| {
+      render_shell_input_approval(f.area(), f.buffer_mut(), &pending);
+    })
+    .unwrap();
+
+  insta::assert_snapshot!(harness.buffer_as_string());
 }
 
 #[test]
@@ -198,53 +275,6 @@ impl Widget for MockChatWidget<'_> {
         Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
       ]));
     }
-
-    let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
-    paragraph.render(inner, buf);
-  }
-}
-
-/// Mock command approval widget
-struct MockCommandApprovalWidget<'a> {
-  command: &'a str,
-  risk_message: &'a str,
-}
-
-impl<'a> MockCommandApprovalWidget<'a> {
-  fn new(command: &'a str, risk_message: &'a str) -> Self {
-    Self {
-      command,
-      risk_message,
-    }
-  }
-}
-
-impl Widget for MockCommandApprovalWidget<'_> {
-  fn render(self, area: Rect, buf: &mut tui::buffer::Buffer) {
-    use tui::style::{Color, Style};
-    use tui::text::{Line, Span};
-    use tui::widgets::{Block, Borders, Paragraph, Wrap};
-
-    let block = Block::default()
-      .borders(Borders::ALL)
-      .title(" Command Approval ")
-      .style(Style::default().fg(Color::Yellow));
-
-    let inner = block.inner(area);
-    block.render(area, buf);
-
-    let text = vec![
-      Line::from("The AI wants to run:"),
-      Line::from(""),
-      Line::from(vec![Span::styled(
-        self.command,
-        Style::default().fg(Color::Cyan),
-      )]),
-      Line::from(""),
-      Line::from(self.risk_message),
-      Line::from(""),
-      Line::from("Approve? (Y/N)"),
-    ];
 
     let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
     paragraph.render(inner, buf);
