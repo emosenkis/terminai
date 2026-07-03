@@ -60,7 +60,10 @@ use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
-use termin::ui_approval::render_shell_input_approval;
+use termin::ui_approval::{
+  approval_content_line_count, approval_modal_area, approval_viewport_height,
+  max_approval_scroll, render_shell_input_approval_with_scroll,
+};
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
 
@@ -879,6 +882,7 @@ fn main() -> Result<()> {
     agent_view: TerminalViewState::new(),
     suggestion_rx,
     pending_command: None,
+    approval_scroll: 0,
     agent_exit_status: None,
     ai_visible: false,
     chat_position,
@@ -936,6 +940,7 @@ struct AppState {
   agent_view: TerminalViewState,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   pending_command: Option<PendingCommand>,
+  approval_scroll: usize,
   agent_exit_status: Option<i32>,
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
@@ -1032,10 +1037,12 @@ impl AppState {
             log::error!("Failed to send command to shell: {:?}", e);
           }
         }
+        self.approval_scroll = 0;
         return Outcome::Changed;
       } else if self.config.interface.key_bindings.deny.matches(key_combo) {
         log::info!("Command rejected by user with key: {:?}", key_combo);
         self.pending_command = None;
+        self.approval_scroll = 0;
         return Outcome::Changed;
       }
 
@@ -1102,6 +1109,42 @@ impl AppState {
     Ok(())
   }
 
+  fn deactivate_ai_overlay(&mut self) -> std::io::Result<()> {
+    self.hide_ai_modal()
+  }
+
+  fn max_approval_scroll(&self, area: Rect) -> usize {
+    self
+      .pending_command
+      .as_ref()
+      .map(|pending| {
+        max_approval_scroll(
+          approval_content_line_count(pending),
+          approval_viewport_height(area),
+        )
+      })
+      .unwrap_or(0)
+  }
+
+  fn clamp_approval_scroll(&mut self, area: Rect) {
+    self.approval_scroll =
+      self.approval_scroll.min(self.max_approval_scroll(area));
+  }
+
+  fn scroll_approval(&mut self, delta: isize, area: Rect) -> bool {
+    let old = self.approval_scroll;
+    let max_scroll = self.max_approval_scroll(area);
+    let next = if delta.is_negative() {
+      old.saturating_sub(delta.unsigned_abs())
+    } else {
+      old.saturating_add(delta as usize)
+    }
+    .min(max_scroll);
+
+    self.approval_scroll = next;
+    next != old
+  }
+
   /// Calculate the overlay height based on terminal area
   fn overlay_height(&self, area: Rect) -> u16 {
     overlay_height_for_rows(area.height).min(area.height)
@@ -1157,6 +1200,7 @@ impl AppState {
         suggestion.risk_level
       );
       self.pending_command = Some(suggestion);
+      self.approval_scroll = 0;
       changed = true;
     }
     changed
@@ -1335,6 +1379,26 @@ impl AppState {
 
     let overlay_area = self.overlay_area(terminal_area);
     let inner_area = self.overlay_inner_area(terminal_area);
+
+    if self.pending_command.is_some()
+      && matches!(
+        mouse.kind,
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+      )
+      && Self::point_in_rect(
+        mouse.column,
+        mouse.row,
+        approval_modal_area(terminal_area),
+      )
+    {
+      let delta = match mouse.kind {
+        MouseEventKind::ScrollUp => -3,
+        MouseEventKind::ScrollDown => 3,
+        _ => 0,
+      };
+      self.scroll_approval(delta, terminal_area);
+      return Control::Changed;
+    }
 
     if matches!(
       mouse.kind,
@@ -1553,8 +1617,14 @@ fn render(
       ctx.set_screen_cursor(None);
     }
 
+    state.clamp_approval_scroll(area);
     if let Some(pending) = &state.pending_command {
-      render_shell_input_approval(area, buf, pending);
+      render_shell_input_approval_with_scroll(
+        area,
+        buf,
+        pending,
+        state.approval_scroll,
+      );
       ctx.set_screen_cursor(None);
     }
   }
@@ -1624,14 +1694,8 @@ fn event(
         {
           log::info!("Deactivate overlay key pressed: {:?}", key_combo);
 
-          // Dismiss any active dialogs before closing overlay
-          if state.pending_command.is_some() {
-            log::debug!("Dismissing approval dialog before closing overlay");
-            state.pending_command = None;
-          }
-
           // Always close the overlay when deactivate key is pressed
-          state.hide_ai_modal()?;
+          state.deactivate_ai_overlay()?;
           log::info!("AI overlay closed");
           break 'm Control::Changed;
         }
@@ -1652,6 +1716,54 @@ fn event(
       {
         let (cols, rows) = crossterm::terminal::size()?;
         state.relaunch_agent(rows, cols);
+        break 'm Control::Changed;
+      }
+
+      if state.pending_command.is_some()
+        && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        && matches!(
+          code,
+          KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Home
+            | KeyCode::End
+        )
+      {
+        let (cols, rows) = crossterm::terminal::size()?;
+        let terminal_area = Rect::new(0, 0, cols, rows);
+        let viewport_rows = approval_viewport_height(terminal_area);
+        match code {
+          KeyCode::Up => {
+            state.scroll_approval(-1, terminal_area);
+          }
+          KeyCode::Down => {
+            state.scroll_approval(1, terminal_area);
+          }
+          KeyCode::PageUp => {
+            state.scroll_approval(
+              -(viewport_rows.saturating_sub(1).max(1) as isize),
+              terminal_area,
+            );
+          }
+          KeyCode::PageDown => {
+            state.scroll_approval(
+              viewport_rows.saturating_sub(1).max(1) as isize,
+              terminal_area,
+            );
+          }
+          KeyCode::Home => {
+            state.scroll_approval(
+              -(state.approval_scroll as isize),
+              terminal_area,
+            );
+          }
+          KeyCode::End => {
+            state.approval_scroll = state.max_approval_scroll(terminal_area);
+          }
+          _ => {}
+        }
         break 'm Control::Changed;
       }
 
@@ -1969,6 +2081,112 @@ mod tests {
     view.scroll_lines(100, 110, 20);
     assert_eq!(view.row_offset, 90);
     assert!(view.follow_tail);
+  }
+
+  #[test]
+  fn deactivate_overlay_keeps_pending_command_for_reopen() {
+    let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    drop(suggestion_tx);
+
+    let (shell, _shell_rx) = Shell::spawn_command(
+      "sh",
+      &["-c".to_string(), "true".to_string()],
+      24,
+      80,
+    )
+    .unwrap();
+    let pending = PendingCommand::new(
+      "git status".to_string(),
+      Some("Inspect worktree".to_string()),
+      termin::command::RiskLevel::Safe,
+    );
+
+    let mut state = AppState {
+      shell_cwd: None,
+      mcp_state: None,
+      shell,
+      agent_terminal: None,
+      mcp_server: None,
+      agent_launch_plan: None,
+      agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
+      agent_view: TerminalViewState::new(),
+      suggestion_rx,
+      pending_command: Some(pending),
+      approval_scroll: 0,
+      agent_exit_status: None,
+      ai_visible: true,
+      chat_position: ChatPosition::Bottom,
+      scrollback_tracker: ScrollbackTracker::new(),
+      config: TerminAIConfig::default(),
+      config_error: None,
+      key_combiner: Combiner::default(),
+      shell_output_pending: false,
+      agent_output_pending: false,
+    };
+
+    state.deactivate_ai_overlay().unwrap();
+
+    assert!(!state.ai_visible);
+    assert!(state.pending_command.is_some());
+  }
+
+  #[test]
+  fn approval_scroll_clamps_to_pending_content() {
+    let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    drop(suggestion_tx);
+
+    let (shell, _shell_rx) = Shell::spawn_command(
+      "sh",
+      &["-c".to_string(), "true".to_string()],
+      24,
+      80,
+    )
+    .unwrap();
+    let pending = PendingCommand::new(
+      [
+        "echo line0",
+        "line1",
+        "line2",
+        "line3",
+        "line4",
+        "line5",
+        "line6",
+        "line7",
+        "line8",
+      ]
+      .join("\\n"),
+      Some("Long approval content should be scrollable.".to_string()),
+      termin::command::RiskLevel::Safe,
+    );
+
+    let mut state = AppState {
+      shell_cwd: None,
+      mcp_state: None,
+      shell,
+      agent_terminal: None,
+      mcp_server: None,
+      agent_launch_plan: None,
+      agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
+      agent_view: TerminalViewState::new(),
+      suggestion_rx,
+      pending_command: Some(pending),
+      approval_scroll: 0,
+      agent_exit_status: None,
+      ai_visible: true,
+      chat_position: ChatPosition::Bottom,
+      scrollback_tracker: ScrollbackTracker::new(),
+      config: TerminAIConfig::default(),
+      config_error: None,
+      key_combiner: Combiner::default(),
+      shell_output_pending: false,
+      agent_output_pending: false,
+    };
+
+    state.scroll_approval(100, Rect::new(0, 0, 80, 24));
+    assert_eq!(state.approval_scroll, 6);
+
+    state.scroll_approval(-2, Rect::new(0, 0, 80, 24));
+    assert_eq!(state.approval_scroll, 4);
   }
 
   #[test]

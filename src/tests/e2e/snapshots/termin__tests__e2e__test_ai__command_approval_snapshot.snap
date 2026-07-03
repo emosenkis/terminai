@@ -1,6 +1,6 @@
 ---
 source: src/tests/e2e/test_ai.rs
-assertion_line: 150
+assertion_line: 189
 expression: harness.buffer_as_string()
 ---
                                                                                 
@@ -16,8 +16,8 @@ expression: harness.buffer_as_string()
   │very_long_filter_name_that_wraps_cleanly                                  │  
   │\u0003                                                                    │  
   │                                                                          │  
-  │Run the focused regression test before approving.  Approve? (Y/N)         │  
+  │Description:                                                              │  
+  │Run the focused regression test before approving.                         │  
   │                                                                          │  
-  │                                                                          │  
-  │                                                                          │  
-  └──────────────────────────────────────────────────────────────────────────┘  
+  │Approve? (Y/N)                                                            │  
+  └──────────────────────────────────────────────────────────────────────────┘

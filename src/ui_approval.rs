@@ -1,14 +1,19 @@
 use crate::agent_tools::PendingCommand;
 use tui::{
   buffer::Buffer,
-  layout::Rect,
+  layout::{Margin, Rect},
   style::{Color, Style},
-  widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
+  text::{Line, Span},
+  widgets::{
+    Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, StatefulWidget, Widget, Wrap,
+  },
 };
 
 const MODAL_MAX_WIDTH: u16 = 80;
 const MODAL_HEIGHT: u16 = 12;
 const TAB_DISPLAY: &str = "  ";
+const SUGGESTED_INPUT_BG: Color = Color::Indexed(237);
 
 pub fn approval_modal_area(area: Rect) -> Rect {
   let width = area.width.saturating_sub(4).min(MODAL_MAX_WIDTH).max(1);
@@ -27,19 +32,23 @@ pub fn render_shell_input_approval(
   buf: &mut Buffer,
   pending: &PendingCommand,
 ) {
+  render_shell_input_approval_with_scroll(area, buf, pending, 0);
+}
+
+pub fn render_shell_input_approval_with_scroll(
+  area: Rect,
+  buf: &mut Buffer,
+  pending: &PendingCommand,
+  scroll: usize,
+) {
   let approval_area = approval_modal_area(area);
   Clear.render(approval_area, buf);
 
-  let message = format!(
-    "The AI suggests shell input:\n\n{}\n\n{}  Approve? (Y/N)",
-    format_shell_input_for_display(&pending.command),
-    pending
-      .explanation
-      .as_deref()
-      .unwrap_or("No explanation provided.")
-  );
+  let lines = approval_lines(pending);
+  let viewport_rows = approval_viewport_height(area);
+  let scroll = scroll.min(max_approval_scroll(lines.len(), viewport_rows));
 
-  Paragraph::new(message)
+  Paragraph::new(lines.clone())
     .block(
       Block::default()
         .borders(Borders::ALL)
@@ -48,7 +57,70 @@ pub fn render_shell_input_approval(
     )
     .style(Style::default().fg(Color::White))
     .wrap(Wrap { trim: false })
+    .scroll((scroll as u16, 0))
     .render(approval_area, buf);
+
+  if lines.len() > viewport_rows {
+    let mut scrollbar_state = ScrollbarState::new(lines.len())
+      .position(scroll)
+      .viewport_content_length(viewport_rows);
+    Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
+      approval_area.inner(Margin {
+        vertical: 1,
+        horizontal: 0,
+      }),
+      buf,
+      &mut scrollbar_state,
+    );
+  }
+}
+
+pub fn approval_content_line_count(pending: &PendingCommand) -> usize {
+  approval_lines(pending).len()
+}
+
+pub fn approval_viewport_height(area: Rect) -> usize {
+  approval_modal_area(area).height.saturating_sub(2) as usize
+}
+
+pub fn max_approval_scroll(
+  content_lines: usize,
+  viewport_rows: usize,
+) -> usize {
+  content_lines.saturating_sub(viewport_rows.max(1))
+}
+
+fn approval_lines(pending: &PendingCommand) -> Vec<Line<'static>> {
+  let mut lines =
+    vec![Line::from("The AI suggests shell input:"), Line::from("")];
+  lines.extend(suggested_input_lines(&pending.command));
+  lines.extend([
+    Line::from(""),
+    Line::from("Description:"),
+    Line::from(
+      pending
+        .explanation
+        .as_deref()
+        .unwrap_or("No explanation provided.")
+        .to_string(),
+    ),
+    Line::from(""),
+    Line::from("Approve? (Y/N)"),
+  ]);
+  lines
+}
+
+fn suggested_input_lines(input: &str) -> Vec<Line<'static>> {
+  let command = format_shell_input_for_display(input);
+  command
+    .split('\n')
+    .map(|line| {
+      Line::from(vec![Span::styled(
+        line.to_string(),
+        Style::default().bg(SUGGESTED_INPUT_BG),
+      )])
+    })
+    .collect()
 }
 
 pub fn format_shell_input_for_display(input: &str) -> String {

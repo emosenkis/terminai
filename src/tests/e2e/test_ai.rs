@@ -5,9 +5,13 @@
 use super::*;
 use crate::agent_tools::PendingCommand;
 use crate::command::RiskLevel;
-use crate::ui_approval::{approval_modal_area, render_shell_input_approval};
+use crate::ui_approval::{
+  approval_modal_area, render_shell_input_approval,
+  render_shell_input_approval_with_scroll,
+};
 use crossterm::event::{KeyCode, KeyModifiers};
 use tui::layout::Rect;
+use tui::style::Color;
 use tui::widgets::Widget;
 
 #[test]
@@ -69,7 +73,77 @@ fn test_command_approval_ui() {
     .unwrap();
 
   harness.assert_buffer_contains("git status");
+  harness.assert_buffer_contains("Description:");
   harness.assert_buffer_contains("safe");
+}
+
+#[test]
+fn test_command_approval_styles_suggested_input_background() {
+  let mut harness = TestHarness::new();
+  let pending = PendingCommand::new(
+    "git status".to_string(),
+    Some("This command is safe to run.".to_string()),
+    RiskLevel::Safe,
+  );
+
+  harness
+    .terminal
+    .draw(|f| {
+      render_shell_input_approval(f.area(), f.buffer_mut(), &pending);
+    })
+    .unwrap();
+
+  let buffer = harness.buffer();
+  let (col_start, line_start) =
+    find_buffer_text(buffer, "git status").expect("command should be rendered");
+
+  for offset in 0.."git status".len() {
+    let cell = buffer
+      .cell(tui::layout::Position {
+        x: col_start + offset as u16,
+        y: line_start,
+      })
+      .expect("command cell should exist");
+    assert_eq!(cell.bg, Color::Indexed(237));
+  }
+}
+
+#[test]
+fn test_command_approval_can_render_scrolled_content() {
+  let mut harness = TestHarness::new();
+  let pending = PendingCommand::new(
+    [
+      "echo line0",
+      "line1",
+      "line2",
+      "line3",
+      "line4",
+      "line5",
+      "line6",
+      "line7",
+      "line8",
+    ]
+    .join("\\n"),
+    Some("Long approval content should be scrollable.".to_string()),
+    RiskLevel::Safe,
+  );
+
+  harness
+    .terminal
+    .draw(|f| {
+      render_shell_input_approval_with_scroll(
+        f.area(),
+        f.buffer_mut(),
+        &pending,
+        5,
+      );
+    })
+    .unwrap();
+
+  let buffer = harness.buffer_as_string();
+  assert!(!buffer.contains("echo line0"));
+  assert!(buffer.contains("line5"));
+  assert!(buffer.contains("Description:"));
 }
 
 #[test]
@@ -126,6 +200,33 @@ fn test_command_approval_renders_non_whitespace_escapes_escaped() {
 
   let buffer = harness.buffer_as_string();
   assert!(buffer.contains("cancel \\u0003 and esc \\u001b"));
+}
+
+fn find_buffer_text(
+  buffer: &tui::buffer::Buffer,
+  needle: &str,
+) -> Option<(u16, u16)> {
+  let needle_symbols: Vec<String> =
+    needle.chars().map(|ch| ch.to_string()).collect();
+
+  for y in 0..buffer.area().height {
+    for x in 0..buffer.area().width {
+      let matches =
+        needle_symbols.iter().enumerate().all(|(offset, symbol)| {
+          buffer
+            .cell(tui::layout::Position {
+              x: x + offset as u16,
+              y,
+            })
+            .is_some_and(|cell| cell.symbol() == symbol)
+        });
+      if matches {
+        return Some((x, y));
+      }
+    }
+  }
+
+  None
 }
 
 #[test]
