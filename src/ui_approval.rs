@@ -14,6 +14,22 @@ const MODAL_MAX_WIDTH: u16 = 80;
 const MODAL_HEIGHT: u16 = 12;
 const TAB_DISPLAY: &str = "  ";
 const SUGGESTED_INPUT_BG: Color = Color::Indexed(237);
+const BUTTON_BG: Color = Color::Indexed(238);
+const BUTTON_FOCUSED_BG: Color = Color::Indexed(220);
+const APPROVE_LABEL: &str = " Approve (Y) ";
+const DENY_LABEL: &str = " Deny (N) ";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApprovalAction {
+  Approve,
+  Deny,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApprovalButtonAreas {
+  pub approve: Rect,
+  pub deny: Rect,
+}
 
 pub fn approval_modal_area(area: Rect) -> Rect {
   let width = area.width.saturating_sub(4).min(MODAL_MAX_WIDTH).max(1);
@@ -32,7 +48,13 @@ pub fn render_shell_input_approval(
   buf: &mut Buffer,
   pending: &PendingCommand,
 ) {
-  render_shell_input_approval_with_scroll(area, buf, pending, 0);
+  render_shell_input_approval_with_state(
+    area,
+    buf,
+    pending,
+    0,
+    ApprovalAction::Approve,
+  );
 }
 
 pub fn render_shell_input_approval_with_scroll(
@@ -41,37 +63,65 @@ pub fn render_shell_input_approval_with_scroll(
   pending: &PendingCommand,
   scroll: usize,
 ) {
+  render_shell_input_approval_with_state(
+    area,
+    buf,
+    pending,
+    scroll,
+    ApprovalAction::Approve,
+  );
+}
+
+pub fn render_shell_input_approval_with_state(
+  area: Rect,
+  buf: &mut Buffer,
+  pending: &PendingCommand,
+  scroll: usize,
+  focus: ApprovalAction,
+) {
   let approval_area = approval_modal_area(area);
   Clear.render(approval_area, buf);
+
+  let block = Block::default()
+    .borders(Borders::ALL)
+    .title(" Shell Input Approval ")
+    .style(Style::default().fg(Color::Yellow));
+  let inner = block.inner(approval_area);
+  block.render(approval_area, buf);
 
   let lines = approval_lines(pending);
   let viewport_rows = approval_viewport_height(area);
   let scroll = scroll.min(max_approval_scroll(lines.len(), viewport_rows));
+  let content_area = approval_content_area(area);
 
   Paragraph::new(lines.clone())
-    .block(
-      Block::default()
-        .borders(Borders::ALL)
-        .title(" Shell Input Approval ")
-        .style(Style::default().fg(Color::Yellow)),
-    )
     .style(Style::default().fg(Color::White))
     .wrap(Wrap { trim: false })
     .scroll((scroll as u16, 0))
-    .render(approval_area, buf);
+    .render(content_area, buf);
 
   if lines.len() > viewport_rows {
     let mut scrollbar_state = ScrollbarState::new(lines.len())
       .position(scroll)
       .viewport_content_length(viewport_rows);
     Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
-      approval_area.inner(Margin {
-        vertical: 1,
+      content_area.inner(Margin {
+        vertical: 0,
         horizontal: 0,
       }),
       buf,
       &mut scrollbar_state,
     );
+  }
+
+  if inner.height > 0 {
+    let buttons = approval_button_areas(area);
+    Paragraph::new(APPROVE_LABEL)
+      .style(button_style(focus == ApprovalAction::Approve))
+      .render(buttons.approve, buf);
+    Paragraph::new(DENY_LABEL)
+      .style(button_style(focus == ApprovalAction::Deny))
+      .render(buttons.deny, buf);
   }
 }
 
@@ -80,7 +130,7 @@ pub fn approval_content_line_count(pending: &PendingCommand) -> usize {
 }
 
 pub fn approval_viewport_height(area: Rect) -> usize {
-  approval_modal_area(area).height.saturating_sub(2) as usize
+  approval_content_area(area).height as usize
 }
 
 pub fn max_approval_scroll(
@@ -104,10 +154,85 @@ fn approval_lines(pending: &PendingCommand) -> Vec<Line<'static>> {
         .unwrap_or("No explanation provided.")
         .to_string(),
     ),
-    Line::from(""),
-    Line::from("Approve? (Y/N)"),
   ]);
   lines
+}
+
+pub fn approval_button_areas(area: Rect) -> ApprovalButtonAreas {
+  let approval_area = approval_modal_area(area);
+  let inner = Rect {
+    x: approval_area.x.saturating_add(1),
+    y: approval_area.y.saturating_add(1),
+    width: approval_area.width.saturating_sub(2),
+    height: approval_area.height.saturating_sub(2),
+  };
+  let approve_width = APPROVE_LABEL.len() as u16;
+  let deny_width = DENY_LABEL.len() as u16;
+  let gap = 2;
+  let total_width =
+    approve_width.saturating_add(gap).saturating_add(deny_width);
+  let start_x = inner.x + inner.width.saturating_sub(total_width) / 2;
+  let y = inner.y + inner.height.saturating_sub(1);
+
+  ApprovalButtonAreas {
+    approve: Rect {
+      x: start_x,
+      y,
+      width: approve_width.min(inner.width),
+      height: 1,
+    },
+    deny: Rect {
+      x: start_x.saturating_add(approve_width).saturating_add(gap),
+      y,
+      width: deny_width.min(inner.width),
+      height: 1,
+    },
+  }
+}
+
+pub fn approval_action_at(
+  area: Rect,
+  x: u16,
+  y: u16,
+) -> Option<ApprovalAction> {
+  let buttons = approval_button_areas(area);
+  if point_in_rect(x, y, buttons.approve) {
+    Some(ApprovalAction::Approve)
+  } else if point_in_rect(x, y, buttons.deny) {
+    Some(ApprovalAction::Deny)
+  } else {
+    None
+  }
+}
+
+fn approval_content_area(area: Rect) -> Rect {
+  let approval_area = approval_modal_area(area);
+  let inner = Rect {
+    x: approval_area.x.saturating_add(1),
+    y: approval_area.y.saturating_add(1),
+    width: approval_area.width.saturating_sub(2),
+    height: approval_area.height.saturating_sub(2),
+  };
+
+  Rect {
+    height: inner.height.saturating_sub(2),
+    ..inner
+  }
+}
+
+fn button_style(focused: bool) -> Style {
+  if focused {
+    Style::default().fg(Color::Black).bg(BUTTON_FOCUSED_BG)
+  } else {
+    Style::default().fg(Color::White).bg(BUTTON_BG)
+  }
+}
+
+fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
+  x >= area.x
+    && x < area.x.saturating_add(area.width)
+    && y >= area.y
+    && y < area.y.saturating_add(area.height)
 }
 
 fn suggested_input_lines(input: &str) -> Vec<Line<'static>> {

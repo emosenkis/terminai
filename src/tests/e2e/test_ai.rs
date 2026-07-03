@@ -6,8 +6,10 @@ use super::*;
 use crate::agent_tools::PendingCommand;
 use crate::command::RiskLevel;
 use crate::ui_approval::{
+  ApprovalAction, approval_action_at, approval_button_areas,
   approval_modal_area, render_shell_input_approval,
   render_shell_input_approval_with_scroll,
+  render_shell_input_approval_with_state,
 };
 use crossterm::event::{KeyCode, KeyModifiers};
 use tui::layout::Rect;
@@ -106,6 +108,59 @@ fn test_command_approval_styles_suggested_input_background() {
       .expect("command cell should exist");
     assert_eq!(cell.bg, Color::Indexed(237));
   }
+}
+
+#[test]
+fn test_command_approval_renders_focusable_buttons() {
+  let mut harness = TestHarness::new();
+  let pending = PendingCommand::new(
+    "git status".to_string(),
+    Some("This command is safe to run.".to_string()),
+    RiskLevel::Safe,
+  );
+
+  harness
+    .terminal
+    .draw(|f| {
+      render_shell_input_approval_with_state(
+        f.area(),
+        f.buffer_mut(),
+        &pending,
+        0,
+        ApprovalAction::Deny,
+      );
+    })
+    .unwrap();
+
+  harness.assert_buffer_contains("Approve (Y)");
+  harness.assert_buffer_contains("Deny (N)");
+
+  let buffer = harness.buffer();
+  let (col_start, line_start) =
+    find_buffer_text(buffer, "Deny (N)").expect("deny button should render");
+  let cell = buffer
+    .cell(tui::layout::Position {
+      x: col_start,
+      y: line_start,
+    })
+    .expect("button cell should exist");
+  assert_eq!(cell.bg, Color::Indexed(220));
+}
+
+#[test]
+fn test_command_approval_button_hit_targets() {
+  let area = Rect::new(0, 0, 80, 24);
+  let buttons = approval_button_areas(area);
+
+  assert_eq!(
+    approval_action_at(area, buttons.approve.x, buttons.approve.y),
+    Some(ApprovalAction::Approve)
+  );
+  assert_eq!(
+    approval_action_at(area, buttons.deny.x, buttons.deny.y),
+    Some(ApprovalAction::Deny)
+  );
+  assert_eq!(approval_action_at(area, 0, 0), None);
 }
 
 #[test]

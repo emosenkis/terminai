@@ -61,8 +61,9 @@ use termin::scrollback::{
 };
 use termin::terminai_config::{ChatPosition, TerminAIConfig};
 use termin::ui_approval::{
-  approval_content_line_count, approval_modal_area, approval_viewport_height,
-  max_approval_scroll, render_shell_input_approval_with_scroll,
+  ApprovalAction, approval_action_at, approval_content_line_count,
+  approval_modal_area, approval_viewport_height, max_approval_scroll,
+  render_shell_input_approval_with_state,
 };
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
@@ -883,6 +884,7 @@ fn main() -> Result<()> {
     suggestion_rx,
     pending_command: None,
     approval_scroll: 0,
+    approval_focus: ApprovalAction::Approve,
     agent_exit_status: None,
     ai_visible: false,
     chat_position,
@@ -941,6 +943,7 @@ struct AppState {
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   pending_command: Option<PendingCommand>,
   approval_scroll: usize,
+  approval_focus: ApprovalAction,
   agent_exit_status: Option<i32>,
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
@@ -1030,19 +1033,11 @@ impl AppState {
         .matches(key_combo)
       {
         log::info!("Command approved by user with key: {:?}", key_combo);
-        if let Some(cmd) = self.pending_command.take() {
-          log::info!("Executing approved command: {}", cmd.command);
-          // Send the command to the shell
-          if let Err(e) = self.shell.send_command(&cmd.command) {
-            log::error!("Failed to send command to shell: {:?}", e);
-          }
-        }
-        self.approval_scroll = 0;
+        self.run_approval_action(ApprovalAction::Approve);
         return Outcome::Changed;
       } else if self.config.interface.key_bindings.deny.matches(key_combo) {
         log::info!("Command rejected by user with key: {:?}", key_combo);
-        self.pending_command = None;
-        self.approval_scroll = 0;
+        self.run_approval_action(ApprovalAction::Deny);
         return Outcome::Changed;
       }
 
@@ -1145,6 +1140,35 @@ impl AppState {
     next != old
   }
 
+  fn toggle_approval_focus(&mut self) {
+    self.approval_focus = match self.approval_focus {
+      ApprovalAction::Approve => ApprovalAction::Deny,
+      ApprovalAction::Deny => ApprovalAction::Approve,
+    };
+  }
+
+  fn activate_focused_approval(&mut self) {
+    self.run_approval_action(self.approval_focus);
+  }
+
+  fn run_approval_action(&mut self, action: ApprovalAction) {
+    match action {
+      ApprovalAction::Approve => {
+        if let Some(cmd) = self.pending_command.take() {
+          log::info!("Executing approved command: {}", cmd.command);
+          if let Err(e) = self.shell.send_command(&cmd.command) {
+            log::error!("Failed to send command to shell: {:?}", e);
+          }
+        }
+      }
+      ApprovalAction::Deny => {
+        self.pending_command = None;
+      }
+    }
+    self.approval_scroll = 0;
+    self.approval_focus = ApprovalAction::Approve;
+  }
+
   /// Calculate the overlay height based on terminal area
   fn overlay_height(&self, area: Rect) -> u16 {
     overlay_height_for_rows(area.height).min(area.height)
@@ -1201,6 +1225,7 @@ impl AppState {
       );
       self.pending_command = Some(suggestion);
       self.approval_scroll = 0;
+      self.approval_focus = ApprovalAction::Approve;
       changed = true;
     }
     changed
@@ -1379,6 +1404,18 @@ impl AppState {
 
     let overlay_area = self.overlay_area(terminal_area);
     let inner_area = self.overlay_inner_area(terminal_area);
+
+    if self.pending_command.is_some()
+      && matches!(
+        mouse.kind,
+        MouseEventKind::Down(crossterm::event::MouseButton::Left)
+      )
+      && let Some(action) =
+        approval_action_at(terminal_area, mouse.column, mouse.row)
+    {
+      self.run_approval_action(action);
+      return Control::Changed;
+    }
 
     if self.pending_command.is_some()
       && matches!(
@@ -1619,11 +1656,12 @@ fn render(
 
     state.clamp_approval_scroll(area);
     if let Some(pending) = &state.pending_command {
-      render_shell_input_approval_with_scroll(
+      render_shell_input_approval_with_state(
         area,
         buf,
         pending,
         state.approval_scroll,
+        state.approval_focus,
       );
       ctx.set_screen_cursor(None);
     }
@@ -1723,7 +1761,12 @@ fn event(
         && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
         && matches!(
           code,
-          KeyCode::Up
+          KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Enter
+            | KeyCode::Up
             | KeyCode::Down
             | KeyCode::PageUp
             | KeyCode::PageDown
@@ -1735,6 +1778,12 @@ fn event(
         let terminal_area = Rect::new(0, 0, cols, rows);
         let viewport_rows = approval_viewport_height(terminal_area);
         match code {
+          KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
+            state.toggle_approval_focus();
+          }
+          KeyCode::Enter => {
+            state.activate_focused_approval();
+          }
           KeyCode::Up => {
             state.scroll_approval(-1, terminal_area);
           }
@@ -2113,6 +2162,7 @@ mod tests {
       suggestion_rx,
       pending_command: Some(pending),
       approval_scroll: 0,
+      approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
@@ -2171,6 +2221,7 @@ mod tests {
       suggestion_rx,
       pending_command: Some(pending),
       approval_scroll: 0,
+      approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
@@ -2187,6 +2238,114 @@ mod tests {
 
     state.scroll_approval(-2, Rect::new(0, 0, 80, 24));
     assert_eq!(state.approval_scroll, 4);
+  }
+
+  #[test]
+  fn approval_focus_toggles_and_return_activates_focused_button() {
+    let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    drop(suggestion_tx);
+
+    let (shell, _shell_rx) = Shell::spawn_command(
+      "sh",
+      &["-c".to_string(), "true".to_string()],
+      24,
+      80,
+    )
+    .unwrap();
+    let pending = PendingCommand::new(
+      "git status".to_string(),
+      Some("Inspect worktree".to_string()),
+      termin::command::RiskLevel::Safe,
+    );
+
+    let mut state = AppState {
+      shell_cwd: None,
+      mcp_state: None,
+      shell,
+      agent_terminal: None,
+      mcp_server: None,
+      agent_launch_plan: None,
+      agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
+      agent_view: TerminalViewState::new(),
+      suggestion_rx,
+      pending_command: Some(pending),
+      approval_scroll: 0,
+      approval_focus: ApprovalAction::Approve,
+      agent_exit_status: None,
+      ai_visible: true,
+      chat_position: ChatPosition::Bottom,
+      scrollback_tracker: ScrollbackTracker::new(),
+      config: TerminAIConfig::default(),
+      config_error: None,
+      key_combiner: Combiner::default(),
+      shell_output_pending: false,
+      agent_output_pending: false,
+    };
+
+    state.toggle_approval_focus();
+    assert_eq!(state.approval_focus, ApprovalAction::Deny);
+
+    state.activate_focused_approval();
+    assert!(state.pending_command.is_none());
+  }
+
+  #[test]
+  fn approval_button_click_activates_action() {
+    let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    drop(suggestion_tx);
+
+    let (shell, _shell_rx) = Shell::spawn_command(
+      "sh",
+      &["-c".to_string(), "true".to_string()],
+      24,
+      80,
+    )
+    .unwrap();
+    let pending = PendingCommand::new(
+      "git status".to_string(),
+      Some("Inspect worktree".to_string()),
+      termin::command::RiskLevel::Safe,
+    );
+
+    let mut state = AppState {
+      shell_cwd: None,
+      mcp_state: None,
+      shell,
+      agent_terminal: None,
+      mcp_server: None,
+      agent_launch_plan: None,
+      agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
+      agent_view: TerminalViewState::new(),
+      suggestion_rx,
+      pending_command: Some(pending),
+      approval_scroll: 0,
+      approval_focus: ApprovalAction::Approve,
+      agent_exit_status: None,
+      ai_visible: true,
+      chat_position: ChatPosition::Bottom,
+      scrollback_tracker: ScrollbackTracker::new(),
+      config: TerminAIConfig::default(),
+      config_error: None,
+      key_combiner: Combiner::default(),
+      shell_output_pending: false,
+      agent_output_pending: false,
+    };
+
+    let terminal_area = Rect::new(0, 0, 80, 24);
+    let deny = termin::ui_approval::approval_button_areas(terminal_area).deny;
+    let mouse = crossterm::event::MouseEvent {
+      kind: crossterm::event::MouseEventKind::Down(
+        crossterm::event::MouseButton::Left,
+      ),
+      column: deny.x,
+      row: deny.y,
+      modifiers: crossterm::event::KeyModifiers::NONE,
+    };
+
+    let result = state.handle_ai_mouse_event(&mouse, terminal_area);
+
+    assert!(matches!(result, Control::Changed));
+    assert!(state.pending_command.is_none());
   }
 
   #[test]
