@@ -177,7 +177,7 @@ mod tests {
 
   #[test]
   fn default_terminai_yaml_is_parseable() {
-    let config: crate::terminai_config::TerminAIConfig =
+    let config: crate::terminai_config::TerminaiConfig =
       serde_yaml::from_str(DEFAULT_TERMINAI_YAML).unwrap();
 
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));

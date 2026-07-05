@@ -2,10 +2,10 @@ use std::{fs, path::PathBuf};
 
 use anyhow::Result;
 use rmcp::schemars;
-use termin::terminai_config::TerminAIConfig;
+use termin::terminai_config::TerminaiConfig;
 
 fn main() -> Result<()> {
-  let schema = schemars::schema_for!(TerminAIConfig);
+  let schema = schemars::schema_for!(TerminaiConfig);
   let docs_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     .join("..")
     .join("docs");

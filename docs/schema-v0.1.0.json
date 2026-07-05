@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "TerminAIConfig",
+  "title": "TerminaiConfig",
   "description": "Top-level Terminai configuration loaded from\n`$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to\n`~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset.\n\nDefault configuration can be installed with `terminai init-config`",
   "type": "object",
   "properties": {

@@ -211,7 +211,7 @@ pub struct AgentPresetConfig {
 /// Default configuration can be installed with `terminai init-config`
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct TerminAIConfig {
+pub struct TerminaiConfig {
   /// Interface configuration
   #[serde(default)]
   pub interface: InterfaceConfig,
@@ -223,7 +223,7 @@ pub struct TerminAIConfig {
   pub agent_presets: HashMap<String, AgentPresetConfig>,
 }
 
-impl TerminAIConfig {
+impl TerminaiConfig {
   pub fn path() -> Result<PathBuf> {
     let config_dir = xdg::BaseDirectories::with_prefix("terminai");
     config_dir.find_config_file("terminai.yaml").ok_or_else(|| {
@@ -257,7 +257,7 @@ impl TerminAIConfig {
     log::info!("Loading configuration from: {}", config_path.display());
     let config_content = std::fs::read_to_string(&config_path)?;
     // TODO: Switch to HJSON? It's simpler and safer than YAML
-    let config: TerminAIConfig = serde_yaml::from_str(&config_content)?;
+    let config: TerminaiConfig = serde_yaml::from_str(&config_content)?;
 
     log::info!("Terminai configuration loaded");
 
@@ -276,7 +276,7 @@ agent:
   preset: claude
     "#;
 
-    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.preset.as_deref(), Some("claude"));
     // Interface defaults to bottom when not specified
     assert_eq!(config.interface.chat_position, ChatPosition::Bottom);
@@ -298,7 +298,7 @@ agent-presets:
       - github-copilot/gpt-5
     "#;
 
-    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
     assert_eq!(config.agent.extra_args, vec!["--model", "gpt-5.5"]);
     assert_eq!(
@@ -331,7 +331,7 @@ interface:
     deny: "N"
     "#;
 
-    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
 
     assert!(
       config
@@ -349,7 +349,7 @@ interface:
   chat-position: top
     "#;
 
-    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.interface.chat_position, ChatPosition::Top);
 
     let yaml2 = r#"
@@ -357,7 +357,7 @@ interface:
   chat-position: bottom
     "#;
 
-    let config2: TerminAIConfig = serde_yaml::from_str(yaml2).unwrap();
+    let config2: TerminaiConfig = serde_yaml::from_str(yaml2).unwrap();
     assert_eq!(config2.interface.chat_position, ChatPosition::Bottom);
   }
 
@@ -368,7 +368,7 @@ interface:
   chat-position: bottom
     "#;
 
-    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.effective_kind(), AgentKind::Codex);
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
     assert_eq!(config.agent.command.as_deref(), None);
@@ -385,7 +385,7 @@ agent:
     - "{mcp_url}"
     "#;
 
-    let config: TerminAIConfig = serde_yaml::from_str(yaml).unwrap();
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.effective_kind(), AgentKind::Custom);
     assert_eq!(config.agent.command.as_deref(), Some("my-agent"));
     assert_eq!(config.agent.args, vec!["--mcp", "{mcp_url}"]);

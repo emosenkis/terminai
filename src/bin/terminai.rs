@@ -59,7 +59,7 @@ use termin::mouse::MouseEvent;
 use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
-use termin::terminai_config::{ChatPosition, TerminAIConfig};
+use termin::terminai_config::{ChatPosition, TerminaiConfig};
 use termin::ui_approval::{
   ApprovalAction, approval_action_at, approval_content_line_count,
   approval_modal_area, approval_viewport_height, max_approval_scroll,
@@ -497,7 +497,7 @@ async fn initialize_app_components(
   Option<TerminaiMcpState>,
   Option<AgentLaunchPlan>,
   UnboundedReceiver<PendingCommand>,
-  TerminAIConfig,
+  TerminaiConfig,
   ChatPosition,
   Option<String>,
 )> {
@@ -553,14 +553,14 @@ async fn prepare_agent(
   Option<McpServerHandle>,
   Option<TerminaiMcpState>,
   Option<AgentLaunchPlan>,
-  TerminAIConfig,
+  TerminaiConfig,
   ChatPosition,
   Option<String>,
 ) {
   let (fallback_tx, fallback_rx) = mpsc::unbounded_channel();
   drop(fallback_tx);
 
-  match TerminAIConfig::load() {
+  match TerminaiConfig::load() {
     Ok(config) => {
       log::info!("Configuration loaded successfully");
       log::debug!("Loaded config: {:?}", config);
@@ -633,7 +633,7 @@ async fn prepare_agent(
         None,
         None,
         None,
-        TerminAIConfig::default(),
+        TerminaiConfig::default(),
         ChatPosition::default(),
         Some(error_msg),
       );
@@ -732,7 +732,7 @@ fn clear_host_terminal() -> std::io::Result<()> {
 
 fn config_watch_paths() -> Vec<PathBuf> {
   let mut paths = Vec::new();
-  if let Ok(path) = TerminAIConfig::expected_path() {
+  if let Ok(path) = TerminaiConfig::expected_path() {
     paths.push(path);
   }
   paths.push(termin::env_loader::env_file_path());
@@ -779,7 +779,7 @@ fn cwd_from_osc7_escape(escape: &str) -> Option<PathBuf> {
 
 fn rebuild_agent_launch_plan_for_cwd(
   plan: &AgentLaunchPlan,
-  config: &TerminAIConfig,
+  config: &TerminaiConfig,
   cwd: PathBuf,
 ) -> Result<AgentLaunchPlan> {
   let mcp_url = plan
@@ -951,7 +951,7 @@ struct AppState {
   /// Scrollback tracker for detecting and handling scrolled content
   scrollback_tracker: ScrollbackTracker,
   /// Terminai configuration
-  config: TerminAIConfig,
+  config: TerminaiConfig,
   /// Configuration error message (if config failed to load)
   config_error: Option<String>,
   /// Crokey combiner for processing keyboard events
@@ -1266,7 +1266,7 @@ impl AppState {
         None
       };
 
-    let config = match TerminAIConfig::load() {
+    let config = match TerminaiConfig::load() {
       Ok(config) => config,
       Err(err) => {
         let message = format!("Failed to reload terminai.yaml: {err:#}");
@@ -2049,7 +2049,7 @@ mod tests {
 
   #[test]
   fn rebuild_agent_launch_plan_updates_expanded_cwd_args() {
-    let config = TerminAIConfig {
+    let config = TerminaiConfig {
       agent: termin::terminai_config::AgentConfig {
         command: Some("my-agent".to_string()),
         args: vec!["--workdir".to_string(), "{{cwd}}".to_string()],
@@ -2167,7 +2167,7 @@ mod tests {
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
-      config: TerminAIConfig::default(),
+      config: TerminaiConfig::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -2226,7 +2226,7 @@ mod tests {
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
-      config: TerminAIConfig::default(),
+      config: TerminaiConfig::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -2275,7 +2275,7 @@ mod tests {
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
-      config: TerminAIConfig::default(),
+      config: TerminaiConfig::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -2324,7 +2324,7 @@ mod tests {
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
-      config: TerminAIConfig::default(),
+      config: TerminaiConfig::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
