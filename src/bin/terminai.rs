@@ -1,7 +1,7 @@
 #![allow(warnings)]
 #![allow(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic)]
 
-// Termin.AI - Clean terminal wrapper with AI overlay
+// Terminai - Clean terminal wrapper with AI overlay
 
 use anyhow::{Error, Result};
 use clap::{Parser, Subcommand};
@@ -129,7 +129,7 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum CliCommand {
-  /// Create default Termin.AI config files in the config directory.
+  /// Create default Terminai config files in the config directory.
   InitConfig {
     /// Replace existing config files instead of leaving them untouched.
     #[arg(long)]
@@ -571,7 +571,7 @@ async fn prepare_agent(
       let mcp = match start_http_mcp_server(mcp_state.clone()).await {
         Ok(server) => server,
         Err(err) => {
-          let message = format!("Failed to start Termin.AI MCP server: {err}");
+          let message = format!("Failed to start Terminai MCP server: {err}");
           log::error!("{}", message);
           return (
             fallback_rx,
@@ -584,7 +584,7 @@ async fn prepare_agent(
           );
         }
       };
-      log::info!("Termin.AI MCP server listening at {}", mcp.url);
+      log::info!("Terminai MCP server listening at {}", mcp.url);
       let mcp_url = mcp.url.clone();
 
       let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
@@ -711,7 +711,7 @@ fn common_user_bin_dirs() -> Vec<PathBuf> {
 fn run_init_config(force: bool) -> Result<()> {
   let result = termin::terminai_config_init::init_config_files(force)?;
   println!(
-    "Initialized Termin.AI config directory: {}",
+    "Initialized Terminai config directory: {}",
     result.config_dir.display()
   );
   for file in result.files {
@@ -807,7 +807,7 @@ fn main() -> Result<()> {
     std::process::exit(1);
   }
 
-  log::info!("Termin.AI starting");
+  log::info!("Terminai starting");
   clear_host_terminal()?;
 
   // Create tokio runtime for async operations
@@ -950,7 +950,7 @@ struct AppState {
   chat_position: ChatPosition,
   /// Scrollback tracker for detecting and handling scrolled content
   scrollback_tracker: ScrollbackTracker,
-  /// Termin.AI configuration
+  /// Terminai configuration
   config: TerminAIConfig,
   /// Configuration error message (if config failed to load)
   config_error: Option<String>,
@@ -1302,7 +1302,7 @@ impl AppState {
     let Some(mcp_url) = mcp_url else {
       self.agent_launch_plan = None;
       self.config_error = Some(
-        "Reloaded config, but Termin.AI MCP server is unavailable. Restart to enable AI launches."
+        "Reloaded config, but Terminai MCP server is unavailable. Restart to enable AI launches."
           .to_string(),
       );
       return;
@@ -1318,7 +1318,7 @@ impl AppState {
         normalize_agent_launch_plan_env(&mut plan);
         self.agent_launch_plan = Some(plan);
         self.config_error = env_reload_error;
-        log::info!("Termin.AI configuration reloaded");
+        log::info!("Terminai configuration reloaded");
       }
       Err(err) => {
         let message = format!("Failed to rebuild AI CLI launch plan: {err}");

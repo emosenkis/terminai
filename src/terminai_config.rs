@@ -146,7 +146,7 @@ pub struct AgentPresetConfig {
   pub env: HashMap<String, String>,
 }
 
-/// Top-level Termin.AI configuration
+/// Top-level Terminai configuration
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminAIConfig {
   /// Interface configuration
@@ -182,7 +182,7 @@ impl TerminAIConfig {
     config_dir
       .get_config_home()
       .ok_or_else(|| {
-        anyhow::anyhow!("Failed to determine Termin.AI config directory")
+        anyhow::anyhow!("Failed to determine Terminai config directory")
       })
       .map(|path| path.join("terminai.yaml"))
   }
@@ -196,7 +196,7 @@ impl TerminAIConfig {
     // TODO: Switch to HJSON? It's simpler and safer than YAML
     let config: TerminAIConfig = serde_yaml::from_str(&config_content)?;
 
-    log::info!("Termin.AI configuration loaded");
+    log::info!("Terminai configuration loaded");
 
     Ok(config)
   }

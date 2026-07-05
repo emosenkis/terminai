@@ -5,7 +5,7 @@ if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
   exit 0
 fi
 
-echo "Building Termin.AI in remote environment..."
+echo "Building Terminai in remote environment..."
 
 # Build the Rust project
 cargo build

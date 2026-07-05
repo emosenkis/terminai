@@ -1,4 +1,4 @@
-//! Application initialization functions for Termin.AI binary
+//! Application initialization functions for Terminai binary
 //!
 //! This module provides setup functions extracted from main() to improve
 //! testability and separation of concerns:

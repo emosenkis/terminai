@@ -23,21 +23,21 @@
         <a href="#workflow">Workflow</a>
         <a href="#agents">Agents</a>
         <a href="#install">Install</a>
-        <a href="https://github.com/emosenkis/termin.ai">GitHub</a>
+        <a href="https://github.com/emosenkis/terminai">GitHub</a>
       </nav>
     </header>
 
     <main id="top">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">AI terminal overlay for real CLI agents</p>
+          <p class="eyebrow">Always-available AI for any terminal</p>
           <h1 id="hero-title">Terminai</h1>
           <p class="hero-lede">
-            Keep your shell as the source of truth. Press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to open Codex, Claude Code, or your own agent in a live terminal overlay with safe access to the session underneath.
+            Use your terminal any way you want, then press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to open Codex, Claude Code, or your own agent in a live terminal overlay with safe access to your terminal session.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#install">Install</a>
-            <a class="button secondary" href="https://github.com/emosenkis/termin.ai">View source</a>
+            <a class="button secondary" href="https://github.com/emosenkis/terminai">View source</a>
           </div>
         </div>
 
@@ -48,42 +48,24 @@
             <span class="dot green"></span>
             <span class="terminal-title">~/project - terminai</span>
           </div>
-          <div class="terminal-grid">
-            <pre class="shell-pane" aria-label="Wrapped shell output"><span class="muted">$</span> npm run build
-
-<span class="danger">Error: Cannot find module 'react-router-dom'</span>
-  imported from src/App.tsx
-
-<span class="muted">Press Ctrl+Space</span></pre>
-            <div class="agent-pane" aria-label="AI overlay">
-              <div class="pane-title">AI Assistant - Codex</div>
-              <pre><span class="user">You:</span> why did this fail?
-
-<span class="ai">Codex:</span> The build is failing because the package is not installed in this project. I can queue the install command for your approval.
-
-<span class="tool">suggest_input</span> npm install react-router-dom</pre>
-            </div>
-            <div class="approval" aria-label="Shell input approval">
-              <strong>The AI suggests shell input</strong>
-              <code>npm install react-router-dom</code>
-              <span>Approve? <b>Y</b> / N</span>
-            </div>
+          <div class="terminal-grid terminal-sequence">
+            <script src="https://asciinema.org/a/cGPNcuBwIpYDSUY4.js?autoplay=1&loop=1" id="asciicast-cGPNcuBwIpYDSUY4" async="true"></script>
           </div>
         </div>
       </section>
 
       <section class="signal-band" aria-label="Highlights">
         <div>
-          <strong>Real terminal IO</strong>
-          <span>Your agent runs in a PTY, not a web chat imitation.</span>
+          <strong>Preserves native scrollback & copy</strong>
+          <span>Use your terminal exactly like you normally would</span>
         </div>
         <div>
           <strong>MCP context</strong>
-          <span>Agents can read terminal state through Terminai tools.</span>
+          <span>Agents can read terminal state, no installation needed<sup><a class="footnote-ref" href="#footnote-mcp-cli">1</a></sup></span>
         </div>
         <div>
           <strong>Approval first</strong>
-          <span>Suggested shell input waits for your confirmation.</span>
+          <span>Suggested shell input waits for your confirmation</span>
         </div>
       </section>
 
@@ -133,7 +115,7 @@ cargo test -p termin agent_launcher
         <div class="section-heading">
           <p class="eyebrow">Agent support</p>
           <h2 id="agents-title">Use the AI CLI you trust</h2>
-          <p>Terminai does not own your model credentials or provider routing. Your configured CLI handles auth and model selection; Terminai provides the terminal wrapper, MCP server, and approval flow.</p>
+          <p>Terminai does not own your model credentials or provider routing. Your configured CLI handles auth and model selection; Terminai provides the terminal wrapper, MCP server, and approval flow. Terminai never collects your data or makes outgoing network connections.</p>
         </div>
         <div class="agent-list" aria-label="Supported agent types">
           <div>
@@ -142,7 +124,7 @@ cargo test -p termin agent_launcher
           </div>
           <div>
             <span class="badge">Claude Code</span>
-            <p>Bundled preset starts Claude with a strict MCP config and Terminai system context.</p>
+            <p>Bundled preset starts Claude with Terminai MCP preconfigured.</p>
           </div>
           <div>
             <span class="badge">Custom</span>
@@ -160,13 +142,13 @@ cargo test -p termin agent_launcher
         <div class="install-grid">
           <div>
             <h3>Homebrew</h3>
-            <pre><code>brew tap emosenkis/termin.ai https://github.com/emosenkis/termin.ai.git
+            <pre><code>brew tap emosenkis/terminai https://github.com/emosenkis/terminai.git
 brew install terminai</code></pre>
           </div>
           <div>
             <h3>Source</h3>
-            <pre><code>git clone https://github.com/emosenkis/termin.ai.git
-cd termin.ai
+            <pre><code>git clone https://github.com/emosenkis/terminai.git
+cd terminai
 cargo build --release -p termin</code></pre>
           </div>
           <div>
@@ -181,7 +163,10 @@ terminai</code></pre>
 
     <footer>
       <span>Terminai is MIT licensed.</span>
-      <a href="https://github.com/emosenkis/termin.ai">github.com/emosenkis/termin.ai</a>
+      <a href="https://github.com/emosenkis/terminai">github.com/emosenkis/terminai</a>
+      <p class="footnote" id="footnote-mcp-cli">
+        1. Zero-install MCP configuration depends on the agent CLI supporting MCP server settings via CLI flags or environment variables.
+      </p>
     </footer>
   </body>
 </html>

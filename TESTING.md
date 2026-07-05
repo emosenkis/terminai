@@ -1,10 +1,10 @@
-# Testing Guide for Termin.AI
+# Testing Guide for Terminai
 
-This document describes the e2e testing infrastructure for Termin.AI using ratatui's TestBackend.
+This document describes the e2e testing infrastructure for Terminai using ratatui's TestBackend.
 
 ## Overview
 
-The e2e test harness allows you to test Termin.AI's UI components without requiring an actual terminal. It uses ratatui's `TestBackend` to render UI widgets to an in-memory buffer that can be inspected and verified.
+The e2e test harness allows you to test Terminai's UI components without requiring an actual terminal. It uses ratatui's `TestBackend` to render UI widgets to an in-memory buffer that can be inspected and verified.
 
 ## Test Infrastructure
 

@@ -11,11 +11,11 @@ use tui::widgets::{Block, Borders, Paragraph};
 fn test_basic_rendering() {
   let mut harness = TestHarness::new();
 
-  let widget = Paragraph::new("Hello, Termin.AI!")
+  let widget = Paragraph::new("Hello, Terminai!")
     .block(Block::default().borders(Borders::ALL).title("Test"));
 
   harness.render(widget).unwrap();
-  harness.assert_buffer_contains("Hello, Termin.AI!");
+  harness.assert_buffer_contains("Hello, Terminai!");
   harness.assert_buffer_contains("Test");
 }
 

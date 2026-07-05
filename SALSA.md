@@ -1,4 +1,4 @@
-# Termin.AI rat-salsa Migration Design
+# Terminai rat-salsa Migration Design
 
 ## Overview
 
@@ -1225,10 +1225,10 @@ AppEvent::SendAIMessage(msg, context) => {
 
 ### Code Locations
 
-- **Current terminai.rs**: `/var/home/eitan/projects/termin.ai/src/bin/terminai.rs`
-- **Current AI terminal**: `/var/home/eitan/projects/termin.ai/src/agent_terminal.rs`
-- **rat-salsa examples**: `/var/home/eitan/projects/termin.ai/rat-salsa/rat-salsa/examples/`
-- **markdown-reader**: `/var/home/eitan/projects/termin.ai/tui-markdown/markdown-reader/src/`
+- **Current terminai.rs**: `/var/home/eitan/projects/terminai/src/bin/terminai.rs`
+- **Current AI terminal**: `/var/home/eitan/projects/terminai/src/agent_terminal.rs`
+- **rat-salsa examples**: `/var/home/eitan/projects/terminai/rat-salsa/rat-salsa/examples/`
+- **markdown-reader**: `/var/home/eitan/projects/terminai/tui-markdown/markdown-reader/src/`
 
 ### Key Examples
 
@@ -1239,8 +1239,8 @@ AppEvent::SendAIMessage(msg, context) => {
 ### Documentation
 
 - **rat-salsa docs**: See examples and source comments
-- **Focus system**: `/var/home/eitan/projects/termin.ai/rat-salsa/rat-focus/`
-- **Event handling**: `/var/home/eitan/projects/termin.ai/rat-salsa/rat-event/`
+- **Focus system**: `/var/home/eitan/projects/terminai/rat-salsa/rat-focus/`
+- **Event handling**: `/var/home/eitan/projects/terminai/rat-salsa/rat-event/`
 
 ---
 

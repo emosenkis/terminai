@@ -2,9 +2,9 @@
 
 ## Native Scrollback Injection
 
-Termin.AI keeps the wrapped shell in an internal VT100 model and renders that
+Terminai keeps the wrapped shell in an internal VT100 model and renders that
 model through ratatui. When new rows enter the internal VT100 scrollback,
-Termin.AI mirrors those rows into the host terminal's native scrollback so
+Terminai mirrors those rows into the host terminal's native scrollback so
 users can scroll with their terminal emulator.
 
 There is no standard terminal escape sequence for "append these arbitrary rows
@@ -54,7 +54,7 @@ Known evidence:
 
 ### Current Mechanism
 
-Termin.AI now mirrors rows into native scrollback without scrolling regions:
+Terminai now mirrors rows into native scrollback without scrolling regions:
 
 1. Reset host terminal scroll margins (`CSI r`) and origin mode (`CSI ?6 l`),
    then move the real terminal cursor to the top-left corner.
@@ -81,6 +81,6 @@ to the top-left corner before streaming begins.
 ### Remaining Constraints
 
 Native scrollback requires the host to be on the normal screen buffer and to
-honor normal main-screen linefeed scrolling. Termin.AI should not enter the
+honor normal main-screen linefeed scrolling. Terminai should not enter the
 alternate screen for the wrapped shell viewport, and it should not use
 scroll-region operations for rows that must enter native scrollback.

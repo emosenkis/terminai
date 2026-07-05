@@ -52,7 +52,7 @@ pub async fn start_http_mcp_server(
       })
       .await
     {
-      log::error!("Termin.AI MCP server error: {err}");
+      log::error!("Terminai MCP server error: {err}");
     }
   });
 

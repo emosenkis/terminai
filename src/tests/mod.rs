@@ -1,4 +1,4 @@
-// Test modules for Termin.AI
+// Test modules for Terminai
 //
 // This module contains all test-related submodules
 

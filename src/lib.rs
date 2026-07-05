@@ -1,7 +1,7 @@
 #![allow(warnings)]
 #![allow(clippy::all, clippy::cargo, clippy::nursery, clippy::pedantic)]
 
-// Termin.AI library - exports modules for use in binaries
+// Terminai library - exports modules for use in binaries
 
 // All modules (needed for dependencies)
 pub mod app;
@@ -37,7 +37,7 @@ pub mod vt100;
 pub mod widgets;
 pub mod yaml_val;
 
-// TERMIN.AI: AI assistant modules
+// Terminai: AI assistant modules
 pub mod agent_launcher;
 pub mod agent_terminal;
 pub mod agent_tools;

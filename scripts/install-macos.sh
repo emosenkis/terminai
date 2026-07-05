@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Mac OS installation script for Termin.AI
+# Mac OS installation script for Terminai
 #
 # Usage:
 #   ./scripts/install-macos.sh
 #
-# This script builds and installs Termin.AI on Mac OS.
+# This script builds and installs Terminai on Mac OS.
 # It requires Rust to be installed.
 #
 
@@ -65,7 +65,7 @@ chmod +x "$BIN_DIR/terminai"
 echo ""
 echo_info "Installation complete!"
 echo ""
-echo "Termin.AI has been installed to: $BIN_DIR/terminai"
+echo "Terminai has been installed to: $BIN_DIR/terminai"
 echo ""
 
 # Check if BIN_DIR is in PATH
@@ -77,7 +77,7 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
   echo ""
 fi
 
-echo "To use Termin.AI, install and authenticate a supported CLI agent:"
+echo "To use Terminai, install and authenticate a supported CLI agent:"
 echo ""
 echo "  codex login"
 echo "  # or"

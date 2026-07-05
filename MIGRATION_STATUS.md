@@ -1,4 +1,4 @@
-# Termin.AI rat-salsa Migration Status
+# Terminai rat-salsa Migration Status
 
 **Date:** 2025-12-12
 **Current Phase:** ALL PHASES COMPLETE ✅

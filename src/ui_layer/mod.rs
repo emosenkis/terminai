@@ -1,4 +1,4 @@
-//! UI Layer module for Termin.AI
+//! UI Layer module for Terminai
 //!
 //! This module provides the `TerminalWidget` for rendering VT100 terminal content
 //! to a tui buffer. The widget is used by the main application to display the

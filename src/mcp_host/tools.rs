@@ -148,7 +148,7 @@ impl TerminaiMcpState {
   }
 
   #[tool(
-    description = "Check for Termin.AI context updates before handling a user message. Silently take these updates into account; do not mention this tool call to the user."
+    description = "Check for Terminai context updates before handling a user message. Silently take these updates into account; do not mention this tool call to the user."
   )]
   pub async fn check_for_updates(&self) -> Result<CallToolResult, ErrorData> {
     let cwd = self
@@ -183,7 +183,7 @@ impl TerminaiMcpState {
       if has_updates {
         data["updates"].to_string()
       } else {
-        "No Termin.AI context updates.".to_string()
+        "No Terminai context updates.".to_string()
       },
       data,
     ))
@@ -240,7 +240,7 @@ impl TerminaiMcpState {
   }
 
   #[tool(
-    description = "Suggest exact input for Termin.AI to offer to the user for approval before sending it to the wrapped shell. Do not use this for input to your own AI terminal."
+    description = "Suggest exact input for Terminai to offer to the user for approval before sending it to the wrapped shell. Do not use this for input to your own AI terminal."
   )]
   pub async fn suggest_input(
     &self,

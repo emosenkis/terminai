@@ -1,4 +1,4 @@
-// TERMIN.AI: Privacy filtering module
+// Terminai: Privacy filtering module
 
 pub mod filter;
 

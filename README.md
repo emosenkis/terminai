@@ -1,13 +1,13 @@
-# Termin.AI
+# Terminai
 
 **Interactive Terminal with AI Assistant** - A transparent shell wrapper that provides context-aware AI assistance through an overlay interface.
 
-> **Note:** Termin.AI borrows terminal virtualization code from [mprocs](https://github.com/pvolok/mprocs) but is a **distinct product** focused on AI-assisted terminal workflows, not multi-process management.
+> **Note:** Terminai borrows terminal virtualization code from [mprocs](https://github.com/pvolok/mprocs) but is a **distinct product** focused on AI-assisted terminal workflows, not multi-process management.
 
 ## Overview
 
-Termin.AI wraps your shell (bash, zsh, fish) and runs your configured AI CLI agent in a secondary terminal. The agent can:
-- View your wrapped terminal through Termin.AI's MCP tools
+Terminai wraps your shell (bash, zsh, fish) and runs your configured AI CLI agent in a secondary terminal. The agent can:
+- View your wrapped terminal through Terminai's MCP tools
 - Suggest shell input with your approval
 - Help debug errors and explain command output
 - Answer questions about your current terminal session
@@ -17,7 +17,7 @@ Termin.AI wraps your shell (bash, zsh, fish) and runs your configured AI CLI age
 ## Features
 
 ### 🤖 Context-Aware AI Assistant
-- Runs your configured CLI agent instead of Termin.AI owning model/provider logic
+- Runs your configured CLI agent instead of Terminai owning model/provider logic
 - Exposes terminal context through a host MCP server
 - Privacy filtering for terminal data returned through MCP
 - Works with CLI agents that can load MCP servers, including Claude Code and Codex
@@ -26,7 +26,7 @@ Termin.AI wraps your shell (bash, zsh, fish) and runs your configured AI CLI age
 - Command approval workflow for dangerous operations
 - Safe/Caution/Dangerous command classification
 - AI-suggested shell input is sent only after approval
-- Termin.AI does not manage model API keys; your chosen CLI owns auth
+- Terminai does not manage model API keys; your chosen CLI owns auth
 
 ### 🎨 Seamless UX
 - Transparent operation until AI is invoked
@@ -40,7 +40,7 @@ Termin.AI wraps your shell (bash, zsh, fish) and runs your configured AI CLI age
 
 ```bash
 # Add the tap and install
-brew tap emosenkis/termin.ai https://github.com/emosenkis/termin.ai.git
+brew tap emosenkis/terminai https://github.com/emosenkis/terminai.git
 brew install terminai
 ```
 
@@ -51,16 +51,16 @@ For other Mac installation methods, see [INSTALL_MACOS.md](INSTALL_MACOS.md).
 ### macOS (Installation Script)
 
 ```bash
-git clone https://github.com/emosenkis/termin.ai.git
-cd termin.ai
+git clone https://github.com/emosenkis/terminai.git
+cd terminai
 ./scripts/install-macos.sh
 ```
 
 ### Linux / From Source
 
 ```bash
-git clone https://github.com/emosenkis/termin.ai.git
-cd termin.ai
+git clone https://github.com/emosenkis/terminai.git
+cd terminai
 cargo build --release -p termin
 
 # Install binary
@@ -84,7 +84,7 @@ cp terminai.example.yaml ~/.config/terminai/terminai.yaml
 # Edit terminai.yaml to set your preferences
 ```
 
-3. Launch Termin.AI:
+3. Launch Terminai:
 ```bash
 terminai
 ```
@@ -93,7 +93,7 @@ terminai
 
 ## Configuration
 
-Termin.AI no longer stores model provider settings or API keys. Install and authenticate the CLI agent you want to use, then point Termin.AI at it.
+Terminai no longer stores model provider settings or API keys. Install and authenticate the CLI agent you want to use, then point Terminai at it.
 
 Create `~/.config/terminai/terminai.yaml`:
 
@@ -124,7 +124,7 @@ agent:
     - "{context_prompt}"
 ```
 
-Termin.AI injects a host MCP server and clear context prompt into known agents. The MCP server exposes `check_for_updates`, `read_terminal`, `get_terminal_context`, `suggest_input`, and `get_suggestion_status`.
+Terminai injects a host MCP server and clear context prompt into known agents. The MCP server exposes `check_for_updates`, `read_terminal`, `get_terminal_context`, `suggest_input`, and `get_suggestion_status`.
 
 Built-in agent presets are YAML reference configs bundled at build time from `config/codex.yaml`, `config/claude.yaml`, `config/opencode.yaml`, and `config/general.yaml`. User `agent-presets` use the same shape and can extend or override those presets.
 
@@ -132,7 +132,7 @@ Built-in agent presets are YAML reference configs bundled at build time from `co
 
 ### Basic Workflow
 
-1. **Normal Terminal Usage**: Use your shell normally - Termin.AI is transparent
+1. **Normal Terminal Usage**: Use your shell normally - Terminai is transparent
 2. **Activate AI**: Press `Ctrl+Space` to open the AI CLI terminal
 3. **Ask Questions**: Interact with the CLI agent normally
 4. **Command Approval**: Review and approve suggested shell input
@@ -205,14 +205,14 @@ See the help window (`?` key) for complete keybindings.
 
 ## Architecture
 
-Termin.AI consists of:
+Terminai consists of:
 
 **Borrowed from mprocs (~30%):**
 - `src/vt100/` - Terminal emulation (VT100)
 - `src/proc/` - PTY handling
 - `src/term/` - Terminal abstractions
 
-**New Termin.AI code (~70%):**
+**New Terminai code (~70%):**
 - `src/agent_launcher.rs` - CLI agent launch planning
 - `src/agent_terminal.rs` - AI CLI PTY terminal
 - `src/mcp_host/` - Host MCP server for terminal context and suggestions, served with `rmcp`
@@ -234,12 +234,12 @@ Please read `CLAUDE.md` for guidelines when working with AI assistants on this p
 
 ## Relationship to mprocs
 
-Termin.AI is **NOT**:
+Terminai is **NOT**:
 - ❌ A fork of mprocs
 - ❌ An extension of mprocs
 - ❌ "mprocs with AI added"
 
-Termin.AI **IS**:
+Terminai **IS**:
 - ✅ A new product with its own vision
 - ✅ Using mprocs' terminal virtualization as a code library
 - ✅ Building on proven technology to move faster
@@ -262,4 +262,4 @@ Portions of terminal virtualization code are from [mprocs](https://github.com/pv
 
 **Status:** Alpha - Active Development
 
-For questions, issues, or contributions, please visit our [GitHub repository](https://github.com/yourusername/termin.ai).
+For questions, issues, or contributions, please visit our [GitHub repository](https://github.com/emosenkis/terminai).

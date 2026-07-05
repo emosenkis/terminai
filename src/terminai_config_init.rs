@@ -1,11 +1,11 @@
-//! Helpers for creating editable Termin.AI config files.
+//! Helpers for creating editable Terminai config files.
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_TERMINAI_YAML: &str = r#"# Termin.AI configuration
+pub const DEFAULT_TERMINAI_YAML: &str = r#"# Terminai configuration
 #
-# This file lives in the Termin.AI config directory. Edit it to choose the
+# This file lives in the Terminai config directory. Edit it to choose the
 # AI terminal agent, overlay behavior, and custom agent presets.
 
 interface:
@@ -31,9 +31,9 @@ agent:
 agent-presets: {}
 "#;
 
-pub const DEFAULT_TERMINAI_ENV: &str = r#"# Termin.AI environment variables
+pub const DEFAULT_TERMINAI_ENV: &str = r#"# Terminai environment variables
 #
-# Add environment variables here if you want Termin.AI to load them automatically.
+# Add environment variables here if you want Terminai to load them automatically.
 # This file is created with owner-only permissions on Unix.
 
 "#;
@@ -59,7 +59,7 @@ pub struct ConfigInitResult {
 pub fn terminai_config_dir() -> Result<PathBuf> {
   let xdg_dirs = xdg::BaseDirectories::with_prefix("terminai");
   xdg_dirs.get_config_home().ok_or_else(|| {
-    anyhow::anyhow!("Failed to determine Termin.AI config directory")
+    anyhow::anyhow!("Failed to determine Terminai config directory")
   })
 }
 

@@ -33,7 +33,7 @@ mod vt100;
 mod widgets;
 mod yaml_val;
 
-// TERMIN.AI: AI assistant modules
+// Terminai: AI assistant modules
 mod agent_launcher;
 mod agent_terminal;
 mod agent_tools;

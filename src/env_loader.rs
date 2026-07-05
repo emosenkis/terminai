@@ -1,4 +1,4 @@
-// TERMIN.AI: Environment variable loader with security checks
+// Terminai: Environment variable loader with security checks
 //
 // Loads environment variables from terminai.env in the config directory.
 // Includes security checks to ensure the file is not group or world-readable.

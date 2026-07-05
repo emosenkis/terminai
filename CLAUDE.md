@@ -1,14 +1,14 @@
-# Instructions for Claude Code When Working on Termin.AI
+# Instructions for Claude Code When Working on Terminai
 
 **Last Updated:** 2025-11-14
-**Project:** Termin.AI - Interactive Terminal with AI Assistant
+**Project:** Terminai - Interactive Terminal with AI Assistant
 **Status:** Active Development (v0.1.0)
 
 ---
 
 ## Overview
 
-You are working on **Termin.AI**, a terminal wrapper that provides AI assistance through an overlay interface. This is a Rust project that borrows terminal virtualization code from mprocs but builds a completely different product.
+You are working on **Terminai**, a terminal wrapper that provides AI assistance through an overlay interface. This is a Rust project that borrows terminal virtualization code from mprocs but builds a completely different product.
 
 **Critical:** This is NOT an mprocs extension. It's a single-shell terminal with AI overlay.
 
@@ -107,7 +107,7 @@ When writing code:
 
 ### 3. Preserve Product Identity
 
-**Termin.AI is NOT mprocs.**
+**Terminai is NOT mprocs.**
 
 Never:
 - ❌ Add multi-process management features
@@ -226,7 +226,7 @@ Issue: PRD and plan don't specify what happens when shell exits
        (user types 'exit' or shell crashes)
 
 Questions:
-- Should Termin.AI exit immediately?
+- Should Terminai exit immediately?
 - Offer to restart shell?
 - Show AI overlay to ask user what to do?
 - Preserve AI conversation history?
@@ -483,7 +483,7 @@ safe_commands = ["ls", "pwd"]
 - Use as-is from mprocs
 - Minimal modifications
 
-### New Termin.AI Code
+### New Terminai Code
 
 **`src/main.rs`** - Entry point
 - Detect user's shell

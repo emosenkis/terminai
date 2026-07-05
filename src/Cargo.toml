@@ -2,7 +2,7 @@
 name = "termin"
 version = "0.1.0"
 description = "Interactive terminal wrapper with AI assistant"
-repository = "https://github.com/emosenkis/termin.ai"
+repository = "https://github.com/emosenkis/terminai"
 authors = ["Eitan Mosenkis <eitan@mosenkis.net>"]
 license = "MIT"
 edition = "2024"
@@ -83,7 +83,7 @@ regex = "1.10"
 dotenvy = "0.15"
 tui-textarea = "0.7.0"
 
-# TERMIN.AI: rat-salsa dependencies for focus management
+# Terminai: rat-salsa dependencies for focus management
 rat-salsa = { path = "../rat-salsa/rat-salsa", features = ["async"] }
 rat-focus = { path = "../rat-salsa/rat-focus" }
 rat-event = { path = "../rat-salsa/rat-event" }

@@ -1,7 +1,7 @@
-// E2E test harness for Termin.AI using ratatui TestBackend
+// E2E test harness for Terminai using ratatui TestBackend
 //
 // This module provides a comprehensive test harness for end-to-end testing
-// of the Termin.AI application using ratatui's TestBackend.
+// of the Terminai application using ratatui's TestBackend.
 
 pub mod test_ai;
 pub mod test_resize;

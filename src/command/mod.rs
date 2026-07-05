@@ -1,4 +1,4 @@
-// TERMIN.AI: Command parsing and validation module
+// Terminai: Command parsing and validation module
 
 pub mod executor;
 pub mod parser;

@@ -1,6 +1,6 @@
 # Release Process
 
-Termin.AI uses GitHub Releases as the source for Homebrew binaries.
+Terminai uses GitHub Releases as the source for Homebrew binaries.
 
 ## First release
 

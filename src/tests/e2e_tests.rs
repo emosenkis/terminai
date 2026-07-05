@@ -1,4 +1,4 @@
-// E2E tests for Termin.AI
+// E2E tests for Terminai
 //
 // These tests use ratatui's TestBackend to verify the application's
 // behavior without requiring an actual terminal.
