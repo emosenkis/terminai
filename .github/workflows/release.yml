@@ -1,0 +1,167 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            runs_on: ubuntu-latest
+            os: linux
+            target: x86_64-unknown-linux-musl
+            arch: x86_64
+            suffix: linux-x86_64-musl
+            ext: tar.gz
+            binary_name: terminai
+          - name: macOS x86_64
+            runs_on: macos-13
+            os: unix
+            target: x86_64-apple-darwin
+            arch: x86_64
+            suffix: darwin-x86_64
+            ext: tar.gz
+            binary_name: terminai
+          - name: macOS arm64
+            runs_on: macos-14
+            os: unix
+            target: aarch64-apple-darwin
+            arch: aarch64
+            suffix: darwin-aarch64
+            ext: tar.gz
+            binary_name: terminai
+          - name: Windows x86_64
+            runs_on: windows-latest
+            os: windows
+            target: x86_64-pc-windows-msvc
+            suffix: windows-x86_64
+            ext: zip
+            binary_name: terminai.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux build deps
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Resolve version
+        id: version
+        if: matrix.os != 'windows'
+        run: |
+          version="$(bash scripts/version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve version
+        id: version_windows
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --format-version 1 --no-deps | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object { $_.name -eq 'termin' }).version
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build Unix binary
+        if: matrix.os != 'windows'
+        run: ARCH=${{ matrix.arch }} bash scripts/build-unix.sh
+
+      - name: Build Windows binary
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version_windows.outputs.version }}"
+          $staging = "release/terminai-$version-${{ matrix.suffix }}"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          cargo build --release --target ${{ matrix.target }}
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "$staging/${{ matrix.binary_name }}"
+          Compress-Archive -Path "$staging/${{ matrix.binary_name }}" -DestinationPath "release/terminai-$version-${{ matrix.suffix }}.${{ matrix.ext }}" -Force
+
+      - name: Create checksum
+        if: matrix.os != 'windows'
+        run: |
+          archive="release/terminai-${{ steps.version.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}"
+          python3 - "$archive" > "$archive.sha256" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          print(f"{digest}  {path.name}")
+          PY
+
+      - name: Create checksum
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $archive = "release/terminai-${{ steps.version_windows.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}"
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
+          "$hash  $(Split-Path $archive -Leaf)" | Out-File -Encoding ascii "$archive.sha256"
+
+      - name: Upload Unix build artifacts
+        if: matrix.os != 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminai-${{ matrix.suffix }}
+          path: |
+            release/terminai-${{ steps.version.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}
+            release/terminai-${{ steps.version.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}.sha256
+          if-no-files-found: error
+
+      - name: Upload Windows build artifacts
+        if: matrix.os == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminai-${{ matrix.suffix }}
+          path: |
+            release/terminai-${{ steps.version_windows.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}
+            release/terminai-${{ steps.version_windows.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Resolve version
+        id: version
+        run: |
+          version="$(bash scripts/version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: dist/**/*

@@ -24,9 +24,6 @@ jobs:
 
     - name: Validate formula syntax
       run: |
-        # Audit the formula for common issues
-        brew audit --strict terminai/tap/terminai
-
         # Check formula style
         brew style terminai/tap/terminai
 

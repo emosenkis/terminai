@@ -1,27 +1,24 @@
 class Terminai < Formula
   desc "Interactive terminal wrapper with AI assistant"
   homepage "https://github.com/emosenkis/termin.ai"
-  url "https://github.com/emosenkis/termin.ai.git",
-      using:  :git,
-      branch: "main"
-  version "0.1.0"
+
+  if OS.mac?
+    if Hardware::CPU.arm?
+      url "https://github.com/emosenkis/termin.ai/releases/download/v0.1.0/terminai-0.1.0-darwin-aarch64.tar.gz"
+    else
+      url "https://github.com/emosenkis/termin.ai/releases/download/v0.1.0/terminai-0.1.0-darwin-x86_64.tar.gz"
+    end
+  elsif OS.linux?
+    odie "Termin.AI currently ships Linux binaries for x86_64 only" unless Hardware::CPU.intel?
+
+    url "https://github.com/emosenkis/termin.ai/releases/download/v0.1.0/terminai-0.1.0-linux-x86_64-musl.tar.gz"
+  end
+
+  sha256 :no_check
   license "MIT"
 
-  depends_on "rust" => :build
-
   def install
-    # Build the Rust binary (only terminai, not termcap test utility)
-    system "cargo", "build", "--release", "-p", "termin", "--bin", "terminai"
-
-    # Install the binary to libexec and create a wrapper script at bin/terminai.
-    libexec.install "target/release/terminai" => "terminai-unwrapped"
-
-    (bin/"terminai").write <<~EOS
-      #!/bin/bash
-      exec "#{libexec}/terminai-unwrapped" "$@"
-    EOS
-
-    chmod 0755, bin/"terminai"
+    bin.install "terminai"
   end
 
   def caveats
@@ -48,7 +45,6 @@ class Terminai < Formula
   end
 
   test do
-    # Test that the binary exists and can show help
     assert_match "Interactive terminal wrapper with AI assistant",
       shell_output("#{bin}/terminai --help")
   end

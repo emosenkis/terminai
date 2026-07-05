@@ -44,6 +44,8 @@ brew tap emosenkis/termin.ai https://github.com/emosenkis/termin.ai.git
 brew install terminai
 ```
 
+Homebrew now installs prebuilt release binaries from GitHub, so the Rust toolchain is not required on the target machine.
+
 For other Mac installation methods, see [INSTALL_MACOS.md](INSTALL_MACOS.md).
 
 ### macOS (Installation Script)
