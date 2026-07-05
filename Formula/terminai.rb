@@ -23,19 +23,22 @@ class Terminai < Formula
     bin.install "terminai"
   end
 
+  def post_install
+    system bin/"terminai", "init-config"
+  end
+
   def caveats
     <<~EOS
       Terminai runs your configured CLI agent in a PTY-backed overlay.
       It does not store AI credentials or choose models itself.
 
-      Recommended setup:
-        $ terminai init-config
+      The default config has been initialized at:
+        ~/.config/terminai/terminai.yaml
+
+      Next, authenticate your chosen CLI agent:
         $ codex login
         # or:
         $ claude auth
-
-      Configuration file:
-        ~/.config/terminai/terminai.yaml
 
       To use Terminai:
         $ terminai
