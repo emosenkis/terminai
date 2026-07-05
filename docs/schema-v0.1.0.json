@@ -38,6 +38,7 @@
       }
     }
   },
+  "additionalProperties": false,
   "$defs": {
     "AgentConfig": {
       "description": "Agent configuration.\n\nThe `args` and `extra-args` fields support handlebars-style substitutions\nwhen Terminai builds the launch command:\n`{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and\n`{{toml context_prompt}}`.",
@@ -92,7 +93,8 @@
           ],
           "default": null
         }
-      }
+      },
+      "additionalProperties": false
     },
     "AgentKind": {
       "type": "string",
@@ -141,7 +143,8 @@
             "type": "string"
           }
         }
-      }
+      },
+      "additionalProperties": false
     },
     "ChatPosition": {
       "description": "Position of the AI chat overlay",
@@ -161,7 +164,7 @@
           "default": "bottom"
         },
         "key_bindings": {
-          "description": "Key bindings",
+          "description": "Key bindings\n\nThe syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).",
           "$ref": "#/$defs/KeyBindingsConfig",
           "default": {
             "activate-overlay": "Ctrl-Space",
@@ -170,7 +173,8 @@
             "deny": "n"
           }
         }
-      }
+      },
+      "additionalProperties": false
     },
     "KeyBindingsConfig": {
       "type": "object",
@@ -188,6 +192,7 @@
           "$ref": "#/$defs/OneOrMoreBindings"
         }
       },
+      "additionalProperties": false,
       "required": [
         "activate-overlay",
         "deactivate-overlay",

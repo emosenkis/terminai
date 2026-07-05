@@ -13,6 +13,7 @@ use std::borrow::Cow;
 
 /// Position of the AI chat overlay
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatPosition {
@@ -71,6 +72,7 @@ impl OneOrMoreBindings {
 }
 
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyBindingsConfig {
   #[serde(rename = "activate-overlay")]
@@ -94,17 +96,21 @@ impl Default for KeyBindingsConfig {
 
 /// Interface configuration
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct InterfaceConfig {
   /// Position of the AI chat overlay (default: bottom)
   #[serde(default, rename = "chat-position")]
   pub chat_position: ChatPosition,
   /// Key bindings
+  ///
+  /// The syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).
   #[serde(default)]
   pub key_bindings: KeyBindingsConfig,
 }
 
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentKind {
@@ -120,6 +126,7 @@ pub enum AgentKind {
 /// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and
 /// `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentConfig {
   #[serde(default)]
@@ -190,6 +197,7 @@ impl Default for AgentConfig {
 /// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and
 /// `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentPresetConfig {
   #[serde(default)]
@@ -210,6 +218,7 @@ pub struct AgentPresetConfig {
 ///
 /// Default configuration can be installed with `terminai init-config`
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminaiConfig {
   /// Interface configuration
