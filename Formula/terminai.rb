@@ -5,16 +5,16 @@ class Terminai < Formula
   if OS.mac?
     if Hardware::CPU.arm?
       url "https://github.com/emosenkis/terminai/releases/download/v0.1.0/terminai-0.1.0-darwin-aarch64.tar.gz"
-      sha256 "ea07f74779bd2c94f7dadb0b54dcbe13e4ba7a91d22a482c2d44099afdcb23dd"
+      sha256 "ce9bce239544c12b05190a65d320e5ecb1a63ee821d015737d06341e9096dd2a"
     else
       url "https://github.com/emosenkis/terminai/releases/download/v0.1.0/terminai-0.1.0-darwin-x86_64.tar.gz"
-      sha256 "a240b7f950cb07b66a062ce590ba8d0ccbbc704ad14edf974ffe4d420942ead4"
+      sha256 "dac25e482375fc785a15b82d195b5849400a0d4adc7cc68dc9c9f30417259585"
     end
   elsif OS.linux?
     odie "Terminai currently ships Linux binaries for x86_64 only" unless Hardware::CPU.intel?
 
     url "https://github.com/emosenkis/terminai/releases/download/v0.1.0/terminai-0.1.0-linux-x86_64-musl.tar.gz"
-    sha256 "13208c59faa0c4dd911cc0bb21def79fd47c84200ab1cf426c54be4ad03deb9c"
+    sha256 "05ea214041cd3cabe521feea9aeffb751d796a0d62f2f007e36943416db8ef39"
   end
 
   license "MIT"
