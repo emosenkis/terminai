@@ -234,6 +234,7 @@ kbd {
 .terminal-grid {
   background: #090d22;
 }
+
 .asciicast {
   margin: 0 !important;
 }
@@ -323,11 +324,16 @@ pre {
   margin-bottom: 2rem;
 }
 
-.examples,
 .install-grid,
 .agent-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
 }
 
@@ -336,6 +342,13 @@ pre {
 .agent-list > div {
   padding: 1.25rem;
   box-shadow: none;
+}
+
+.terminal-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
 }
 
 .mini-terminal {
@@ -405,8 +418,7 @@ footer {
     min-height: auto;
   }
 
-  .examples,
-  .install-grid {
+  .examples {
     grid-template-columns: 1fr;
   }
 }

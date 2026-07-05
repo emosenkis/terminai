@@ -11,7 +11,7 @@
     <meta name="theme-color" content="#0b1020">
     <title>Terminai | AI in your real terminal</title>
     <link rel="canonical" href="https://terminai.app">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20260706">
   </head>
   <body>
     <header class="site-header" aria-label="Primary">
@@ -79,23 +79,12 @@
         <div class="examples">
           <article class="example-card">
             <h3>Read the current terminal</h3>
-            <pre class="mini-terminal"><span class="muted">$</span> git status --short
- M src/app.rs
-?? docs/index.html
-
-<span class="user">You:</span> summarize what I changed
-<span class="ai">Claude:</span> You have one Rust modification and a new Pages file. I can inspect the diff before suggesting next steps.</pre>
+            <img class="terminal-shot" src="asciinema-terminal.svg" alt="" aria-hidden="true">
           </article>
 
           <article class="example-card">
             <h3>Queue safe shell input</h3>
-            <pre class="mini-terminal"><span class="user">You:</span> run the focused test
-<span class="ai">Codex:</span> I found a matching test target.
-
-<span class="tool">suggest_input</span>
-cargo test -p termin agent_launcher
-
-<span class="ok">Waiting for approval...</span></pre>
+            <img class="terminal-shot" src="asciinema-queue.svg" alt="" aria-hidden="true">
           </article>
 
           <article class="example-card">
