@@ -132,19 +132,20 @@
           <div>
             <h3>Homebrew</h3>
             <pre><code>brew tap emosenkis/terminai https://github.com/emosenkis/terminai.git
-brew install terminai</code></pre>
+brew trust --formula emosenkis/terminai/terminai
+brew install emosenkis/terminai/terminai</code></pre>
           </div>
           <div>
-            <h3>Source</h3>
+            <h3>Build from source</h3>
             <pre><code>git clone https://github.com/emosenkis/terminai.git
+git submodule init
+git submodule update
 cd terminai
-cargo build --release -p termin</code></pre>
+cargo install --path src</code></pre>
           </div>
           <div>
             <h3>Config</h3>
-            <pre><code>mkdir -p ~/.config/terminai
-terminai init-config
-terminai</code></pre>
+            <pre><code>$XDG_CONFIG_DIR/terminai/terminai.yaml</code></pre>
           </div>
         </div>
       </section>
