@@ -29,3 +29,6 @@ __pycache__/
 .python-version
 python/.venv
 .venv
+
+# Task
+.task/

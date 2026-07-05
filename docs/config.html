@@ -98,7 +98,9 @@
             />
         </svg>
     <a href="#agent_args" onclick="anchorLink('agent_args')">args</a></div><span class="badge badge-dark value-type">Type: array of string</span> <span class="badge badge-success default-value">Default: []</span><br/>
-
+<span class="description"><p>CLI arguments passed to the agent. Supports the same<br />
+handlebars-style substitutions documented on [<code>AgentConfig</code>].</p>
+</span>
         
 
         
@@ -213,7 +215,9 @@
             />
         </svg>
     <a href="#agent_extra-args" onclick="anchorLink('agent_extra-args')">extra-args</a></div><span class="badge badge-dark value-type">Type: array of string</span> <span class="badge badge-success default-value">Default: []</span><br/>
-
+<span class="description"><p>Additional CLI arguments appended after <code>args</code>. Supports the same<br />
+handlebars-style substitutions documented on [<code>AgentConfig</code>].</p>
+</span>
         
 
         
@@ -288,7 +292,9 @@
             />
         </svg>
     <a href="#agent_initial-prompt" onclick="anchorLink('agent_initial-prompt')">initial-prompt</a></div><span class="badge badge-dark value-type">Type: string or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
-
+<span class="description"><p>Initial prompt passed to the agent. See the default value in<br />
+<a href="https://github.com/emosenkis/terminai/blob/main/config/general.yaml"><code>config/general.yaml</code></a>.</p>
+</span>
         
 
         
@@ -540,7 +546,20 @@
             />
         </svg>
     <a href="#agent-presets_additionalProperties" onclick="anchorLink('agent-presets_additionalProperties')">AgentPresetConfig</a></div><span class="badge badge-dark value-type">Type: object</span><br/>
+<div class="description collapse" id="collapseDescription_agent-presets_additionalProperties">
+            <p>Agent preset configuration.</p>
 
+<p>The <code>args</code> and <code>extra-args</code> fields support handlebars-style substitutions<br />
+when Terminai builds the launch command:<br />
+<code>{{cwd}}</code>, <code>{{mcp_url}}</code>, <code>{{toml mcp_url}}</code>, <code>{{context_prompt}}</code>, and<br />
+<code>{{toml context_prompt}}</code>.</p>
+
+        </div>
+        <div>
+            <a class="collapse-description-link collapsed" data-toggle="collapse" href="#collapseDescription_agent-presets_additionalProperties"
+               aria-expanded="false" aria-controls="collapseDescriptionagent-presets_additionalProperties"
+            ></a>
+        </div>
 
     
         
@@ -1393,6 +1412,6 @@
 </div>
 
     <footer>
-        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-06 at 01:20:36 +0300</p>
+        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-06 at 01:41:43 +0300</p>
     </footer></body>
 </html>

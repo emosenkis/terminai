@@ -1,0 +1,22 @@
+version: "3"
+
+tasks:
+  config-schema:
+    desc: Regenerate docs/schema-v0.1.0.json from src/terminai_config.rs
+    sources:
+      - src/terminai_config.rs
+    generates:
+      - docs/schema-v0.1.0.json
+    cmds:
+      - cargo run --features=schema --bin dump-config-schema
+
+  config-docs:
+    desc: Regenerate docs/config.html from docs/schema-v0.1.0.json
+    deps:
+      - config-schema
+    sources:
+      - docs/schema-v0.1.0.json
+    generates:
+      - docs/config.html
+    cmds:
+      - uvx --from json-schema-for-humans generate-schema-doc docs/schema-v0.1.0.json docs/config.html

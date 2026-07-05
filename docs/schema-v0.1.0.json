@@ -40,9 +40,11 @@
   },
   "$defs": {
     "AgentConfig": {
+      "description": "Agent configuration.\n\nThe `args` and `extra-args` fields support handlebars-style substitutions\nwhen Terminai builds the launch command:\n`{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and\n`{{toml context_prompt}}`.",
       "type": "object",
       "properties": {
         "args": {
+          "description": "CLI arguments passed to the agent. Supports the same\nhandlebars-style substitutions documented on [`AgentConfig`].",
           "type": "array",
           "default": [],
           "items": {
@@ -57,6 +59,7 @@
           "default": null
         },
         "extra-args": {
+          "description": "Additional CLI arguments appended after `args`. Supports the same\nhandlebars-style substitutions documented on [`AgentConfig`].",
           "type": "array",
           "default": [],
           "items": {
@@ -64,6 +67,7 @@
           }
         },
         "initial-prompt": {
+          "description": "Initial prompt passed to the agent. See the default value in\n[`config/general.yaml`](https://github.com/emosenkis/terminai/blob/main/config/general.yaml).",
           "type": [
             "string",
             "null"
@@ -99,6 +103,7 @@
       ]
     },
     "AgentPresetConfig": {
+      "description": "Agent preset configuration.\n\nThe `args` and `extra-args` fields support handlebars-style substitutions\nwhen Terminai builds the launch command:\n`{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and\n`{{toml context_prompt}}`.",
       "type": "object",
       "properties": {
         "args": {

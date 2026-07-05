@@ -113,6 +113,12 @@ pub enum AgentKind {
   Custom,
 }
 
+/// Agent configuration.
+///
+/// The `args` and `extra-args` fields support handlebars-style substitutions
+/// when Terminai builds the launch command:
+/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and
+/// `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentConfig {
@@ -122,10 +128,16 @@ pub struct AgentConfig {
   pub kind: Option<AgentKind>,
   #[serde(default)]
   pub command: Option<String>,
+  /// CLI arguments passed to the agent. Supports the same
+  /// handlebars-style substitutions documented on [`AgentConfig`].
   #[serde(default)]
   pub args: Vec<String>,
+  /// Additional CLI arguments appended after `args`. Supports the same
+  /// handlebars-style substitutions documented on [`AgentConfig`].
   #[serde(default, rename = "extra-args")]
   pub extra_args: Vec<String>,
+  /// Initial prompt passed to the agent. See the default value in
+  /// [`config/general.yaml`](https://github.com/emosenkis/terminai/blob/main/config/general.yaml).
   #[serde(default, rename = "initial-prompt")]
   pub initial_prompt: Option<String>,
 }
@@ -171,6 +183,12 @@ impl Default for AgentConfig {
   }
 }
 
+/// Agent preset configuration.
+///
+/// The `args` and `extra-args` fields support handlebars-style substitutions
+/// when Terminai builds the launch command:
+/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and
+/// `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentPresetConfig {
