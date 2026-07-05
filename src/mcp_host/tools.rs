@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
+use rmcp::schemars::{self as schemars, JsonSchema};
 use rmcp::{
   ServerHandler,
   handler::server::{router::tool::ToolRouter, wrapper::Parameters},
   model::{CallToolResult, Content, ErrorData, ServerCapabilities, ServerInfo},
   tool, tool_handler, tool_router,
 };
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{Mutex as AsyncMutex, mpsc};

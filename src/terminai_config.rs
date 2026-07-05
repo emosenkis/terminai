@@ -3,9 +3,16 @@ use std::{collections::HashMap, path::PathBuf};
 use anyhow::Result;
 use crokey::KeyCombination;
 use crokey::key;
+#[cfg(feature = "schema")]
+use rmcp::schemars::{
+  self as schemars, JsonSchema, Schema, SchemaGenerator, json_schema,
+};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "schema")]
+use std::borrow::Cow;
 
 /// Position of the AI chat overlay
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatPosition {
@@ -26,6 +33,34 @@ pub enum OneOrMoreBindings {
   Multiple(Vec<KeyCombination>),
 }
 
+#[cfg(feature = "schema")]
+impl JsonSchema for OneOrMoreBindings {
+  fn schema_name() -> Cow<'static, str> {
+    "OneOrMoreBindings".into()
+  }
+
+  fn schema_id() -> Cow<'static, str> {
+    concat!(module_path!(), "::OneOrMoreBindings").into()
+  }
+
+  fn json_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "A single key combination such as Ctrl-Space"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    })
+  }
+}
+
 impl OneOrMoreBindings {
   pub fn matches(&self, key_combo: KeyCombination) -> bool {
     match self {
@@ -35,6 +70,7 @@ impl OneOrMoreBindings {
   }
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KeyBindingsConfig {
   #[serde(rename = "activate-overlay")]
@@ -57,6 +93,7 @@ impl Default for KeyBindingsConfig {
 }
 
 /// Interface configuration
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct InterfaceConfig {
   /// Position of the AI chat overlay (default: bottom)
@@ -67,6 +104,7 @@ pub struct InterfaceConfig {
   pub key_bindings: KeyBindingsConfig,
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentKind {
@@ -75,6 +113,7 @@ pub enum AgentKind {
   Custom,
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentConfig {
   #[serde(default)]
@@ -132,6 +171,7 @@ impl Default for AgentConfig {
   }
 }
 
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct AgentPresetConfig {
   #[serde(default)]
@@ -146,7 +186,12 @@ pub struct AgentPresetConfig {
   pub env: HashMap<String, String>,
 }
 
-/// Top-level Terminai configuration
+/// Top-level Terminai configuration loaded from
+/// `$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to
+/// `~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset.
+///
+/// Default configuration can be installed with `terminai init-config`
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminAIConfig {
   /// Interface configuration

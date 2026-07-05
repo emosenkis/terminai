@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminAIConfig",
+  "description": "Top-level Terminai configuration loaded from\n`$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to\n`~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset.\n\nDefault configuration can be installed with `terminai init-config`",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "description": "External CLI agent to run in the AI terminal.",
+      "$ref": "#/$defs/AgentConfig",
+      "default": {
+        "args": [],
+        "command": null,
+        "extra-args": [],
+        "initial-prompt": null,
+        "kind": "codex",
+        "preset": "codex"
+      }
+    },
+    "agent-presets": {
+      "description": "User-defined CLI agent presets. Built-in presets include codex and claude.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentPresetConfig"
+      },
+      "default": {}
+    },
+    "interface": {
+      "description": "Interface configuration",
+      "$ref": "#/$defs/InterfaceConfig",
+      "default": {
+        "chat-position": "bottom",
+        "key_bindings": {
+          "activate-overlay": "Ctrl-Space",
+          "approve": "y",
+          "deactivate-overlay": "Ctrl-Space",
+          "deny": "n"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "AgentConfig": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "extra-args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "initial-prompt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    },
+    "AgentKind": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex",
+        "custom"
+      ]
+    },
+    "AgentPresetConfig": {
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "extends": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "extra-args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ChatPosition": {
+      "description": "Position of the AI chat overlay",
+      "type": "string",
+      "enum": [
+        "bottom",
+        "top"
+      ]
+    },
+    "InterfaceConfig": {
+      "description": "Interface configuration",
+      "type": "object",
+      "properties": {
+        "chat-position": {
+          "description": "Position of the AI chat overlay (default: bottom)",
+          "$ref": "#/$defs/ChatPosition",
+          "default": "bottom"
+        },
+        "key_bindings": {
+          "description": "Key bindings",
+          "$ref": "#/$defs/KeyBindingsConfig",
+          "default": {
+            "activate-overlay": "Ctrl-Space",
+            "approve": "y",
+            "deactivate-overlay": "Ctrl-Space",
+            "deny": "n"
+          }
+        }
+      }
+    },
+    "KeyBindingsConfig": {
+      "type": "object",
+      "properties": {
+        "activate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "approve": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deactivate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deny": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        }
+      },
+      "required": [
+        "activate-overlay",
+        "deactivate-overlay",
+        "approve",
+        "deny"
+      ]
+    },
+    "OneOrMoreBindings": {
+      "oneOf": [
+        {
+          "description": "A single key combination such as Ctrl-Space",
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  }
+}

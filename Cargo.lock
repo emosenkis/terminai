@@ -3338,7 +3338,6 @@ dependencies = [
  "regex",
  "rmcp",
  "rustix",
- "schemars",
  "scopeguard",
  "serde",
  "serde_json",
