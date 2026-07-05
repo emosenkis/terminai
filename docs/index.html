@@ -9,7 +9,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://terminai.app">
     <meta name="theme-color" content="#0b1020">
-    <title>Terminai | AI in your real terminal</title>
+    <title>Terminai | Transparent terminal wrapper to integrate AI agents</title>
     <link rel="canonical" href="https://terminai.app">
     <link rel="stylesheet" href="styles.css?v=20260706">
   </head>
@@ -31,10 +31,11 @@
     <main id="top">
       <section class="hero" aria-labelledby="hero-title">
         <div class="hero-copy">
-          <p class="eyebrow">Always-available AI for any terminal</p>
+          <p class="eyebrow">Wrap your terminal for on-demand access to AI</p>
           <h1 id="hero-title">Terminai</h1>
           <p class="hero-lede">
-            Use your terminal any way you want, then press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to open Codex, Claude Code, or your own agent in a live terminal overlay with safe access to your terminal session.
+            Use your terminal any way you want, then press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to open Codex, Claude Code,
+            or your own agent in an overlay with read and approval-gated write access to your terminal.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#install">Install</a>
@@ -87,17 +88,6 @@
             <h3>Queue safe shell input</h3>
             <img class="terminal-shot" src="asciinema-queue.svg" alt="" aria-hidden="true">
           </article>
-
-          <article class="example-card">
-            <h3>Bring your own agent</h3>
-            <pre class="mini-terminal"><span class="muted">agent:</span>
-  kind: custom
-  command: my-agent
-  args:
-    - --mcp-url
-    - "{mcp_url}"
-    - "{context_prompt}"</pre>
-          </article>
         </div>
       </section>
 
@@ -118,7 +108,7 @@
           </div>
           <div>
             <span class="badge">Custom</span>
-            <p>Point Terminai at any CLI that can consume the MCP URL and context prompt. See <a href="config.html">config</a> for where Terminai loads its config file from.</p>
+            <p>Point Terminai at any CLI (ideally one that can consume the MCP URL and context prompt). See <a href="config.html">config</a>.</p>
           </div>
         </div>
       </section>
@@ -127,7 +117,8 @@
         <div class="section-heading">
           <p class="eyebrow">Get started</p>
           <h2 id="install-title">Install, authenticate, launch</h2>
-          <p>Install Terminai, sign in to your preferred AI CLI, then start a wrapped shell.</p>
+          <p>Install Terminai, sign in to your preferred AI CLI, then add a profile to your terminal emulator of choice that starts <code>terminai</code> or <code>terminai -- &lt;command&gt; [arg1 arg2...]</code></p>
+          <p>Supports Linux and Mac OS.</p>
         </div>
         <div class="install-grid">
           <div>
@@ -145,9 +136,28 @@ cd terminai
 cargo install --path src</code></pre>
           </div>
           <div>
-            <h3>Config</h3>
-            <pre><code>$XDG_CONFIG_DIR/terminai/terminai.yaml</code></pre>
+            <h3>GitHub releases</h3>
+            <pre style="font-family: inherit">Download and unpack from <a href="https://github.com/emosenkis/terminai/releases">https://github.com/emosenkis/terminai/releases</a></pre>
           </div>
+        </div>
+      </section>
+
+      <section class="section" id="acknowledgements" aria-labelledby="acknowledgements-title">
+        <div class="section-heading">
+          <p class="eyebrow">Acknowledgements</p>
+          <h2 id="acknowledgements-title">Built on excellent terminal tooling</h2>
+          <p>
+            Terminai was initially forked from
+            <a href="https://github.com/pvolok/mprocs">mprocs</a>, which provided much
+            of the vt100 host+guest support. It also relies on its own forks of
+            <a href="https://ratatui.rs/">Ratatui</a> and
+            <a href="https://github.com/thscharler/rat-salsa">rat-salsa</a> which add
+            functionality needed to preserve native scroll and copy.
+          </p>
+          <p>Terminai was built to a great extent using Claude and Codex (on top of the solid foundation
+            provided by mprocs) with some hand-written portions to get past the parts AI struggled with most,
+            native scrolling and input handling. It is alpha-quality software and although I use it as my daily
+            driver, please ensure if you use it that you have an easy way to spawn a regular AI-free shell.</p>
         </div>
       </section>
     </main>
