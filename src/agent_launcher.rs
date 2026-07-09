@@ -335,21 +335,19 @@ mod tests {
     assert_eq!(plan.command, "codex");
     assert!(plan.args.contains(&"--no-alt-screen".to_string()));
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
+    assert!(plan.args.iter().any(
+      |arg| arg == "mcp_servers.terminai.url=\"http://127.0.0.1:3456/mcp\""
+    ));
     assert!(
       plan
         .args
         .iter()
-        .any(|arg| arg == "mcp_servers.terminai.command=\"/usr/bin/terminai\"")
+        .any(|arg| arg
+          == "mcp_servers.terminai.bearer_token_env_var=\"TERMINAI_MCP_AUTH_TOKEN\"")
     );
-    assert!(
-      plan
-        .args
-        .iter()
-        .any(|arg| arg == "mcp_servers.terminai.args=[\"_mcp\",\"3456\"]")
-    );
-    assert!(plan.args.iter().any(|arg| arg
-      == "mcp_servers.terminai.env.TERMINAI_MCP_AUTH_TOKEN=\"test-token\""));
-    assert!(!plan.args.iter().any(|arg| arg.contains(".url=")));
+    assert!(!plan.args.iter().any(|arg| arg.contains("_mcp")));
+    assert!(!plan.args.iter().any(|arg| arg.contains(".command=")));
+    assert!(!plan.args.iter().any(|arg| arg.contains(".env.")));
     assert!(
       plan
         .args
@@ -399,15 +397,14 @@ mod tests {
       .iter()
       .find(|arg| arg.contains("mcpServers"))
       .unwrap();
-    assert!(mcp_config.contains("\"type\":\"stdio\""));
-    assert!(mcp_config.contains("\"command\":\"/usr/bin/terminai\""));
-    assert!(mcp_config.contains("\"_mcp\""));
-    assert!(mcp_config.contains("\"3456\""));
-    assert!(
-      mcp_config
-        .contains("\"env\":{\"TERMINAI_MCP_AUTH_TOKEN\":\"test-token\"}")
-    );
-    assert!(!mcp_config.contains("\"url\""));
+    assert!(mcp_config.contains("\"type\":\"http\""));
+    assert!(mcp_config.contains("\"url\":\"http://127.0.0.1:3456/mcp\""));
+    assert!(mcp_config.contains(
+      "\"headers\":{\"Authorization\":\"Bearer ${TERMINAI_MCP_AUTH_TOKEN}\"}"
+    ));
+    assert!(!mcp_config.contains("\"type\":\"stdio\""));
+    assert!(!mcp_config.contains("\"command\""));
+    assert!(!mcp_config.contains("\"_mcp\""));
   }
 
   #[test]
