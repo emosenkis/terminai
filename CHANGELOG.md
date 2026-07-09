@@ -3,6 +3,12 @@
 - Use pwsh.exe for shell commands (instead of cmd.exe)
 - Properly handles lines wrappings during screen resize
 
+## 0.1.1 - 2026-07-09
+
+- Close the AI modal after an approved shell input suggestion is sent.
+- Title the AI modal with the launched agent command name.
+- Keep the AI terminal content visible after agent exit and append the exit status plus relaunch hint at the bottom.
+
 ## 0.7.3 - 2025-05-21
 
 - Add --just argument to load recipes from justfile

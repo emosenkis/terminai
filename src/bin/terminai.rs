@@ -661,6 +661,16 @@ fn spawn_agent_from_plan(
   )
 }
 
+fn modal_title_for_agent(plan: &AgentLaunchPlan) -> String {
+  plan
+    .command
+    .rsplit(['/', '\\'])
+    .next()
+    .filter(|name| !name.is_empty())
+    .unwrap_or("AI Terminal")
+    .to_string()
+}
+
 fn normalize_agent_launch_plan_env(plan: &mut AgentLaunchPlan) {
   if let Some(path) = augmented_agent_path(plan.env.get("PATH")) {
     plan.env.insert("PATH".to_string(), path);
@@ -886,6 +896,7 @@ fn main() -> Result<()> {
     approval_scroll: 0,
     approval_focus: ApprovalAction::Approve,
     agent_exit_status: None,
+    agent_modal_title: "AI Terminal".to_string(),
     ai_visible: false,
     chat_position,
     scrollback_tracker,
@@ -945,6 +956,7 @@ struct AppState {
   approval_scroll: usize,
   approval_focus: ApprovalAction,
   agent_exit_status: Option<i32>,
+  agent_modal_title: String,
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
   chat_position: ChatPosition,
@@ -1159,6 +1171,9 @@ impl AppState {
           if let Err(e) = self.shell.send_command(&cmd.command) {
             log::error!("Failed to send command to shell: {:?}", e);
           }
+          if let Err(err) = self.hide_ai_modal() {
+            log::error!("Failed to hide AI modal after approval: {err:?}");
+          }
         }
       }
       ApprovalAction::Deny => {
@@ -1355,6 +1370,19 @@ impl AppState {
     self.launch_agent(rows, cols);
   }
 
+  fn append_agent_exit_message(&mut self, code: i32) {
+    if let Some(agent) = &mut self.agent_terminal
+      && let Ok(mut vt) = agent.shell_mut().vt.write()
+    {
+      let message = format!(
+        "\r\n\r\nAI process exited with status {code}.\r\n\r\nPress Enter to relaunch."
+      );
+      vt.process(message.as_bytes());
+      self.agent_view.follow_tail = true;
+      self.agent_output_pending = true;
+    }
+  }
+
   fn launch_agent(&mut self, rows: u16, cols: u16) {
     let Some(plan) = self.agent_launch_plan.clone() else {
       self.config_error = Some(
@@ -1379,6 +1407,7 @@ impl AppState {
       Ok((agent, rx)) => {
         log::info!("AI CLI terminal started: {}", plan.command);
         self.agent_terminal = Some(agent);
+        self.agent_modal_title = modal_title_for_agent(&plan);
         *self.agent_event_rx.lock().unwrap() = Some(rx);
         self.agent_view = TerminalViewState::new();
         self.agent_output_pending = true;
@@ -1572,21 +1601,14 @@ fn render(
 
     // Clear the overlay area to prevent terminal content from showing through
     Clear.render(overlay_area, buf);
+    let title = format!(" {} ", state.agent_modal_title);
     let block = Block::default()
       .borders(Borders::ALL)
-      .title(" AI Terminal ")
+      .title(title)
       .style(Style::default().fg(Color::Cyan).bg(Color::Black));
     block.render(overlay_area, buf);
 
-    if let Some(status) = state.agent_exit_status {
-      let message = format!(
-        "AI process exited with status {status}.\n\nPress Enter to relaunch."
-      );
-      Paragraph::new(message)
-        .style(Style::default().fg(Color::White))
-        .render(inner_area, buf);
-      ctx.set_screen_cursor(None);
-    } else if let Some(ref agent) = state.agent_terminal {
+    if let Some(ref agent) = state.agent_terminal {
       if let Ok(vt) = agent.shell().vt.read() {
         let screen = vt.screen();
         let total_rows = screen.total_rows();
@@ -1611,7 +1633,9 @@ fn render(
           );
         }
 
-        if !screen.hide_cursor() {
+        if state.agent_exit_status.is_some() {
+          ctx.set_screen_cursor(None);
+        } else if !screen.hide_cursor() {
           let cursor = screen.cursor_position();
           let absolute_cursor_row = screen.row0() + cursor.0 as usize;
           let viewport_end =
@@ -1631,6 +1655,14 @@ fn render(
           ctx.set_screen_cursor(None);
         }
       }
+    } else if let Some(status) = state.agent_exit_status {
+      let message = format!(
+        "AI process exited with status {status}.\n\nPress Enter to relaunch."
+      );
+      Paragraph::new(message)
+        .style(Style::default().fg(Color::White))
+        .render(inner_area, buf);
+      ctx.set_screen_cursor(None);
     } else {
       // Show "not configured" message with actual error if available
       let error_text = if let Some(ref err) = state.config_error {
@@ -1954,7 +1986,7 @@ fn event(
     }
     AppEvent::AgentExited(code) => {
       log::info!("AI CLI exited with code: {}", code);
-      state.agent_terminal = None;
+      state.append_agent_exit_message(*code);
       state.agent_exit_status = Some(*code);
       Control::Changed
     }
@@ -2112,6 +2144,18 @@ mod tests {
   }
 
   #[test]
+  fn modal_title_uses_launched_agent_command_name() {
+    let plan = AgentLaunchPlan {
+      command: "/usr/local/bin/custom-agent".to_string(),
+      args: Vec::new(),
+      env: std::collections::HashMap::new(),
+      cwd: PathBuf::from("/tmp"),
+    };
+
+    assert_eq!(modal_title_for_agent(&plan), "custom-agent");
+  }
+
+  #[test]
   fn terminal_view_scrolls_and_resumes_following_tail() {
     let mut view = TerminalViewState::new();
 
@@ -2164,6 +2208,7 @@ mod tests {
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
+      agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
@@ -2223,6 +2268,7 @@ mod tests {
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
+      agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
@@ -2272,6 +2318,7 @@ mod tests {
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
+      agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
@@ -2287,6 +2334,55 @@ mod tests {
 
     state.activate_focused_approval();
     assert!(state.pending_command.is_none());
+  }
+
+  #[test]
+  fn approving_suggestion_closes_ai_modal() {
+    let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    drop(suggestion_tx);
+
+    let (shell, _shell_rx) = Shell::spawn_command(
+      "sh",
+      &["-c".to_string(), "true".to_string()],
+      24,
+      80,
+    )
+    .unwrap();
+    let pending = PendingCommand::new(
+      "git status".to_string(),
+      Some("Inspect worktree".to_string()),
+      termin::command::RiskLevel::Safe,
+    );
+
+    let mut state = AppState {
+      shell_cwd: None,
+      mcp_state: None,
+      shell,
+      agent_terminal: None,
+      mcp_server: None,
+      agent_launch_plan: None,
+      agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
+      agent_view: TerminalViewState::new(),
+      suggestion_rx,
+      pending_command: Some(pending),
+      approval_scroll: 0,
+      approval_focus: ApprovalAction::Approve,
+      agent_exit_status: None,
+      agent_modal_title: "AI Terminal".to_string(),
+      ai_visible: true,
+      chat_position: ChatPosition::Bottom,
+      scrollback_tracker: ScrollbackTracker::new(),
+      config: TerminaiConfig::default(),
+      config_error: None,
+      key_combiner: Combiner::default(),
+      shell_output_pending: false,
+      agent_output_pending: false,
+    };
+
+    state.run_approval_action(ApprovalAction::Approve);
+
+    assert!(state.pending_command.is_none());
+    assert!(!state.ai_visible);
   }
 
   #[test]
@@ -2321,6 +2417,7 @@ mod tests {
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
+      agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
       scrollback_tracker: ScrollbackTracker::new(),
