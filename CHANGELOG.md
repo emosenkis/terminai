@@ -1,7 +1,12 @@
 ## Unreleased
 
+## 0.1.3 - 2026-07-09
+
 - Use pwsh.exe for shell commands (instead of cmd.exe)
 - Properly handles lines wrappings during screen resize
+- Configure bundled Codex and Claude presets to connect directly to Terminai's HTTP MCP server with bearer-token authorization.
+- Keep the hidden stdio MCP forwarding subcommand available for custom agent presets.
+- Document the release workflow requirement to keep versioned Homebrew formulae for historical releases.
 
 ## 0.1.2 - 2026-07-09
 
