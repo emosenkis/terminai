@@ -1,3 +1,7 @@
+## 0.1.4 - 2026-07-09
+
+- Add a hidden `terminai tool` CLI for calling Terminai MCP tools directly from agents and shell pipelines.
+
 ## 0.1.3 - 2026-07-09
 
 - Properly handle lines wrappings during screen resize
