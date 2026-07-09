@@ -264,6 +264,15 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
           "{{json terminai_mcp_port}}",
           &json_string(&context.terminai_mcp_port),
         )
+        .replace("{{terminai_mcp_auth_token}}", &context.mcp_auth_token)
+        .replace(
+          "{{toml terminai_mcp_auth_token}}",
+          &toml_string(&context.mcp_auth_token),
+        )
+        .replace(
+          "{{json terminai_mcp_auth_token}}",
+          &json_string(&context.mcp_auth_token),
+        )
         .replace("{{context_prompt}}", &context.context_prompt)
         .replace(
           "{{toml context_prompt}}",
@@ -338,6 +347,8 @@ mod tests {
         .iter()
         .any(|arg| arg == "mcp_servers.terminai.args=[\"_mcp\",\"3456\"]")
     );
+    assert!(plan.args.iter().any(|arg| arg
+      == "mcp_servers.terminai.env.TERMINAI_MCP_AUTH_TOKEN=\"test-token\""));
     assert!(!plan.args.iter().any(|arg| arg.contains(".url=")));
     assert!(
       plan
@@ -392,6 +403,10 @@ mod tests {
     assert!(mcp_config.contains("\"command\":\"/usr/bin/terminai\""));
     assert!(mcp_config.contains("\"_mcp\""));
     assert!(mcp_config.contains("\"3456\""));
+    assert!(
+      mcp_config
+        .contains("\"env\":{\"TERMINAI_MCP_AUTH_TOKEN\":\"test-token\"}")
+    );
     assert!(!mcp_config.contains("\"url\""));
   }
 

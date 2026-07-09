@@ -9,6 +9,8 @@ codex:
     - -c
     - 'mcp_servers.terminai.args=["_mcp",{{toml terminai_mcp_port}}]'
     - -c
+    - "mcp_servers.terminai.env.TERMINAI_MCP_AUTH_TOKEN={{toml terminai_mcp_auth_token}}"
+    - -c
     - 'mcp_servers.terminai.enabled_tools=["check_for_updates","read_terminal","get_terminal_context","suggest_input","get_suggestion_status"]'
     - -c
     - 'mcp_servers.terminai.default_tools_approval_mode="approve"'

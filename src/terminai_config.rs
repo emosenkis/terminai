@@ -127,6 +127,8 @@ pub enum AgentKind {
 /// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
 /// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
 /// `{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,
+/// `{{terminai_mcp_auth_token}}`, `{{toml terminai_mcp_auth_token}}`,
+/// `{{json terminai_mcp_auth_token}}`,
 /// `{{context_prompt}}`, and `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
@@ -201,6 +203,8 @@ impl Default for AgentConfig {
 /// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
 /// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
 /// `{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,
+/// `{{terminai_mcp_auth_token}}`, `{{toml terminai_mcp_auth_token}}`,
+/// `{{json terminai_mcp_auth_token}}`,
 /// `{{context_prompt}}`, and `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]

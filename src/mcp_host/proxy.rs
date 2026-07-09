@@ -1,13 +1,13 @@
 use anyhow::{Context, Result, bail};
 use rmcp::{
-  RoleClient, ServerHandler, ServiceExt,
+  RoleClient, RoleServer, ServerHandler, ServiceExt,
   model::{
     CallToolRequestParams, CallToolResult, ErrorData as McpError,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
   },
   service::Peer,
   transport::{
-    StreamableHttpClientTransport, stdio,
+    IntoTransport, StreamableHttpClientTransport, stdio,
     streamable_http_client::StreamableHttpClientTransportConfig,
   },
 };
@@ -15,23 +15,35 @@ use rmcp::{
 pub async fn run_stdio_mcp_proxy(port: u16) -> Result<()> {
   let auth_token = std::env::var("TERMINAI_MCP_AUTH_TOKEN")
     .context("TERMINAI_MCP_AUTH_TOKEN is required for terminai _mcp")?;
+  run_mcp_proxy_with_transport(port, auth_token, stdio()).await
+}
+
+async fn run_mcp_proxy_with_transport<T, E, A>(
+  port: u16,
+  auth_token: String,
+  stdio_transport: T,
+) -> Result<()>
+where
+  T: IntoTransport<RoleServer, E, A>,
+  E: std::error::Error + Send + Sync + 'static,
+{
   if auth_token.trim().is_empty() {
     bail!("TERMINAI_MCP_AUTH_TOKEN must not be empty");
   }
 
   let url = format!("http://127.0.0.1:{port}/mcp");
-  let transport = StreamableHttpClientTransport::from_config(
+  let upstream_transport = StreamableHttpClientTransport::from_config(
     StreamableHttpClientTransportConfig::with_uri(url).auth_header(auth_token),
   );
   let upstream = ()
-    .serve(transport)
+    .serve(upstream_transport)
     .await
     .context("failed to connect to Terminai HTTP MCP server")?;
   let proxy = TerminaiStdioMcpProxy {
     upstream: upstream.peer().clone(),
   };
   let server = proxy
-    .serve(stdio())
+    .serve(stdio_transport)
     .await
     .context("failed to start Terminai stdio MCP proxy")?;
 
@@ -50,6 +62,51 @@ impl TerminaiStdioMcpProxy {
       format!("Terminai MCP proxy request failed: {err}"),
       None,
     )
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::mcp_host::{TerminaiMcpState, start_http_mcp_server};
+  use crate::shell::Shell;
+  use tokio::sync::mpsc;
+
+  #[tokio::test]
+  async fn stdio_proxy_completes_handshake_and_forwards_tools() {
+    let (shell, _rx) = Shell::spawn_command(
+      "/bin/sh",
+      &["-c".to_string(), "sleep 1".to_string()],
+      24,
+      80,
+    )
+    .expect("test shell should spawn");
+    let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+    let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+    let http_server = start_http_mcp_server(state, "test-token".to_string())
+      .await
+      .expect("HTTP MCP server should start");
+
+    let (client_transport, proxy_transport) = tokio::io::duplex(64 * 1024);
+    let proxy_task = tokio::spawn(run_mcp_proxy_with_transport(
+      http_server.port,
+      "test-token".to_string(),
+      proxy_transport,
+    ));
+
+    let client =
+      ().serve(client_transport)
+        .await
+        .expect("client should initialize through stdio proxy");
+    let tools = client
+      .peer()
+      .list_all_tools()
+      .await
+      .expect("stdio proxy should forward list_tools");
+
+    assert!(tools.iter().any(|tool| tool.name == "read_terminal"));
+    drop(client);
+    proxy_task.abort();
   }
 }
 

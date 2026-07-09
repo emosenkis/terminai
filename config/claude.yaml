@@ -4,5 +4,5 @@ claude:
     - --append-system-prompt
     - "{{context_prompt}}"
     - --mcp-config
-    - '{"mcpServers":{"terminai":{"type":"stdio","command":{{json terminai_mcp_command}},"args":["_mcp",{{json terminai_mcp_port}}]}}}'
+    - '{"mcpServers":{"terminai":{"type":"stdio","command":{{json terminai_mcp_command}},"args":["_mcp",{{json terminai_mcp_port}}],"env":{"TERMINAI_MCP_AUTH_TOKEN":{{json terminai_mcp_auth_token}}}}}}'
     - --strict-mcp-config
