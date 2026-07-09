@@ -9,6 +9,12 @@ use rmcp::{
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
+use crate::mcp_host::tool_defs::{
+  CHECK_FOR_UPDATES, CHECK_FOR_UPDATES_DESCRIPTION, GET_SUGGESTION_STATUS,
+  GET_SUGGESTION_STATUS_DESCRIPTION, GET_TERMINAL_CONTEXT,
+  GET_TERMINAL_CONTEXT_DESCRIPTION, READ_TERMINAL, READ_TERMINAL_DESCRIPTION,
+  SUGGEST_INPUT, SUGGEST_INPUT_DESCRIPTION,
+};
 use crate::mcp_host::tools::SuggestInputArgs;
 use crate::mcp_host::{TerminaiMcpState, start_http_mcp_server};
 use crate::shell::Shell;
@@ -30,6 +36,33 @@ async fn mcp_lists_terminal_tools_for_cli_agents() {
   assert!(state.get_tool("get_terminal_context").is_some());
   assert!(state.get_tool("suggest_input").is_some());
   assert!(state.get_tool("get_suggestion_status").is_some());
+}
+
+#[tokio::test]
+async fn mcp_tool_metadata_matches_shared_definitions() {
+  let (shell, _rx) = Shell::spawn_command(
+    "/bin/sh",
+    &["-c".to_string(), "sleep 1".to_string()],
+    24,
+    80,
+  )
+  .expect("test shell should spawn");
+  let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+  let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+
+  let expected = [
+    (READ_TERMINAL, READ_TERMINAL_DESCRIPTION),
+    (CHECK_FOR_UPDATES, CHECK_FOR_UPDATES_DESCRIPTION),
+    (GET_TERMINAL_CONTEXT, GET_TERMINAL_CONTEXT_DESCRIPTION),
+    (SUGGEST_INPUT, SUGGEST_INPUT_DESCRIPTION),
+    (GET_SUGGESTION_STATUS, GET_SUGGESTION_STATUS_DESCRIPTION),
+  ];
+
+  for (name, description) in expected {
+    let tool = state.get_tool(name).expect("tool should be registered");
+    assert_eq!(tool.name, name);
+    assert_eq!(tool.description.as_deref(), Some(description));
+  }
 }
 
 #[tokio::test]

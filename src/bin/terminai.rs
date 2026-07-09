@@ -3,7 +3,7 @@
 
 // Terminai - Clean terminal wrapper with AI overlay
 
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 use base64::Engine;
 use clap::{Parser, Subcommand};
 use crokey::{Combiner, KeyCombination};
@@ -16,6 +16,14 @@ use crossterm::{
 use notify::{
   Event as NotifyEvent, EventKind as NotifyEventKind, RecommendedWatcher,
   RecursiveMode, Watcher,
+};
+use rmcp::{
+  ServiceExt,
+  model::CallToolRequestParams,
+  transport::{
+    StreamableHttpClientTransport,
+    streamable_http_client::StreamableHttpClientTransportConfig,
+  },
 };
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -53,6 +61,10 @@ use termin::agent_launcher::{
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::key::Key;
+use termin::mcp_host::tool_defs::{
+  CHECK_FOR_UPDATES, GET_SUGGESTION_STATUS, GET_TERMINAL_CONTEXT,
+  READ_TERMINAL, ReadTerminalArgs, SUGGEST_INPUT, SuggestInputArgs,
+};
 use termin::mcp_host::{
   McpServerHandle, TerminaiMcpState, run_stdio_mcp_proxy, start_http_mcp_server,
 };
@@ -140,6 +152,52 @@ enum CliCommand {
   /// Run Terminai's internal MCP stdio proxy.
   #[command(name = "_mcp", hide = true)]
   Mcp,
+
+  /// Call Terminai MCP tools from a non-MCP CLI client.
+  #[command(name = "tool", hide = true)]
+  Tool {
+    /// Print structured JSON instead of text content.
+    #[arg(long, global = true)]
+    json: bool,
+    #[command(subcommand)]
+    command: ToolCommand,
+  },
+}
+
+#[derive(Subcommand, Debug)]
+enum ToolCommand {
+  /// Read the user's wrapped terminal screen and recent scrollback.
+  #[command(name = "read_terminal")]
+  ReadTerminal {
+    /// Maximum number of scrollback/screen lines to return.
+    #[arg(long)]
+    max_lines: Option<usize>,
+    /// Include visible terminal rows in the result.
+    #[arg(long)]
+    include_visible: Option<bool>,
+  },
+
+  /// Check for Terminai context updates.
+  #[command(name = "check_for_updates")]
+  CheckForUpdates,
+
+  /// Get concise metadata about the wrapped terminal.
+  #[command(name = "get_terminal_context")]
+  GetTerminalContext,
+
+  /// Suggest exact input for Terminai to offer to the user for approval.
+  #[command(name = "suggest_input")]
+  SuggestInput {
+    /// Exact input to offer for approval.
+    input: String,
+    /// Explanation shown with the suggested input.
+    #[arg(long)]
+    explanation: Option<String>,
+  },
+
+  /// Return the most recent queued shell input suggestion.
+  #[command(name = "get_suggestion_status")]
+  GetSuggestionStatus,
 }
 
 /// Global state for rat-salsa (implements SalsaContext)
@@ -781,6 +839,109 @@ fn run_init_config(force: bool) -> Result<()> {
   Ok(())
 }
 
+async fn run_tool_command(
+  command: ToolCommand,
+  json_output: bool,
+) -> Result<()> {
+  let auth_token = std::env::var("TERMINAI_MCP_AUTH_TOKEN")
+    .context("TERMINAI_MCP_AUTH_TOKEN is required for terminai tool")?;
+  if auth_token.trim().is_empty() {
+    anyhow::bail!("TERMINAI_MCP_AUTH_TOKEN must not be empty");
+  }
+  let port = std::env::var("TERMINAI_MCP_PORT")
+    .context("TERMINAI_MCP_PORT is required for terminai tool")?
+    .parse::<u16>()
+    .context("TERMINAI_MCP_PORT must be a valid TCP port")?;
+  let url = format!("http://127.0.0.1:{port}/mcp");
+  let transport = StreamableHttpClientTransport::from_config(
+    StreamableHttpClientTransportConfig::with_uri(url).auth_header(auth_token),
+  );
+  let client = ()
+    .serve(transport)
+    .await
+    .context("failed to connect to Terminai HTTP MCP server")?;
+  let result = client
+    .peer()
+    .call_tool(tool_request(command)?)
+    .await
+    .context("Terminai tool call failed")?;
+
+  print_tool_result(&result, json_output)?;
+  client
+    .cancel()
+    .await
+    .context("failed to close Terminai MCP client")?;
+
+  if result.is_error == Some(true) {
+    anyhow::bail!("Terminai tool returned an error");
+  }
+  Ok(())
+}
+
+fn tool_request(command: ToolCommand) -> Result<CallToolRequestParams> {
+  let (name, arguments) = match command {
+    ToolCommand::ReadTerminal {
+      max_lines,
+      include_visible,
+    } => (
+      READ_TERMINAL,
+      Some(tool_arguments(ReadTerminalArgs {
+        max_lines,
+        include_visible,
+      })?),
+    ),
+    ToolCommand::CheckForUpdates => (CHECK_FOR_UPDATES, None),
+    ToolCommand::GetTerminalContext => (GET_TERMINAL_CONTEXT, None),
+    ToolCommand::SuggestInput { input, explanation } => (
+      SUGGEST_INPUT,
+      Some(tool_arguments(SuggestInputArgs { input, explanation })?),
+    ),
+    ToolCommand::GetSuggestionStatus => (GET_SUGGESTION_STATUS, None),
+  };
+  let request = CallToolRequestParams::new(name);
+  Ok(match arguments {
+    Some(arguments) => request.with_arguments(arguments),
+    None => request,
+  })
+}
+
+fn tool_arguments<T: serde::Serialize>(
+  args: T,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+  match serde_json::to_value(args)? {
+    serde_json::Value::Object(arguments) => Ok(arguments),
+    _ => anyhow::bail!("tool arguments did not serialize to a JSON object"),
+  }
+}
+
+fn print_tool_result(
+  result: &rmcp::model::CallToolResult,
+  json_output: bool,
+) -> Result<()> {
+  if json_output {
+    let value = result
+      .structured_content
+      .clone()
+      .unwrap_or_else(|| serde_json::to_value(result).unwrap_or_default());
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    return Ok(());
+  }
+
+  let mut text_blocks = Vec::new();
+  for content in &result.content {
+    if let Some(text) = content.as_text() {
+      text_blocks.push(text.text.as_str());
+    }
+  }
+
+  if text_blocks.is_empty() {
+    println!("{}", serde_json::to_string_pretty(result)?);
+  } else {
+    println!("{}", text_blocks.join("\n"));
+  }
+  Ok(())
+}
+
 fn clear_host_terminal() -> std::io::Result<()> {
   let mut stdout = std::io::stdout();
   execute!(stdout, TerminalClear(ClearType::All), MoveTo(0, 0))?;
@@ -856,6 +1017,10 @@ fn main() -> Result<()> {
     Some(CliCommand::Mcp) => {
       let tokio_rt = tokio::runtime::Runtime::new()?;
       return tokio_rt.block_on(run_stdio_mcp_proxy());
+    }
+    Some(CliCommand::Tool { json, command }) => {
+      let tokio_rt = tokio::runtime::Runtime::new()?;
+      return tokio_rt.block_on(run_tool_command(command, json));
     }
     None => {}
   }
@@ -2148,6 +2313,97 @@ mod tests {
   }
 
   #[test]
+  fn cli_parses_hidden_tool_subcommands() {
+    let args = Args::try_parse_from([
+      "terminai",
+      "tool",
+      "--json",
+      "read_terminal",
+      "--max-lines",
+      "40",
+      "--include-visible",
+      "false",
+    ])
+    .unwrap();
+
+    match args.subcommand {
+      Some(CliCommand::Tool {
+        json: true,
+        command:
+          ToolCommand::ReadTerminal {
+            max_lines: Some(40),
+            include_visible: Some(false),
+          },
+      }) => {}
+      other => panic!("unexpected tool command: {other:?}"),
+    }
+
+    let args = Args::try_parse_from([
+      "terminai",
+      "tool",
+      "suggest_input",
+      "git status\r",
+      "--explanation",
+      "Check repository status.",
+    ])
+    .unwrap();
+
+    match args.subcommand {
+      Some(CliCommand::Tool {
+        json: false,
+        command: ToolCommand::SuggestInput { input, explanation },
+      }) => {
+        assert_eq!(input, "git status\r");
+        assert_eq!(explanation.as_deref(), Some("Check repository status."));
+      }
+      other => panic!("unexpected tool command: {other:?}"),
+    }
+  }
+
+  #[test]
+  fn hidden_tool_commands_map_to_mcp_requests() {
+    let request = tool_request(ToolCommand::ReadTerminal {
+      max_lines: Some(7),
+      include_visible: Some(true),
+    })
+    .unwrap();
+    assert_eq!(request.name, READ_TERMINAL);
+    let arguments = request.arguments.unwrap();
+    assert_eq!(arguments["max_lines"], serde_json::json!(7));
+    assert_eq!(arguments["include_visible"], serde_json::json!(true));
+
+    let request = tool_request(ToolCommand::ReadTerminal {
+      max_lines: None,
+      include_visible: None,
+    })
+    .unwrap();
+    assert_eq!(request.name, READ_TERMINAL);
+    assert!(request.arguments.unwrap().is_empty());
+
+    let request = tool_request(ToolCommand::CheckForUpdates).unwrap();
+    assert_eq!(request.name, CHECK_FOR_UPDATES);
+    assert!(request.arguments.is_none());
+
+    let request = tool_request(ToolCommand::GetTerminalContext).unwrap();
+    assert_eq!(request.name, GET_TERMINAL_CONTEXT);
+    assert!(request.arguments.is_none());
+
+    let request = tool_request(ToolCommand::SuggestInput {
+      input: "make test\r".to_string(),
+      explanation: None,
+    })
+    .unwrap();
+    assert_eq!(request.name, SUGGEST_INPUT);
+    let arguments = request.arguments.unwrap();
+    assert_eq!(arguments["input"], serde_json::json!("make test\r"));
+    assert!(!arguments.contains_key("explanation"));
+
+    let request = tool_request(ToolCommand::GetSuggestionStatus).unwrap();
+    assert_eq!(request.name, GET_SUGGESTION_STATUS);
+    assert!(request.arguments.is_none());
+  }
+
+  #[test]
   fn cli_preserves_trailing_shell_command() {
     let args =
       Args::try_parse_from(["terminai", "--", "echo", "hello"]).unwrap();
@@ -2165,6 +2421,7 @@ mod tests {
 
     assert!(help.contains("init-config"));
     assert!(!help.contains("_mcp"));
+    assert!(!help.contains("tool"));
   }
 
   #[test]

@@ -1,37 +1,21 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
-use rmcp::schemars::{self as schemars, JsonSchema};
 use rmcp::{
   ServerHandler,
   handler::server::{router::tool::ToolRouter, wrapper::Parameters},
   model::{CallToolResult, Content, ErrorData, ServerCapabilities, ServerInfo},
   tool, tool_handler, tool_router,
 };
-use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
 use crate::agent_tools::PendingCommand;
 use crate::command::SafetyValidator;
+pub use crate::mcp_host::tool_defs::{ReadTerminalArgs, SuggestInputArgs};
 use crate::privacy::PrivacyFilter;
 use crate::shell::ReplySender;
 use crate::vt100;
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct ReadTerminalArgs {
-  #[serde(default)]
-  pub max_lines: Option<usize>,
-  #[serde(default)]
-  pub include_visible: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-pub struct SuggestInputArgs {
-  pub input: String,
-  #[serde(default)]
-  pub explanation: Option<String>,
-}
 
 #[derive(Clone)]
 pub struct TerminaiMcpState {

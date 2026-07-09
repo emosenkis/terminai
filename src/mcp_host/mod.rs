@@ -1,5 +1,6 @@
 pub mod proxy;
 pub mod server;
+pub mod tool_defs;
 pub mod tools;
 
 pub use proxy::run_stdio_mcp_proxy;
