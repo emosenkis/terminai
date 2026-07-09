@@ -139,10 +139,7 @@ enum CliCommand {
 
   /// Run Terminai's internal MCP stdio proxy.
   #[command(name = "_mcp", hide = true)]
-  Mcp {
-    /// Local Terminai HTTP MCP server port.
-    port: u16,
-  },
+  Mcp,
 }
 
 /// Global state for rat-salsa (implements SalsaContext)
@@ -842,32 +839,12 @@ fn rebuild_agent_launch_plan_for_cwd(
   config: &TerminaiConfig,
   cwd: PathBuf,
 ) -> Result<AgentLaunchPlan> {
-  let mcp_url = plan
-    .env
-    .get("TERMINAI_MCP_URL")
-    .cloned()
-    .unwrap_or_default();
-  let mcp_auth_token = plan
-    .env
-    .get("TERMINAI_MCP_AUTH_TOKEN")
-    .cloned()
-    .unwrap_or_default();
-  let terminai_mcp_command = plan
-    .env
-    .get("TERMINAI_MCP_COMMAND")
-    .cloned()
-    .unwrap_or_else(terminai_mcp_command);
-  let terminai_mcp_port = plan
-    .env
-    .get("TERMINAI_MCP_PORT")
-    .cloned()
-    .unwrap_or_default();
   let launch_context = AgentLaunchContext::new(
     cwd,
-    mcp_url,
-    mcp_auth_token,
-    terminai_mcp_command,
-    terminai_mcp_port,
+    plan.metadata.mcp_url.clone(),
+    plan.metadata.mcp_auth_token.clone(),
+    plan.metadata.terminai_mcp_command.clone(),
+    plan.metadata.terminai_mcp_port.clone(),
   );
   build_launch_plan(&config.agent, &config.agent_presets, &launch_context)
 }
@@ -876,9 +853,9 @@ fn main() -> Result<()> {
   let args = Args::parse();
   match args.subcommand {
     Some(CliCommand::InitConfig { force }) => return run_init_config(force),
-    Some(CliCommand::Mcp { port }) => {
+    Some(CliCommand::Mcp) => {
       let tokio_rt = tokio::runtime::Runtime::new()?;
-      return tokio_rt.block_on(run_stdio_mcp_proxy(port));
+      return tokio_rt.block_on(run_stdio_mcp_proxy());
     }
     None => {}
   }
@@ -1372,40 +1349,29 @@ impl AppState {
       .clone()
       .or_else(|| std::env::current_dir().ok())
       .unwrap_or_else(|| PathBuf::from("."));
+    let existing_metadata =
+      self.agent_launch_plan.as_ref().map(|plan| &plan.metadata);
     let mcp_url = self
       .mcp_server
       .as_ref()
       .map(|server| server.url.clone())
-      .or_else(|| {
-        self
-          .agent_launch_plan
-          .as_ref()
-          .and_then(|plan| plan.env.get("TERMINAI_MCP_URL").cloned())
-      });
+      .or_else(|| existing_metadata.map(|metadata| metadata.mcp_url.clone()));
     let mcp_auth_token = self
       .mcp_server
       .as_ref()
       .map(|server| server.auth_token.clone())
       .or_else(|| {
-        self
-          .agent_launch_plan
-          .as_ref()
-          .and_then(|plan| plan.env.get("TERMINAI_MCP_AUTH_TOKEN").cloned())
+        existing_metadata.map(|metadata| metadata.mcp_auth_token.clone())
       });
     let terminai_mcp_port = self
       .mcp_server
       .as_ref()
       .map(|server| server.port.to_string())
       .or_else(|| {
-        self
-          .agent_launch_plan
-          .as_ref()
-          .and_then(|plan| plan.env.get("TERMINAI_MCP_PORT").cloned())
+        existing_metadata.map(|metadata| metadata.terminai_mcp_port.clone())
       });
-    let terminai_mcp_command = self
-      .agent_launch_plan
-      .as_ref()
-      .and_then(|plan| plan.env.get("TERMINAI_MCP_COMMAND").cloned())
+    let terminai_mcp_command = existing_metadata
+      .map(|metadata| metadata.terminai_mcp_command.clone())
       .unwrap_or_else(terminai_mcp_command);
 
     self.chat_position = config.interface.chat_position;
@@ -2171,13 +2137,14 @@ mod tests {
 
   #[test]
   fn cli_parses_hidden_mcp_subcommand() {
-    let args = Args::try_parse_from(["terminai", "_mcp", "4321"]).unwrap();
+    let args = Args::try_parse_from(["terminai", "_mcp"]).unwrap();
 
     match args.subcommand {
-      Some(CliCommand::Mcp { port }) => assert_eq!(port, 4321),
+      Some(CliCommand::Mcp) => {}
       _ => panic!("expected _mcp subcommand"),
     }
     assert!(args.command.is_empty());
+    assert!(Args::try_parse_from(["terminai", "_mcp", "4321"]).is_err());
   }
 
   #[test]
@@ -2234,10 +2201,6 @@ mod tests {
     }));
     assert!(!new_plan.args.iter().any(|arg| arg == "/old/project"));
     assert_eq!(
-      new_plan.env.get("TERMINAI_MCP_URL").map(String::as_str),
-      Some("http://127.0.0.1:1234/mcp")
-    );
-    assert_eq!(
       new_plan
         .env
         .get("TERMINAI_MCP_AUTH_TOKEN")
@@ -2248,6 +2211,12 @@ mod tests {
       new_plan.env.get("TERMINAI_MCP_PORT").map(String::as_str),
       Some("1234")
     );
+    assert!(!new_plan.env.contains_key("TERMINAI_MCP_URL"));
+    assert!(!new_plan.env.contains_key("TERMINAI_MCP_COMMAND"));
+    assert_eq!(new_plan.metadata.mcp_url, "http://127.0.0.1:1234/mcp");
+    assert_eq!(new_plan.metadata.mcp_auth_token, "old-token");
+    assert_eq!(new_plan.metadata.terminai_mcp_command, "/usr/bin/terminai");
+    assert_eq!(new_plan.metadata.terminai_mcp_port, "1234");
   }
 
   #[test]
@@ -2268,6 +2237,7 @@ mod tests {
       args: Vec::new(),
       env: std::collections::HashMap::new(),
       cwd: PathBuf::from("/tmp"),
+      metadata: Default::default(),
     };
 
     normalize_agent_launch_plan_env(&mut plan);
@@ -2285,6 +2255,7 @@ mod tests {
       args: Vec::new(),
       env: std::collections::HashMap::new(),
       cwd: PathBuf::from("/tmp"),
+      metadata: Default::default(),
     };
 
     assert_eq!(modal_title_for_agent(&plan), "custom-agent");

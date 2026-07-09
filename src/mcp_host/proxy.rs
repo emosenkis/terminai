@@ -12,9 +12,13 @@ use rmcp::{
   },
 };
 
-pub async fn run_stdio_mcp_proxy(port: u16) -> Result<()> {
+pub async fn run_stdio_mcp_proxy() -> Result<()> {
   let auth_token = std::env::var("TERMINAI_MCP_AUTH_TOKEN")
     .context("TERMINAI_MCP_AUTH_TOKEN is required for terminai _mcp")?;
+  let port = std::env::var("TERMINAI_MCP_PORT")
+    .context("TERMINAI_MCP_PORT is required for terminai _mcp")?
+    .parse::<u16>()
+    .context("TERMINAI_MCP_PORT must be a valid TCP port")?;
   run_mcp_proxy_with_transport(port, auth_token, stdio()).await
 }
 

@@ -13,6 +13,15 @@ pub struct AgentLaunchPlan {
   pub args: Vec<String>,
   pub env: HashMap<String, String>,
   pub cwd: PathBuf,
+  pub metadata: AgentLaunchMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentLaunchMetadata {
+  pub mcp_url: String,
+  pub mcp_auth_token: String,
+  pub terminai_mcp_command: String,
+  pub terminai_mcp_port: String,
 }
 
 #[derive(Debug, Clone)]
@@ -49,35 +58,32 @@ pub fn build_launch_plan(
   user_presets: &HashMap<String, AgentPresetConfig>,
   context: &AgentLaunchContext,
 ) -> Result<AgentLaunchPlan> {
-  let mut env = HashMap::new();
-  env.insert("TERMINAI_MCP_URL".to_string(), context.mcp_url.clone());
+  let resolved = resolve_agent_config(config, user_presets)?;
+  let mut env = resolved.env;
   env.insert(
     "TERMINAI_MCP_AUTH_TOKEN".to_string(),
     context.mcp_auth_token.clone(),
   );
   env.insert(
-    "TERMINAI_MCP_COMMAND".to_string(),
-    context.terminai_mcp_command.clone(),
-  );
-  env.insert(
     "TERMINAI_MCP_PORT".to_string(),
     context.terminai_mcp_port.clone(),
   );
-  env.insert(
-    "TERMINAI_CONTEXT_PROMPT".to_string(),
-    context.context_prompt.clone(),
-  );
 
-  let resolved = resolve_agent_config(config, user_presets)?;
-  env.extend(resolved.env);
   let command = resolved.command;
   let args = expand_args(resolved.args, context);
+  let metadata = AgentLaunchMetadata {
+    mcp_url: context.mcp_url.clone(),
+    mcp_auth_token: context.mcp_auth_token.clone(),
+    terminai_mcp_command: context.terminai_mcp_command.clone(),
+    terminai_mcp_port: context.terminai_mcp_port.clone(),
+  };
 
   Ok(AgentLaunchPlan {
     command,
     args,
     env,
     cwd: context.cwd.clone(),
+    metadata,
   })
 }
 
@@ -333,6 +339,21 @@ mod tests {
     let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
     assert_eq!(plan.command, "codex");
+    assert_eq!(
+      plan.env.get("TERMINAI_MCP_AUTH_TOKEN").map(String::as_str),
+      Some("test-token")
+    );
+    assert_eq!(
+      plan.env.get("TERMINAI_MCP_PORT").map(String::as_str),
+      Some("3456")
+    );
+    assert!(!plan.env.contains_key("TERMINAI_MCP_URL"));
+    assert!(!plan.env.contains_key("TERMINAI_MCP_COMMAND"));
+    assert!(!plan.env.contains_key("TERMINAI_CONTEXT_PROMPT"));
+    assert_eq!(plan.metadata.mcp_url, "http://127.0.0.1:3456/mcp");
+    assert_eq!(plan.metadata.mcp_auth_token, "test-token");
+    assert_eq!(plan.metadata.terminai_mcp_command, "/usr/bin/terminai");
+    assert_eq!(plan.metadata.terminai_mcp_port, "3456");
     assert!(plan.args.contains(&"--no-alt-screen".to_string()));
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
     assert!(plan.args.iter().any(
@@ -417,7 +438,7 @@ mod tests {
         "--url={{mcp_url}}".to_string(),
         "--cwd={{cwd}}".to_string(),
         "--mcp-command={{terminai_mcp_command}}".to_string(),
-        "--mcp-port={{terminai_mcp_port}}".to_string(),
+        "_mcp".to_string(),
       ],
       extra_args: Vec::new(),
       initial_prompt: None,
@@ -428,7 +449,11 @@ mod tests {
     assert_eq!(plan.args[0], "--url=http://127.0.0.1:3456/mcp");
     assert_eq!(plan.args[1], "--cwd=/tmp/project");
     assert_eq!(plan.args[2], "--mcp-command=/usr/bin/terminai");
-    assert_eq!(plan.args[3], "--mcp-port=3456");
+    assert_eq!(plan.args[3], "_mcp");
+    assert_eq!(
+      plan.env.get("TERMINAI_MCP_PORT").map(String::as_str),
+      Some("3456")
+    );
   }
 
   #[test]
