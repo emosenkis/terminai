@@ -5,7 +5,9 @@ Terminai uses GitHub Releases as the source for Homebrew binaries.
 ## First release
 
 1. Make sure `Cargo.toml` contains the intended release version.
-2. Update `Formula/terminai.rb` if the version or download URLs change.
+2. Update `homebrew-tap/Formula/terminai.rb` if the version, download URLs,
+   or checksums change. The `homebrew-tap/` checkout is a separate ignored
+   clone of `github.com/emosenkis/homebrew-tap`.
 3. Commit the changes on `main`.
 4. Create and push a release tag, for example:
 
@@ -21,9 +23,10 @@ Terminai uses GitHub Releases as the source for Homebrew binaries.
    - macOS `arm64` tarball
    - Windows `x86_64` zip, if the workflow succeeded
    - matching `.sha256` files
-7. Update the Homebrew formula if you switch away from checksumless URLs.
+7. Commit and push the Homebrew formula change from `homebrew-tap/`.
 
 ## Notes
 
-- Homebrew installability depends on the GitHub Release existing before users run `brew install terminai`.
+- Homebrew installability depends on the GitHub Release existing before users run
+  `brew install emosenkis/tap/terminai`.
 - The release workflow is tag-driven; a tag and the crate version should match.

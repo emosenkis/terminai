@@ -5,6 +5,7 @@
 /npm/mprocs-*
 
 /release/
+/homebrew-tap/
 
 # Cargo
 /target
