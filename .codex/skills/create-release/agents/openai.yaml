@@ -1,0 +1,3 @@
+interface:
+  display_name: "Create Release"
+  short_description: "Run the Terminai release and Homebrew tap workflow"

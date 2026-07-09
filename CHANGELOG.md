@@ -3,6 +3,12 @@
 - Use pwsh.exe for shell commands (instead of cmd.exe)
 - Properly handles lines wrappings during screen resize
 
+## 0.1.2 - 2026-07-09
+
+- Route bundled Codex and Claude MCP integrations through Terminai's hidden stdio proxy.
+- Protect the local HTTP MCP server with a generated per-launch bearer token.
+- Add repo-scoped release workflow guidance for version, changelog, GitHub release, build, and Homebrew tap updates.
+
 ## 0.1.1 - 2026-07-09
 
 - Close the AI modal after an approved shell input suggestion is sent.

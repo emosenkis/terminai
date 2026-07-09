@@ -1,4 +1,11 @@
-use rmcp::{ServerHandler, handler::server::wrapper::Parameters};
+use rmcp::{
+  ServerHandler, ServiceExt,
+  handler::server::wrapper::Parameters,
+  transport::{
+    StreamableHttpClientTransport,
+    streamable_http_client::StreamableHttpClientTransportConfig,
+  },
+};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -126,10 +133,96 @@ async fn starts_streamable_http_mcp_server_for_cli_agents() {
   let (tx, _suggestion_rx) = mpsc::unbounded_channel();
   let state = TerminaiMcpState::new(shell.vt.clone(), tx);
 
-  let server = start_http_mcp_server(state)
+  let server = start_http_mcp_server(state, "test-token".to_string())
     .await
     .expect("rmcp Streamable HTTP server should start");
 
   assert!(server.url.starts_with("http://127.0.0.1:"));
   assert!(server.url.ends_with("/mcp"));
+  assert!(server.port > 0);
+  assert_eq!(server.auth_token, "test-token");
+}
+
+#[tokio::test]
+async fn http_mcp_server_rejects_missing_bearer_token() {
+  let (shell, _rx) = Shell::spawn_command(
+    "/bin/sh",
+    &["-c".to_string(), "sleep 1".to_string()],
+    24,
+    80,
+  )
+  .expect("test shell should spawn");
+  let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+  let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+
+  let server = start_http_mcp_server(state, "test-token".to_string())
+    .await
+    .expect("rmcp Streamable HTTP server should start");
+  let status_line = raw_post_status_line(server.port, None).await;
+
+  assert!(status_line.starts_with("HTTP/1.1 401"));
+}
+
+#[tokio::test]
+async fn http_mcp_server_accepts_authorized_mcp_client() {
+  let (shell, _rx) = Shell::spawn_command(
+    "/bin/sh",
+    &["-c".to_string(), "sleep 1".to_string()],
+    24,
+    80,
+  )
+  .expect("test shell should spawn");
+  let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+  let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+
+  let server = start_http_mcp_server(state, "test-token".to_string())
+    .await
+    .expect("rmcp Streamable HTTP server should start");
+  let transport = StreamableHttpClientTransport::from_config(
+    StreamableHttpClientTransportConfig::with_uri(server.url.clone())
+      .auth_header("test-token"),
+  );
+  let client =
+    ().serve(transport)
+      .await
+      .expect("authorized MCP client should connect");
+  let tools = client
+    .peer()
+    .list_all_tools()
+    .await
+    .expect("authorized MCP client should list tools");
+
+  assert!(tools.iter().any(|tool| tool.name == "read_terminal"));
+}
+
+async fn raw_post_status_line(
+  port: u16,
+  authorization: Option<&str>,
+) -> String {
+  use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+  let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+    .await
+    .expect("test should connect to MCP server");
+  let authorization = authorization
+    .map(|value| format!("Authorization: {value}\r\n"))
+    .unwrap_or_default();
+  let request = format!(
+    "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{authorization}Content-Length: 0\r\n\r\n"
+  );
+  stream
+    .write_all(request.as_bytes())
+    .await
+    .expect("test should write request");
+
+  let mut response = vec![0; 256];
+  let bytes = stream
+    .read(&mut response)
+    .await
+    .expect("test should read response");
+  String::from_utf8_lossy(&response[..bytes])
+    .lines()
+    .next()
+    .unwrap_or_default()
+    .to_string()
 }

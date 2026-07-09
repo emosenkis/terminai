@@ -123,8 +123,11 @@ pub enum AgentKind {
 ///
 /// The `args` and `extra-args` fields support handlebars-style substitutions
 /// when Terminai builds the launch command:
-/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and
-/// `{{toml context_prompt}}`.
+/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,
+/// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
+/// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
+/// `{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,
+/// `{{context_prompt}}`, and `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -194,8 +197,11 @@ impl Default for AgentConfig {
 ///
 /// The `args` and `extra-args` fields support handlebars-style substitutions
 /// when Terminai builds the launch command:
-/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`, `{{context_prompt}}`, and
-/// `{{toml context_prompt}}`.
+/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,
+/// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
+/// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
+/// `{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,
+/// `{{context_prompt}}`, and `{{toml context_prompt}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

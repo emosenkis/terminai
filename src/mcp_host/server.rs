@@ -1,5 +1,13 @@
+use std::sync::Arc;
+
 use anyhow::Result;
-use axum::Router;
+use axum::{
+  Router,
+  extract::State,
+  http::{Request, StatusCode, header},
+  middleware::{self, Next},
+  response::Response,
+};
 use rmcp::transport::streamable_http_server::{
   StreamableHttpServerConfig, StreamableHttpService,
   session::local::LocalSessionManager,
@@ -11,6 +19,8 @@ use super::tools::TerminaiMcpState;
 
 pub struct McpServerHandle {
   pub url: String,
+  pub port: u16,
+  pub auth_token: String,
   cancellation: CancellationToken,
   _task: JoinHandle<()>,
 }
@@ -23,6 +33,7 @@ impl Drop for McpServerHandle {
 
 pub async fn start_http_mcp_server(
   state: TerminaiMcpState,
+  auth_token: String,
 ) -> Result<McpServerHandle> {
   let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
   let addr = listener.local_addr()?;
@@ -43,7 +54,10 @@ pub async fn start_http_mcp_server(
         .with_cancellation_token(cancellation.child_token()),
     );
 
-  let router = Router::new().nest_service("/mcp", service);
+  let expected_token = Arc::<str>::from(auth_token.clone());
+  let router = Router::new().nest_service("/mcp", service).route_layer(
+    middleware::from_fn_with_state(expected_token, require_bearer_auth),
+  );
   let server_cancellation = cancellation.clone();
   let task = tokio::spawn(async move {
     if let Err(err) = axum::serve(listener, router)
@@ -58,7 +72,29 @@ pub async fn start_http_mcp_server(
 
   Ok(McpServerHandle {
     url,
+    port: addr.port(),
+    auth_token,
     cancellation,
     _task: task,
   })
+}
+
+async fn require_bearer_auth(
+  State(expected_token): State<Arc<str>>,
+  request: Request<axum::body::Body>,
+  next: Next,
+) -> Result<Response, StatusCode> {
+  let Some(actual) = request
+    .headers()
+    .get(header::AUTHORIZATION)
+    .and_then(|value| value.to_str().ok())
+  else {
+    return Err(StatusCode::UNAUTHORIZED);
+  };
+
+  if actual == format!("Bearer {expected_token}") {
+    Ok(next.run(request).await)
+  } else {
+    Err(StatusCode::UNAUTHORIZED)
+  }
 }

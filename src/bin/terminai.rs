@@ -4,6 +4,7 @@
 // Terminai - Clean terminal wrapper with AI overlay
 
 use anyhow::{Error, Result};
+use base64::Engine;
 use clap::{Parser, Subcommand};
 use crokey::{Combiner, KeyCombination};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
@@ -53,7 +54,7 @@ use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::key::Key;
 use termin::mcp_host::{
-  McpServerHandle, TerminaiMcpState, start_http_mcp_server,
+  McpServerHandle, TerminaiMcpState, run_stdio_mcp_proxy, start_http_mcp_server,
 };
 use termin::mouse::MouseEvent;
 use termin::scrollback::{
@@ -134,6 +135,13 @@ enum CliCommand {
     /// Replace existing config files instead of leaving them untouched.
     #[arg(long)]
     force: bool,
+  },
+
+  /// Run Terminai's internal MCP stdio proxy.
+  #[command(name = "_mcp", hide = true)]
+  Mcp {
+    /// Local Terminai HTTP MCP server port.
+    port: u16,
   },
 }
 
@@ -568,10 +576,11 @@ async fn prepare_agent(
 
       let mcp_state =
         TerminaiMcpState::new(Arc::clone(&shell.vt), suggestion_tx);
-      let mcp = match start_http_mcp_server(mcp_state.clone()).await {
-        Ok(server) => server,
+      let mcp_auth_token = match generate_mcp_auth_token() {
+        Ok(token) => token,
         Err(err) => {
-          let message = format!("Failed to start Terminai MCP server: {err}");
+          let message =
+            format!("Failed to generate Terminai MCP auth token: {err}");
           log::error!("{}", message);
           return (
             fallback_rx,
@@ -584,11 +593,37 @@ async fn prepare_agent(
           );
         }
       };
+      let mcp =
+        match start_http_mcp_server(mcp_state.clone(), mcp_auth_token.clone())
+          .await
+        {
+          Ok(server) => server,
+          Err(err) => {
+            let message = format!("Failed to start Terminai MCP server: {err}");
+            log::error!("{}", message);
+            return (
+              fallback_rx,
+              None,
+              None,
+              None,
+              config,
+              chat_position,
+              Some(message),
+            );
+          }
+        };
       log::info!("Terminai MCP server listening at {}", mcp.url);
       let mcp_url = mcp.url.clone();
+      let mcp_port = mcp.port.to_string();
 
       let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-      let launch_context = AgentLaunchContext::new(cwd.clone(), mcp_url);
+      let launch_context = AgentLaunchContext::new(
+        cwd.clone(),
+        mcp_url,
+        mcp_auth_token,
+        terminai_mcp_command(),
+        mcp_port,
+      );
 
       let mut plan = match build_launch_plan(
         &config.agent,
@@ -639,6 +674,21 @@ async fn prepare_agent(
       );
     }
   }
+}
+
+fn generate_mcp_auth_token() -> Result<String> {
+  let mut token = [0_u8; 32];
+  getrandom::fill(&mut token).map_err(|err| {
+    anyhow::anyhow!("failed to read secure random bytes: {err}")
+  })?;
+  Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token))
+}
+
+fn terminai_mcp_command() -> String {
+  std::env::current_exe()
+    .ok()
+    .and_then(|path| path.into_os_string().into_string().ok())
+    .unwrap_or_else(|| "terminai".to_string())
 }
 
 fn spawn_agent_from_plan(
@@ -797,14 +847,40 @@ fn rebuild_agent_launch_plan_for_cwd(
     .get("TERMINAI_MCP_URL")
     .cloned()
     .unwrap_or_default();
-  let launch_context = AgentLaunchContext::new(cwd, mcp_url);
+  let mcp_auth_token = plan
+    .env
+    .get("TERMINAI_MCP_AUTH_TOKEN")
+    .cloned()
+    .unwrap_or_default();
+  let terminai_mcp_command = plan
+    .env
+    .get("TERMINAI_MCP_COMMAND")
+    .cloned()
+    .unwrap_or_else(terminai_mcp_command);
+  let terminai_mcp_port = plan
+    .env
+    .get("TERMINAI_MCP_PORT")
+    .cloned()
+    .unwrap_or_default();
+  let launch_context = AgentLaunchContext::new(
+    cwd,
+    mcp_url,
+    mcp_auth_token,
+    terminai_mcp_command,
+    terminai_mcp_port,
+  );
   build_launch_plan(&config.agent, &config.agent_presets, &launch_context)
 }
 
 fn main() -> Result<()> {
   let args = Args::parse();
-  if let Some(CliCommand::InitConfig { force }) = args.subcommand {
-    return run_init_config(force);
+  match args.subcommand {
+    Some(CliCommand::InitConfig { force }) => return run_init_config(force),
+    Some(CliCommand::Mcp { port }) => {
+      let tokio_rt = tokio::runtime::Runtime::new()?;
+      return tokio_rt.block_on(run_stdio_mcp_proxy(port));
+    }
+    None => {}
   }
 
   // Setup logging to file with rotation
@@ -1306,6 +1382,31 @@ impl AppState {
           .as_ref()
           .and_then(|plan| plan.env.get("TERMINAI_MCP_URL").cloned())
       });
+    let mcp_auth_token = self
+      .mcp_server
+      .as_ref()
+      .map(|server| server.auth_token.clone())
+      .or_else(|| {
+        self
+          .agent_launch_plan
+          .as_ref()
+          .and_then(|plan| plan.env.get("TERMINAI_MCP_AUTH_TOKEN").cloned())
+      });
+    let terminai_mcp_port = self
+      .mcp_server
+      .as_ref()
+      .map(|server| server.port.to_string())
+      .or_else(|| {
+        self
+          .agent_launch_plan
+          .as_ref()
+          .and_then(|plan| plan.env.get("TERMINAI_MCP_PORT").cloned())
+      });
+    let terminai_mcp_command = self
+      .agent_launch_plan
+      .as_ref()
+      .and_then(|plan| plan.env.get("TERMINAI_MCP_COMMAND").cloned())
+      .unwrap_or_else(terminai_mcp_command);
 
     self.chat_position = config.interface.chat_position;
     self.config = config;
@@ -1314,7 +1415,9 @@ impl AppState {
       mcp_state.update_cwd(cwd.clone());
     }
 
-    let Some(mcp_url) = mcp_url else {
+    let (Some(mcp_url), Some(mcp_auth_token), Some(terminai_mcp_port)) =
+      (mcp_url, mcp_auth_token, terminai_mcp_port)
+    else {
       self.agent_launch_plan = None;
       self.config_error = Some(
         "Reloaded config, but Terminai MCP server is unavailable. Restart to enable AI launches."
@@ -1323,7 +1426,13 @@ impl AppState {
       return;
     };
 
-    let launch_context = AgentLaunchContext::new(cwd, mcp_url);
+    let launch_context = AgentLaunchContext::new(
+      cwd,
+      mcp_url,
+      mcp_auth_token,
+      terminai_mcp_command,
+      terminai_mcp_port,
+    );
     match build_launch_plan(
       &self.config.agent,
       &self.config.agent_presets,
@@ -2055,7 +2164,18 @@ mod tests {
 
     match args.subcommand {
       Some(CliCommand::InitConfig { force }) => assert!(force),
-      None => panic!("expected init-config subcommand"),
+      _ => panic!("expected init-config subcommand"),
+    }
+    assert!(args.command.is_empty());
+  }
+
+  #[test]
+  fn cli_parses_hidden_mcp_subcommand() {
+    let args = Args::try_parse_from(["terminai", "_mcp", "4321"]).unwrap();
+
+    match args.subcommand {
+      Some(CliCommand::Mcp { port }) => assert_eq!(port, 4321),
+      _ => panic!("expected _mcp subcommand"),
     }
     assert!(args.command.is_empty());
   }
@@ -2077,6 +2197,7 @@ mod tests {
     let help = String::from_utf8(help).unwrap();
 
     assert!(help.contains("init-config"));
+    assert!(!help.contains("_mcp"));
   }
 
   #[test]
@@ -2092,6 +2213,9 @@ mod tests {
     let old_context = AgentLaunchContext::new(
       PathBuf::from("/old/project"),
       "http://127.0.0.1:1234/mcp".to_string(),
+      "old-token".to_string(),
+      "/usr/bin/terminai".to_string(),
+      "1234".to_string(),
     );
     let old_plan =
       build_launch_plan(&config.agent, &config.agent_presets, &old_context)
@@ -2112,6 +2236,17 @@ mod tests {
     assert_eq!(
       new_plan.env.get("TERMINAI_MCP_URL").map(String::as_str),
       Some("http://127.0.0.1:1234/mcp")
+    );
+    assert_eq!(
+      new_plan
+        .env
+        .get("TERMINAI_MCP_AUTH_TOKEN")
+        .map(String::as_str),
+      Some("old-token")
+    );
+    assert_eq!(
+      new_plan.env.get("TERMINAI_MCP_PORT").map(String::as_str),
+      Some("1234")
     );
   }
 

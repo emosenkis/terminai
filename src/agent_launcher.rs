@@ -19,14 +19,26 @@ pub struct AgentLaunchPlan {
 pub struct AgentLaunchContext {
   pub cwd: PathBuf,
   pub mcp_url: String,
+  pub mcp_auth_token: String,
+  pub terminai_mcp_command: String,
+  pub terminai_mcp_port: String,
   pub context_prompt: String,
 }
 
 impl AgentLaunchContext {
-  pub fn new(cwd: PathBuf, mcp_url: String) -> Self {
+  pub fn new(
+    cwd: PathBuf,
+    mcp_url: String,
+    mcp_auth_token: String,
+    terminai_mcp_command: String,
+    terminai_mcp_port: String,
+  ) -> Self {
     Self {
       cwd,
       mcp_url,
+      mcp_auth_token,
+      terminai_mcp_command,
+      terminai_mcp_port,
       context_prompt: builtin_context_prompt(),
     }
   }
@@ -39,6 +51,18 @@ pub fn build_launch_plan(
 ) -> Result<AgentLaunchPlan> {
   let mut env = HashMap::new();
   env.insert("TERMINAI_MCP_URL".to_string(), context.mcp_url.clone());
+  env.insert(
+    "TERMINAI_MCP_AUTH_TOKEN".to_string(),
+    context.mcp_auth_token.clone(),
+  );
+  env.insert(
+    "TERMINAI_MCP_COMMAND".to_string(),
+    context.terminai_mcp_command.clone(),
+  );
+  env.insert(
+    "TERMINAI_MCP_PORT".to_string(),
+    context.terminai_mcp_port.clone(),
+  );
   env.insert(
     "TERMINAI_CONTEXT_PROMPT".to_string(),
     context.context_prompt.clone(),
@@ -222,6 +246,24 @@ fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
         .replace("{{cwd}}", &cwd)
         .replace("{{mcp_url}}", &context.mcp_url)
         .replace("{{toml mcp_url}}", &toml_string(&context.mcp_url))
+        .replace("{{terminai_mcp_command}}", &context.terminai_mcp_command)
+        .replace(
+          "{{toml terminai_mcp_command}}",
+          &toml_string(&context.terminai_mcp_command),
+        )
+        .replace(
+          "{{json terminai_mcp_command}}",
+          &json_string(&context.terminai_mcp_command),
+        )
+        .replace("{{terminai_mcp_port}}", &context.terminai_mcp_port)
+        .replace(
+          "{{toml terminai_mcp_port}}",
+          &toml_string(&context.terminai_mcp_port),
+        )
+        .replace(
+          "{{json terminai_mcp_port}}",
+          &json_string(&context.terminai_mcp_port),
+        )
         .replace("{{context_prompt}}", &context.context_prompt)
         .replace(
           "{{toml context_prompt}}",
@@ -237,6 +279,10 @@ fn toml_string(value: &str) -> String {
   format!("{value:?}")
 }
 
+fn json_string(value: &str) -> String {
+  serde_json::to_string(value).expect("string serialization cannot fail")
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -245,6 +291,9 @@ mod tests {
     AgentLaunchContext::new(
       PathBuf::from("/tmp/project"),
       "http://127.0.0.1:3456/mcp".to_string(),
+      "test-token".to_string(),
+      "/usr/bin/terminai".to_string(),
+      "3456".to_string(),
     )
   }
 
@@ -275,12 +324,21 @@ mod tests {
     let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
     assert_eq!(plan.command, "codex");
-    assert!(plan.args.contains(&"--cd".to_string()));
-    assert!(plan.args.contains(&"/tmp/project".to_string()));
-    assert!(plan.args.contains(&"--sandbox".to_string()));
-    assert!(plan.args.contains(&"workspace-write".to_string()));
     assert!(plan.args.contains(&"--no-alt-screen".to_string()));
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
+    assert!(
+      plan
+        .args
+        .iter()
+        .any(|arg| arg == "mcp_servers.terminai.command=\"/usr/bin/terminai\"")
+    );
+    assert!(
+      plan
+        .args
+        .iter()
+        .any(|arg| arg == "mcp_servers.terminai.args=[\"_mcp\",\"3456\"]")
+    );
+    assert!(!plan.args.iter().any(|arg| arg.contains(".url=")));
     assert!(
       plan
         .args
@@ -325,8 +383,16 @@ mod tests {
     assert_eq!(plan.command, "claude");
     assert!(plan.args.contains(&"--append-system-prompt".to_string()));
     assert!(plan.args.contains(&"--mcp-config".to_string()));
-    assert!(plan.args.iter().any(|arg| arg.contains("terminai")));
-    assert!(plan.args.iter().any(|arg| arg.contains("127.0.0.1")));
+    let mcp_config = plan
+      .args
+      .iter()
+      .find(|arg| arg.contains("mcpServers"))
+      .unwrap();
+    assert!(mcp_config.contains("\"type\":\"stdio\""));
+    assert!(mcp_config.contains("\"command\":\"/usr/bin/terminai\""));
+    assert!(mcp_config.contains("\"_mcp\""));
+    assert!(mcp_config.contains("\"3456\""));
+    assert!(!mcp_config.contains("\"url\""));
   }
 
   #[test]
@@ -335,7 +401,12 @@ mod tests {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec!["--url={mcp_url}".to_string(), "--cwd={cwd}".to_string()],
+      args: vec![
+        "--url={{mcp_url}}".to_string(),
+        "--cwd={{cwd}}".to_string(),
+        "--mcp-command={{terminai_mcp_command}}".to_string(),
+        "--mcp-port={{terminai_mcp_port}}".to_string(),
+      ],
       extra_args: Vec::new(),
       initial_prompt: None,
     };
@@ -344,6 +415,8 @@ mod tests {
     assert_eq!(plan.command, "my-agent");
     assert_eq!(plan.args[0], "--url=http://127.0.0.1:3456/mcp");
     assert_eq!(plan.args[1], "--cwd=/tmp/project");
+    assert_eq!(plan.args[2], "--mcp-command=/usr/bin/terminai");
+    assert_eq!(plan.args[3], "--mcp-port=3456");
   }
 
   #[test]

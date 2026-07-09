@@ -4,5 +4,5 @@ claude:
     - --append-system-prompt
     - "{{context_prompt}}"
     - --mcp-config
-    - '{"mcpServers":{"terminai":{"type":"http","url":"{{mcp_url}}"}}}'
+    - '{"mcpServers":{"terminai":{"type":"stdio","command":{{json terminai_mcp_command}},"args":["_mcp",{{json terminai_mcp_port}}]}}}'
     - --strict-mcp-config
