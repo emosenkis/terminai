@@ -10,6 +10,7 @@ description: Use whenever the user asks to create, cut, publish, or prepare a Te
 You MUST use this skill any time the user asks to create a release for this repository.
 
 Before changing release files, confirm the release type is known:
+
 - major
 - minor
 - patch
@@ -24,7 +25,7 @@ If the user did not specify major, minor, or patch, stop and ask for that one mi
    - `src/Cargo.toml`
    - `Cargo.lock`
    - any other tracked references to the package version that are intentionally versioned
-4. Add a `CHANGELOG.md` entry for the new version with the current date and the user-visible changes.
+4. Add a `CHANGELOG.md` entry for the new version with the current date and the *user-visible* changes.
 5. Re-run verification after the version and changelog updates.
 6. Commit the release changes on `main` with a clear release commit message.
 7. Push `main`.
