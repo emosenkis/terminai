@@ -120,20 +120,10 @@ pub enum AgentKind {
 }
 
 /// Agent configuration.
-///
-/// The `args` and `extra-args` fields are rendered as Handlebars templates
-/// when Terminai builds the launch command. Available variables and helpers:
-/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,
-/// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
-/// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
-/// `{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,
-/// `{{terminai_mcp_auth_token}}`, `{{toml terminai_mcp_auth_token}}`,
-/// `{{json terminai_mcp_auth_token}}`,
-/// `{{context_prompt}}`, `{{toml context_prompt}}`, `{{#args}}...{{/args}}`,
-/// `{{#arg}}...{{/arg}}`, and `{{OMIT}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct AgentConfig {
   #[serde(default)]
   pub preset: Option<String>,
@@ -141,18 +131,57 @@ pub struct AgentConfig {
   pub kind: Option<AgentKind>,
   #[serde(default)]
   pub command: Option<String>,
-  /// CLI arguments passed to the agent. Supports the same Handlebars
-  /// template variables and helpers documented on [`AgentConfig`].
+  /// CLI arguments passed to the agent.
+  ///
+  /// Each argument is rendered as a Handlebars template. Available variables:
+  ///
+  /// General:
+  /// - `{{cwd}}`: the working directory where the agent starts.
+  /// - `{{context_prompt}}`: the rendered Terminai context prompt for the
+  ///   resolved agent config.
+  /// - `{{uses_mcp}}`: whether the resolved agent config enables
+  ///   the Terminai MCP server.
+  /// - `{{uses_tool_cli}}`: whether the resolved agent config enables
+  ///   Terminai CLI tool instructions.
+  ///
+  /// MCP:
+  /// - `{{mcp_url}}`: the Terminai MCP server URL.
+  /// - `{{mcp_command}}`: the command to launch MCP.
+  /// - `{{mcp_port}}`: the local port used by the Terminai MCP server.
+  ///
+  /// The MCP bearer token is available to the agent as the
+  /// `TERMINAI_MCP_AUTH_TOKEN` environment variable.
+  ///
+  /// Tool CLI:
+  /// - `{{tool_command}}`: the command to interact with Terminai-provided
+  ///   tools.
+  ///
+  /// Available helpers:
+  /// - `{{toml value}}`: render `value` as a TOML string.
+  /// - `{{json value}}`: render `value` as a JSON string.
+  /// - `{{#args}}...{{/args}}`: render zero or more arguments from its body.
+  ///   Use it when one config entry should expand to multiple arguments, or
+  ///   to no arguments.
+  /// - `{{#arg}}...{{/arg}}`: render one argument inside `{{#args}}`.
+  /// - `{{OMIT}}`: omit this argument. Equivalent to `{{#args}}{{/args}}`.
   #[serde(default)]
   pub args: Vec<String>,
   /// Additional CLI arguments appended after `args`. Supports the same
-  /// Handlebars template variables and helpers documented on [`AgentConfig`].
-  #[serde(default, rename = "extra-args")]
+  /// Handlebars template variables and helpers documented on `args`.
+  #[serde(default)]
   pub extra_args: Vec<String>,
   /// Initial prompt passed to the agent. See the default value in
   /// [`config/general.yaml`](https://github.com/emosenkis/terminai/blob/main/config/general.yaml).
-  #[serde(default, rename = "initial-prompt")]
+  #[serde(default)]
   pub initial_prompt: Option<String>,
+  /// Whether this agent uses the Terminai MCP server. Defaults to false for
+  /// custom agents and inherits from the selected preset when unset.
+  #[serde(default)]
+  pub uses_mcp: Option<bool>,
+  /// Whether this agent uses the Terminai CLI tools. Defaults to true for
+  /// custom agents and inherits from the selected preset when unset.
+  #[serde(default)]
+  pub uses_tool_cli: Option<bool>,
 }
 
 impl AgentConfig {
@@ -164,6 +193,8 @@ impl AgentConfig {
       args: Vec::new(),
       extra_args: Vec::new(),
       initial_prompt: None,
+      uses_mcp: None,
+      uses_tool_cli: None,
     }
   }
 
@@ -175,6 +206,8 @@ impl AgentConfig {
       args: Vec::new(),
       extra_args: Vec::new(),
       initial_prompt: None,
+      uses_mcp: None,
+      uses_tool_cli: None,
     }
   }
 
@@ -197,31 +230,60 @@ impl Default for AgentConfig {
 }
 
 /// Agent preset configuration.
-///
-/// The `args` and `extra-args` fields are rendered as Handlebars templates
-/// when Terminai builds the launch command. Available variables and helpers:
-/// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,
-/// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
-/// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
-/// `{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,
-/// `{{terminai_mcp_auth_token}}`, `{{toml terminai_mcp_auth_token}}`,
-/// `{{json terminai_mcp_auth_token}}`,
-/// `{{context_prompt}}`, `{{toml context_prompt}}`, `{{#args}}...{{/args}}`,
-/// `{{#arg}}...{{/arg}}`, and `{{OMIT}}`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct AgentPresetConfig {
   #[serde(default)]
   pub extends: Option<String>,
   #[serde(default)]
   pub command: Option<String>,
+  /// CLI arguments passed to the agent.
+  ///
+  /// Each argument is rendered as a Handlebars template. Available variables:
+  ///
+  /// General:
+  /// - `{{cwd}}`: the working directory where the agent starts.
+  /// - `{{context_prompt}}`: the rendered Terminai context prompt for the
+  ///   resolved agent config.
+  /// - `{{uses_mcp}}`: whether the resolved agent config enables
+  ///   the Terminai MCP server.
+  /// - `{{uses_tool_cli}}`: whether the resolved agent config enables
+  ///   Terminai CLI tool instructions.
+  ///
+  /// MCP:
+  /// - `{{mcp_url}}`: the Terminai MCP server URL.
+  /// - `{{mcp_command}}`: the command to launch MCP.
+  /// - `{{mcp_port}}`: the local port used by the Terminai MCP server.
+  ///
+  /// The MCP bearer token is available to the agent as the
+  /// `TERMINAI_MCP_AUTH_TOKEN` environment variable.
+  ///
+  /// Tool CLI:
+  /// - `{{tool_command}}`: the command to interact with Terminai-provided
+  ///   tools.
+  ///
+  /// Available helpers:
+  /// - `{{toml value}}`: render `value` as a TOML string.
+  /// - `{{json value}}`: render `value` as a JSON string.
+  /// - `{{#args}}...{{/args}}`: render zero or more arguments from its body.
+  ///   Use it when one config entry should expand to multiple arguments, or
+  ///   to no arguments.
+  /// - `{{#arg}}...{{/arg}}`: render one argument inside `{{#args}}`.
+  /// - `{{OMIT}}`: omit this argument. Equivalent to `{{#args}}{{/args}}`.
   #[serde(default)]
   pub args: Vec<String>,
-  #[serde(default, rename = "extra-args")]
+  /// Additional CLI arguments appended after `args`. Supports the same
+  /// Handlebars template variables and helpers documented on `args`.
+  #[serde(default)]
   pub extra_args: Vec<String>,
   #[serde(default)]
   pub env: HashMap<String, String>,
+  #[serde(default)]
+  pub uses_mcp: Option<bool>,
+  #[serde(default)]
+  pub uses_tool_cli: Option<bool>,
 }
 
 /// Top-level Terminai configuration loaded from
@@ -308,12 +370,16 @@ agent:
     let yaml = r#"
 agent:
   preset: codex
+  uses-mcp: true
+  uses-tool-cli: false
   extra-args:
     - --model
     - gpt-5.5
 agent-presets:
   opencode-fast:
     extends: opencode
+    uses-mcp: false
+    uses-tool-cli: true
     extra-args:
       - --model
       - github-copilot/gpt-5
@@ -321,16 +387,13 @@ agent-presets:
 
     let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
+    assert_eq!(config.agent.uses_mcp, Some(true));
+    assert_eq!(config.agent.uses_tool_cli, Some(false));
     assert_eq!(config.agent.extra_args, vec!["--model", "gpt-5.5"]);
-    assert_eq!(
-      config
-        .agent_presets
-        .get("opencode-fast")
-        .unwrap()
-        .extends
-        .as_deref(),
-      Some("opencode")
-    );
+    let preset = config.agent_presets.get("opencode-fast").unwrap();
+    assert_eq!(preset.extends.as_deref(), Some("opencode"));
+    assert_eq!(preset.uses_mcp, Some(false));
+    assert_eq!(preset.uses_tool_cli, Some(true));
   }
 
   #[test]

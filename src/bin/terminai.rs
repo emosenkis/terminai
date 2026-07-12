@@ -125,6 +125,7 @@ fn render_terminal_history<R: termin::vt100::TermReplySender>(
 
 #[derive(Parser, Debug)]
 #[command(
+  name = "terminai",
   author,
   version,
   about,
@@ -167,7 +168,7 @@ enum CliCommand {
 #[derive(Subcommand, Debug)]
 enum ToolCommand {
   /// Read the user's wrapped terminal screen and recent scrollback.
-  #[command(name = "read_terminal")]
+  #[command(name = "read_terminal", alias = "read-terminal")]
   ReadTerminal {
     /// Maximum number of scrollback/screen lines to return.
     #[arg(long)]
@@ -178,15 +179,15 @@ enum ToolCommand {
   },
 
   /// Check for Terminai context updates.
-  #[command(name = "check_for_updates")]
+  #[command(name = "check_for_updates", alias = "check-for-updates")]
   CheckForUpdates,
 
   /// Get concise metadata about the wrapped terminal.
-  #[command(name = "get_terminal_context")]
+  #[command(name = "get_terminal_context", alias = "get-terminal-context")]
   GetTerminalContext,
 
   /// Suggest exact input for Terminai to offer to the user for approval.
-  #[command(name = "suggest_input")]
+  #[command(name = "suggest_input", alias = "suggest-input")]
   SuggestInput {
     /// Exact input to offer for approval.
     input: String,
@@ -196,7 +197,7 @@ enum ToolCommand {
   },
 
   /// Return the most recent queued shell input suggestion.
-  #[command(name = "get_suggestion_status")]
+  #[command(name = "get_suggestion_status", alias = "get-suggestion-status")]
   GetSuggestionStatus,
 }
 
@@ -676,7 +677,7 @@ async fn prepare_agent(
         cwd.clone(),
         mcp_url,
         mcp_auth_token,
-        terminai_mcp_command(),
+        terminai_binary_path(),
         mcp_port,
       );
 
@@ -739,7 +740,7 @@ fn generate_mcp_auth_token() -> Result<String> {
   Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token))
 }
 
-fn terminai_mcp_command() -> String {
+fn terminai_binary_path() -> String {
   std::env::current_exe()
     .ok()
     .and_then(|path| path.into_os_string().into_string().ok())
@@ -1004,7 +1005,7 @@ fn rebuild_agent_launch_plan_for_cwd(
     cwd,
     plan.metadata.mcp_url.clone(),
     plan.metadata.mcp_auth_token.clone(),
-    plan.metadata.terminai_mcp_command.clone(),
+    plan.metadata.terminai_binary_path.clone(),
     plan.metadata.terminai_mcp_port.clone(),
   );
   build_launch_plan(&config.agent, &config.agent_presets, &launch_context)
@@ -1535,9 +1536,9 @@ impl AppState {
       .or_else(|| {
         existing_metadata.map(|metadata| metadata.terminai_mcp_port.clone())
       });
-    let terminai_mcp_command = existing_metadata
-      .map(|metadata| metadata.terminai_mcp_command.clone())
-      .unwrap_or_else(terminai_mcp_command);
+    let terminai_binary_path = existing_metadata
+      .map(|metadata| metadata.terminai_binary_path.clone())
+      .unwrap_or_else(terminai_binary_path);
 
     self.chat_position = config.interface.chat_position;
     self.config = config;
@@ -1561,7 +1562,7 @@ impl AppState {
       cwd,
       mcp_url,
       mcp_auth_token,
-      terminai_mcp_command,
+      terminai_binary_path,
       terminai_mcp_port,
     );
     match build_launch_plan(
@@ -2301,6 +2302,16 @@ mod tests {
   }
 
   #[test]
+  fn cli_version_uses_binary_name_and_package_version() {
+    let mut command = <Args as clap::CommandFactory>::command();
+
+    assert_eq!(
+      command.render_version().to_string(),
+      format!("terminai {}\n", env!("CARGO_PKG_VERSION"))
+    );
+  }
+
+  #[test]
   fn cli_parses_hidden_mcp_subcommand() {
     let args = Args::try_parse_from(["terminai", "_mcp"]).unwrap();
 
@@ -2341,7 +2352,63 @@ mod tests {
     let args = Args::try_parse_from([
       "terminai",
       "tool",
+      "--json",
+      "read-terminal",
+      "--max-lines",
+      "40",
+      "--include-visible",
+      "false",
+    ])
+    .unwrap();
+
+    match args.subcommand {
+      Some(CliCommand::Tool {
+        json: true,
+        command:
+          ToolCommand::ReadTerminal {
+            max_lines: Some(40),
+            include_visible: Some(false),
+          },
+      }) => {}
+      other => panic!("unexpected tool command: {other:?}"),
+    }
+
+    for command in [
+      "check-for-updates",
+      "get-terminal-context",
+      "get-suggestion-status",
+    ] {
+      assert!(
+        Args::try_parse_from(["terminai", "tool", command]).is_ok(),
+        "expected {command} alias to parse"
+      );
+    }
+
+    let args = Args::try_parse_from([
+      "terminai",
+      "tool",
       "suggest_input",
+      "git status\r",
+      "--explanation",
+      "Check repository status.",
+    ])
+    .unwrap();
+
+    match args.subcommand {
+      Some(CliCommand::Tool {
+        json: false,
+        command: ToolCommand::SuggestInput { input, explanation },
+      }) => {
+        assert_eq!(input, "git status\r");
+        assert_eq!(explanation.as_deref(), Some("Check repository status."));
+      }
+      other => panic!("unexpected tool command: {other:?}"),
+    }
+
+    let args = Args::try_parse_from([
+      "terminai",
+      "tool",
+      "suggest-input",
       "git status\r",
       "--explanation",
       "Check repository status.",
@@ -2472,7 +2539,11 @@ mod tests {
     assert!(!new_plan.env.contains_key("TERMINAI_MCP_COMMAND"));
     assert_eq!(new_plan.metadata.mcp_url, "http://127.0.0.1:1234/mcp");
     assert_eq!(new_plan.metadata.mcp_auth_token, "old-token");
-    assert_eq!(new_plan.metadata.terminai_mcp_command, "/usr/bin/terminai");
+    assert_eq!(new_plan.metadata.terminai_binary_path, "/usr/bin/terminai");
+    assert_eq!(
+      new_plan.metadata.terminai_mcp_command,
+      "/usr/bin/terminai _mcp"
+    );
     assert_eq!(new_plan.metadata.terminai_mcp_port, "1234");
   }
 

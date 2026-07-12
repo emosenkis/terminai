@@ -2,21 +2,24 @@ version: "3"
 
 tasks:
   config-schema:
-    desc: Regenerate docs/schema-v0.1.0.json from src/terminai_config.rs
+    desc: Regenerate JSON schema from config struct
     sources:
       - src/terminai_config.rs
     generates:
-      - docs/schema-v0.1.0.json
+      - docs/schema-v*.json
     cmds:
       - cargo run --features=schema --bin dump-config-schema
 
   config-docs:
-    desc: Regenerate docs/config.html from docs/schema-v0.1.0.json
+    desc: Regenerate docs/config.html from JSON schema
     deps:
       - config-schema
+    vars:
+      VERSION:
+        sh: cargo metadata --no-deps --format-version 1 --manifest-path src/Cargo.toml | jq -r '.packages[] | select(.manifest_path | endswith("/src/Cargo.toml")) | .version'
     sources:
-      - docs/schema-v0.1.0.json
+      - docs/schema-v*.json
     generates:
       - docs/config.html
     cmds:
-      - uvx --from json-schema-for-humans generate-schema-doc docs/schema-v0.1.0.json docs/config.html
+      - uvx --from json-schema-for-humans generate-schema-doc docs/schema-v{{.VERSION}}.json docs/config.html

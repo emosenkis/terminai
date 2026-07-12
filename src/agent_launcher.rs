@@ -27,6 +27,8 @@ pub struct AgentLaunchPlan {
 pub struct AgentLaunchMetadata {
   pub mcp_url: String,
   pub mcp_auth_token: String,
+  pub terminai_binary_path: String,
+  pub terminai_tool_command: String,
   pub terminai_mcp_command: String,
   pub terminai_mcp_port: String,
 }
@@ -36,6 +38,8 @@ pub struct AgentLaunchContext {
   pub cwd: PathBuf,
   pub mcp_url: String,
   pub mcp_auth_token: String,
+  pub terminai_binary_path: String,
+  pub terminai_tool_command: String,
   pub terminai_mcp_command: String,
   pub terminai_mcp_port: String,
   pub context_prompt: String,
@@ -46,13 +50,17 @@ impl AgentLaunchContext {
     cwd: PathBuf,
     mcp_url: String,
     mcp_auth_token: String,
-    terminai_mcp_command: String,
+    terminai_binary_path: String,
     terminai_mcp_port: String,
   ) -> Self {
+    let terminai_tool_command = format!("{terminai_binary_path} tool");
+    let terminai_mcp_command = format!("{terminai_binary_path} _mcp");
     Self {
       cwd,
       mcp_url,
       mcp_auth_token,
+      terminai_binary_path,
+      terminai_tool_command,
       terminai_mcp_command,
       terminai_mcp_port,
       context_prompt: builtin_context_prompt(),
@@ -77,10 +85,20 @@ pub fn build_launch_plan(
   );
 
   let command = resolved.command;
-  let args = expand_args(resolved.args, context)?;
+  let rendered_context_prompt =
+    render_context_prompt(context, resolved.uses_mcp, resolved.uses_tool_cli)?;
+  let args = expand_args(
+    resolved.args,
+    context,
+    &rendered_context_prompt,
+    resolved.uses_mcp,
+    resolved.uses_tool_cli,
+  )?;
   let metadata = AgentLaunchMetadata {
     mcp_url: context.mcp_url.clone(),
     mcp_auth_token: context.mcp_auth_token.clone(),
+    terminai_binary_path: context.terminai_binary_path.clone(),
+    terminai_tool_command: context.terminai_tool_command.clone(),
     terminai_mcp_command: context.terminai_mcp_command.clone(),
     terminai_mcp_port: context.terminai_mcp_port.clone(),
   };
@@ -99,6 +117,8 @@ struct ResolvedAgentConfig {
   command: String,
   args: Vec<String>,
   env: HashMap<String, String>,
+  uses_mcp: bool,
+  uses_tool_cli: bool,
 }
 
 const BUILTIN_AGENT_PRESET_CONFIGS: &[(&str, &str)] = &[
@@ -192,6 +212,8 @@ fn resolve_agent_config(
       })?,
       args: Vec::new(),
       env: HashMap::new(),
+      uses_mcp: config.uses_mcp.unwrap_or(false),
+      uses_tool_cli: config.uses_tool_cli.unwrap_or(true),
     }
   };
 
@@ -202,6 +224,12 @@ fn resolve_agent_config(
     resolved.args = config.args.clone();
   }
   resolved.args.extend(config.extra_args.clone());
+  if let Some(uses_mcp) = config.uses_mcp {
+    resolved.uses_mcp = uses_mcp;
+  }
+  if let Some(uses_tool_cli) = config.uses_tool_cli {
+    resolved.uses_tool_cli = uses_tool_cli;
+  }
 
   Ok(resolved)
 }
@@ -229,6 +257,8 @@ fn resolve_preset(
       command: String::new(),
       args: Vec::new(),
       env: HashMap::new(),
+      uses_mcp: false,
+      uses_tool_cli: true,
     }
   };
 
@@ -240,6 +270,12 @@ fn resolve_preset(
   }
   resolved.args.extend(preset.extra_args);
   resolved.env.extend(preset.env);
+  if let Some(uses_mcp) = preset.uses_mcp {
+    resolved.uses_mcp = uses_mcp;
+  }
+  if let Some(uses_tool_cli) = preset.uses_tool_cli {
+    resolved.uses_tool_cli = uses_tool_cli;
+  }
 
   if resolved.command.is_empty() {
     bail!("agent preset '{name}' does not define a command");
@@ -253,31 +289,65 @@ fn resolve_preset(
 struct AgentLaunchTemplateData<'a> {
   cwd: String,
   mcp_url: &'a str,
-  terminai_mcp_command: &'a str,
-  terminai_mcp_port: &'a str,
-  terminai_mcp_auth_token: &'a str,
+  tool_command: &'a str,
+  mcp_command: &'a str,
+  mcp_port: &'a str,
   context_prompt: &'a str,
+  uses_mcp: bool,
+  uses_tool_cli: bool,
 }
 
 impl<'a> AgentLaunchTemplateData<'a> {
-  fn new(context: &'a AgentLaunchContext) -> Self {
+  fn new(
+    context: &'a AgentLaunchContext,
+    context_prompt: &'a str,
+    uses_mcp: bool,
+    uses_tool_cli: bool,
+  ) -> Self {
     Self {
       cwd: context.cwd.display().to_string(),
       mcp_url: &context.mcp_url,
-      terminai_mcp_command: &context.terminai_mcp_command,
-      terminai_mcp_port: &context.terminai_mcp_port,
-      terminai_mcp_auth_token: &context.mcp_auth_token,
-      context_prompt: &context.context_prompt,
+      tool_command: &context.terminai_tool_command,
+      mcp_command: &context.terminai_mcp_command,
+      mcp_port: &context.terminai_mcp_port,
+      context_prompt,
+      uses_mcp: uses_mcp,
+      uses_tool_cli: uses_tool_cli,
     }
   }
+}
+
+fn render_context_prompt(
+  context: &AgentLaunchContext,
+  uses_mcp: bool,
+  uses_tool_cli: bool,
+) -> Result<String> {
+  let handlebars = launch_arg_handlebars();
+  let data = AgentLaunchTemplateData::new(
+    context,
+    &context.context_prompt,
+    uses_mcp,
+    uses_tool_cli,
+  );
+  handlebars
+    .render_template(&context.context_prompt, &data)
+    .context("failed to render agent context prompt template")
 }
 
 fn expand_args(
   args: Vec<String>,
   context: &AgentLaunchContext,
+  context_prompt: &str,
+  uses_mcp: bool,
+  uses_tool_cli: bool,
 ) -> Result<Vec<String>> {
   let handlebars = launch_arg_handlebars();
-  let data = AgentLaunchTemplateData::new(context);
+  let data = AgentLaunchTemplateData::new(
+    context,
+    context_prompt,
+    uses_mcp,
+    uses_tool_cli,
+  );
   let mut expanded = Vec::new();
 
   for arg in args {
@@ -488,7 +558,12 @@ mod tests {
     assert!(!plan.env.contains_key("TERMINAI_CONTEXT_PROMPT"));
     assert_eq!(plan.metadata.mcp_url, "http://127.0.0.1:3456/mcp");
     assert_eq!(plan.metadata.mcp_auth_token, "test-token");
-    assert_eq!(plan.metadata.terminai_mcp_command, "/usr/bin/terminai");
+    assert_eq!(plan.metadata.terminai_binary_path, "/usr/bin/terminai");
+    assert_eq!(
+      plan.metadata.terminai_tool_command,
+      "/usr/bin/terminai tool"
+    );
+    assert_eq!(plan.metadata.terminai_mcp_command, "/usr/bin/terminai _mcp");
     assert_eq!(plan.metadata.terminai_mcp_port, "3456");
     assert!(plan.args.contains(&"--no-alt-screen".to_string()));
     assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
@@ -573,23 +648,31 @@ mod tests {
       args: vec![
         "--url={{mcp_url}}".to_string(),
         "--cwd={{cwd}}".to_string(),
-        "--mcp-command={{terminai_mcp_command}}".to_string(),
-        "--json-command={{json terminai_mcp_command}}".to_string(),
-        "--toml-token={{toml terminai_mcp_auth_token}}".to_string(),
+        "--tool={{tool_command}}".to_string(),
+        "--mcp-command={{mcp_command}}".to_string(),
+        "--json-command={{json mcp_command}}".to_string(),
+        "--toml-port={{toml mcp_port}}".to_string(),
+        "--uses-mcp={{uses_mcp}}".to_string(),
+        "--uses-cli={{uses_tool_cli}}".to_string(),
         "_mcp".to_string(),
       ],
       extra_args: Vec::new(),
       initial_prompt: None,
+      uses_mcp: None,
+      uses_tool_cli: None,
     };
     let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
     assert_eq!(plan.command, "my-agent");
     assert_eq!(plan.args[0], "--url=http://127.0.0.1:3456/mcp");
     assert_eq!(plan.args[1], "--cwd=/tmp/project");
-    assert_eq!(plan.args[2], "--mcp-command=/usr/bin/terminai");
-    assert_eq!(plan.args[3], "--json-command=\"/usr/bin/terminai\"");
-    assert_eq!(plan.args[4], "--toml-token=\"test-token\"");
-    assert_eq!(plan.args[5], "_mcp");
+    assert_eq!(plan.args[2], "--tool=/usr/bin/terminai tool");
+    assert_eq!(plan.args[3], "--mcp-command=/usr/bin/terminai _mcp");
+    assert_eq!(plan.args[4], "--json-command=\"/usr/bin/terminai _mcp\"");
+    assert_eq!(plan.args[5], "--toml-port=\"3456\"");
+    assert_eq!(plan.args[6], "--uses-mcp=false");
+    assert_eq!(plan.args[7], "--uses-cli=true");
+    assert_eq!(plan.args[8], "_mcp");
     assert_eq!(
       plan.env.get("TERMINAI_MCP_PORT").map(String::as_str),
       Some("3456")
@@ -597,23 +680,61 @@ mod tests {
   }
 
   #[test]
-  fn custom_plan_uses_handlebars_expressions_without_html_escaping() {
-    let mut context = context();
-    context.mcp_auth_token = "token<&>\"'".to_string();
+  fn custom_agent_defaults_to_cli_without_mcp() {
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec![
-        "{{#if terminai_mcp_auth_token}}token={{terminai_mcp_auth_token}}{{/if}}"
-          .to_string(),
-      ],
+      args: vec!["{{context_prompt}}".to_string()],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
+
+    assert_eq!(plan.command, "my-agent");
+    assert!(!plan.args.iter().any(|arg| arg.contains("mcp_servers")));
+    assert!(plan.args[0].contains("/usr/bin/terminai tool"));
+    assert!(plan.args[0].contains("/usr/bin/terminai tool check_for_updates"));
+    assert!(!plan.args[0].contains("Terminai MCP tool"));
+  }
+
+  #[test]
+  fn agent_config_can_disable_bundled_preset_mcp_args() {
+    let config = AgentConfig {
+      preset: Some("codex".to_string()),
+      uses_mcp: Some(false),
+      uses_tool_cli: Some(true),
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
+
+    assert_eq!(plan.command, "codex");
+    assert!(plan.args.contains(&"--no-alt-screen".to_string()));
+    assert!(!plan.args.iter().any(|arg| arg.contains("mcp_servers")));
+    assert!(
+      plan
+        .args
+        .iter()
+        .any(|arg| arg.contains("/usr/bin/terminai tool check_for_updates"))
+    );
+  }
+
+  #[test]
+  fn custom_plan_uses_handlebars_expressions_without_html_escaping() {
+    let mut context = context();
+    context.mcp_url = "http://127.0.0.1:3456/<&>\"'".to_string();
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec!["{{#if mcp_url}}url={{mcp_url}}{{/if}}".to_string()],
       ..Default::default()
     };
 
     let plan = build_launch_plan(&config, &HashMap::new(), &context).unwrap();
 
-    assert_eq!(plan.args[0], "token=token<&>\"'");
+    assert_eq!(plan.args[0], "url=http://127.0.0.1:3456/<&>\"'");
   }
 
   #[test]
@@ -624,7 +745,7 @@ mod tests {
       command: Some("my-agent".to_string()),
       args: vec![
         "before".to_string(),
-        "{{#args}}{{#arg}}--cwd={{cwd}}{{/arg}}{{#arg}}token={{terminai_mcp_auth_token}}{{/arg}}{{/args}}".to_string(),
+        "{{#args}}{{#arg}}--cwd={{cwd}}{{/arg}}{{#arg}}port={{mcp_port}}{{/arg}}{{/args}}".to_string(),
         "after".to_string(),
       ],
       ..Default::default()
@@ -637,7 +758,7 @@ mod tests {
       vec![
         "before".to_string(),
         "--cwd=/tmp/project".to_string(),
-        "token=test-token".to_string(),
+        "port=3456".to_string(),
         "after".to_string(),
       ]
     );
@@ -787,6 +908,7 @@ mod tests {
 
     assert_eq!(plan.command, "codex");
     assert!(plan.args.contains(&"--no-alt-screen".to_string()));
+    assert!(plan.args.iter().any(|arg| arg.contains("mcp_servers")));
     assert_eq!(
       &plan.args[plan.args.len() - 3..],
       ["--model", "gpt-5.5", "--search"]

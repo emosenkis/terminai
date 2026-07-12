@@ -1,6 +1,6 @@
 [package]
 name = "termin"
-version = "0.1.4"
+version = "0.1.5"
 description = "Interactive terminal wrapper with AI assistant"
 repository = "https://github.com/emosenkis/terminai"
 authors = ["Eitan Mosenkis <eitan@mosenkis.net>"]

@@ -3,7 +3,10 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_TERMINAI_YAML: &str = r#"# yaml-language-server: $schema=https://terminai.app/schema-v0.1.4.json
+pub const DEFAULT_TERMINAI_YAML: &str = concat!(
+  "# yaml-language-server: $schema=https://terminai.app/schema-v",
+  env!("CARGO_PKG_VERSION"),
+  r#".json
 # Terminai configuration
 #
 # This file lives in the Terminai config directory. Edit it to choose the
@@ -30,7 +33,8 @@ agent:
 # - config/general.yaml
 # Add overrides or new presets here using the same shape.
 agent-presets: {}
-"#;
+"#,
+);
 
 pub const DEFAULT_TERMINAI_ENV: &str = r#"# Terminai environment variables
 #

@@ -1,25 +1,27 @@
 codex:
   command: codex
+  uses-mcp: true
+  uses-tool-cli: true
   args:
     - --no-alt-screen
     - -c
     - "developer_instructions={{toml context_prompt}}"
-    - -c
-    - "mcp_servers.terminai.url={{toml mcp_url}}"
-    - -c
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - "{{#if uses_mcp}}mcp_servers.terminai.url={{toml mcp_url}}{{else}}{{OMIT}}{{/if}}"
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
     # Codex Streamable HTTP MCP auth: https://developers.openai.com/codex/mcp
-    - 'mcp_servers.terminai.bearer_token_env_var="TERMINAI_MCP_AUTH_TOKEN"'
-    - -c
-    - 'mcp_servers.terminai.enabled_tools=["check_for_updates","read_terminal","get_terminal_context","suggest_input","get_suggestion_status"]'
-    - -c
-    - 'mcp_servers.terminai.default_tools_approval_mode="approve"'
-    - -c
-    - 'mcp_servers.terminai.tools.check_for_updates.approval_mode="approve"'
-    - -c
-    - 'mcp_servers.terminai.tools.read_terminal.approval_mode="approve"'
-    - -c
-    - 'mcp_servers.terminai.tools.get_terminal_context.approval_mode="approve"'
-    - -c
-    - 'mcp_servers.terminai.tools.suggest_input.approval_mode="approve"'
-    - -c
-    - 'mcp_servers.terminai.tools.get_suggestion_status.approval_mode="approve"'
+    - '{{#if uses_mcp}}mcp_servers.terminai.bearer_token_env_var="TERMINAI_MCP_AUTH_TOKEN"{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.enabled_tools=["check_for_updates","read_terminal","get_terminal_context","suggest_input","get_suggestion_status"]{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.default_tools_approval_mode="approve"{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.tools.check_for_updates.approval_mode="approve"{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.tools.read_terminal.approval_mode="approve"{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.tools.get_terminal_context.approval_mode="approve"{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.tools.suggest_input.approval_mode="approve"{{else}}{{OMIT}}{{/if}}'
+    - "{{#if uses_mcp}}-c{{else}}{{OMIT}}{{/if}}"
+    - '{{#if uses_mcp}}mcp_servers.terminai.tools.get_suggestion_status.approval_mode="approve"{{else}}{{OMIT}}{{/if}}'
