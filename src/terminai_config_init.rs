@@ -3,7 +3,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_TERMINAI_YAML: &str = r#"# yaml-language-server: $schema=https://terminai.app/schema-v0.1.0.json
+pub const DEFAULT_TERMINAI_YAML: &str = r#"# yaml-language-server: $schema=https://terminai.app/schema-v0.1.4.json
 # Terminai configuration
 #
 # This file lives in the Terminai config directory. Edit it to choose the

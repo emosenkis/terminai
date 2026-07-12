@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminaiConfig",
+  "description": "Top-level Terminai configuration loaded from\n`$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to\n`~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset.\n\nDefault configuration can be installed with `terminai init-config`",
+  "type": "object",
+  "properties": {
+    "interface": {
+      "description": "Interface configuration",
+      "$ref": "#/$defs/InterfaceConfig",
+      "default": {
+        "chat-position": "bottom",
+        "key_bindings": {
+          "activate-overlay": "Ctrl-Space",
+          "deactivate-overlay": "Ctrl-Space",
+          "approve": "y",
+          "deny": "n"
+        }
+      }
+    },
+    "agent": {
+      "description": "External CLI agent to run in the AI terminal.",
+      "$ref": "#/$defs/AgentConfig",
+      "default": {
+        "preset": "codex",
+        "kind": "codex",
+        "command": null,
+        "args": [],
+        "extra-args": [],
+        "initial-prompt": null
+      }
+    },
+    "agent-presets": {
+      "description": "User-defined CLI agent presets. Built-in presets include codex and claude.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentPresetConfig"
+      },
+      "default": {}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "InterfaceConfig": {
+      "description": "Interface configuration",
+      "type": "object",
+      "properties": {
+        "chat-position": {
+          "description": "Position of the AI chat overlay (default: bottom)",
+          "$ref": "#/$defs/ChatPosition",
+          "default": "bottom"
+        },
+        "key_bindings": {
+          "description": "Key bindings\n\nThe syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).",
+          "$ref": "#/$defs/KeyBindingsConfig",
+          "default": {
+            "activate-overlay": "Ctrl-Space",
+            "deactivate-overlay": "Ctrl-Space",
+            "approve": "y",
+            "deny": "n"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ChatPosition": {
+      "description": "Position of the AI chat overlay",
+      "type": "string",
+      "enum": [
+        "bottom",
+        "top"
+      ]
+    },
+    "KeyBindingsConfig": {
+      "type": "object",
+      "properties": {
+        "activate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deactivate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "approve": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deny": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "activate-overlay",
+        "deactivate-overlay",
+        "approve",
+        "deny"
+      ]
+    },
+    "OneOrMoreBindings": {
+      "oneOf": [
+        {
+          "description": "A single key combination such as Ctrl-Space",
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "AgentConfig": {
+      "description": "Agent configuration.\n\nThe `args` and `extra-args` fields are rendered as Handlebars templates\nwhen Terminai builds the launch command. Available variables and helpers:\n`{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,\n`{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,\n`{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,\n`{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,\n`{{terminai_mcp_auth_token}}`, `{{toml terminai_mcp_auth_token}}`,\n`{{json terminai_mcp_auth_token}}`,\n`{{context_prompt}}`, `{{toml context_prompt}}`, `{{#args}}...{{/args}}`,\n`{{#arg}}...{{/arg}}`, and `{{OMIT}}`.",
+      "type": "object",
+      "properties": {
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "args": {
+          "description": "CLI arguments passed to the agent. Supports the same Handlebars\ntemplate variables and helpers documented on [`AgentConfig`].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "extra-args": {
+          "description": "Additional CLI arguments appended after `args`. Supports the same\nHandlebars template variables and helpers documented on [`AgentConfig`].",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "initial-prompt": {
+          "description": "Initial prompt passed to the agent. See the default value in\n[`config/general.yaml`](https://github.com/emosenkis/terminai/blob/main/config/general.yaml).",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentKind": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex",
+        "custom"
+      ]
+    },
+    "AgentPresetConfig": {
+      "description": "Agent preset configuration.\n\nThe `args` and `extra-args` fields are rendered as Handlebars templates\nwhen Terminai builds the launch command. Available variables and helpers:\n`{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,\n`{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,\n`{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,\n`{{toml terminai_mcp_port}}`, `{{json terminai_mcp_port}}`,\n`{{terminai_mcp_auth_token}}`, `{{toml terminai_mcp_auth_token}}`,\n`{{json terminai_mcp_auth_token}}`,\n`{{context_prompt}}`, `{{toml context_prompt}}`, `{{#args}}...{{/args}}`,\n`{{#arg}}...{{/arg}}`, and `{{OMIT}}`.",
+      "type": "object",
+      "properties": {
+        "extends": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "extra-args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
