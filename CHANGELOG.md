@@ -1,3 +1,11 @@
+## 0.1.5 - 2026-07-13
+
+- Add configurable Terminai MCP and CLI tool integration flags for agent presets.
+- Expose Terminai tool and MCP launch commands to agent templates and prompts.
+- Document the updated Handlebars config variables and regenerate the versioned config schema.
+- Add kebab-case YAML config keys and CLI tool aliases.
+- Make `terminai --version` report the binary name.
+
 ## 0.1.4 - 2026-07-09
 
 - Add a hidden `terminai tool` CLI for calling Terminai MCP tools directly from agents and shell pipelines.
