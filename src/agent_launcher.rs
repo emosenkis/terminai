@@ -4,12 +4,15 @@ use std::path::PathBuf;
 
 use anyhow::{Context as AnyhowContext, Result, bail};
 use handlebars::{
-  Context as HandlebarsContext, Handlebars, Helper, HelperResult, JsonRender,
-  Output, RenderContext, RenderErrorReason, no_escape,
+  Context as HandlebarsContext, Handlebars, Helper, HelperDef, HelperResult,
+  JsonRender, Output, RenderContext, RenderError, RenderErrorReason,
+  Renderable, StringOutput, no_escape,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::terminai_config::{AgentConfig, AgentKind, AgentPresetConfig};
+
+const ARGS_SENTINEL_VALUE: &str = "__TERMINAI_AGENT_ARGS_SENTINEL_5D1A2E49__";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLaunchPlan {
@@ -275,14 +278,110 @@ fn expand_args(
 ) -> Result<Vec<String>> {
   let handlebars = launch_arg_handlebars();
   let data = AgentLaunchTemplateData::new(context);
-  args
-    .into_iter()
-    .map(|arg| {
-      handlebars
-        .render_template(&arg, &data)
-        .with_context(|| format!("failed to render agent arg template: {arg}"))
-    })
-    .collect()
+  let mut expanded = Vec::new();
+
+  for arg in args {
+    let rendered = handlebars
+      .render_template(&arg, &data)
+      .with_context(|| format!("failed to render agent arg template: {arg}"))?;
+    expanded.extend(expand_rendered_arg(rendered, &arg)?);
+  }
+
+  Ok(expanded)
+}
+
+fn expand_rendered_arg(
+  rendered: String,
+  template: &str,
+) -> Result<Vec<String>> {
+  let trimmed_start = rendered.trim_start();
+  if let Some(remainder) = trimmed_start.strip_prefix(ARGS_SENTINEL_VALUE) {
+    if remainder.contains(ARGS_SENTINEL_VALUE) {
+      bail!(
+        "ARGS sentinel may only appear once at the beginning of an agent arg template"
+      );
+    }
+    return serde_json::from_str::<Vec<String>>(remainder).with_context(|| {
+      format!("failed to parse rendered agent arg array template: {template}")
+    });
+  }
+
+  if rendered.contains(ARGS_SENTINEL_VALUE) {
+    bail!(
+      "ARGS sentinel may only appear at the beginning of an agent arg template"
+    );
+  }
+
+  Ok(vec![rendered])
+}
+
+fn render_helper_template<'reg: 'rc, 'rc>(
+  h: &Helper<'rc>,
+  r: &'reg Handlebars<'reg>,
+  ctx: &'rc HandlebarsContext,
+  rc: &mut RenderContext<'reg, 'rc>,
+) -> std::result::Result<String, RenderError> {
+  let Some(template) = h.template() else {
+    return Ok(String::new());
+  };
+  let mut output = StringOutput::new();
+  template.render(r, ctx, rc, &mut output)?;
+  Ok(output.into_string().expect("string output is always utf-8"))
+}
+
+fn strip_single_trailing_comma(value: &str) -> &str {
+  let trimmed = value.trim_end();
+  trimmed.strip_suffix(',').unwrap_or(trimmed)
+}
+
+struct ArgsHelper;
+
+impl HelperDef for ArgsHelper {
+  fn call<'reg: 'rc, 'rc>(
+    &self,
+    h: &Helper<'rc>,
+    r: &'reg Handlebars<'reg>,
+    ctx: &'rc HandlebarsContext,
+    rc: &mut RenderContext<'reg, 'rc>,
+    out: &mut dyn Output,
+  ) -> HelperResult {
+    let body = render_helper_template(h, r, ctx, rc)?;
+    out.write(ARGS_SENTINEL_VALUE)?;
+    out.write("[")?;
+    out.write(strip_single_trailing_comma(&body))?;
+    out.write("]")?;
+    Ok(())
+  }
+}
+
+struct ArgHelper;
+
+impl HelperDef for ArgHelper {
+  fn call<'reg: 'rc, 'rc>(
+    &self,
+    h: &Helper<'rc>,
+    r: &'reg Handlebars<'reg>,
+    ctx: &'rc HandlebarsContext,
+    rc: &mut RenderContext<'reg, 'rc>,
+    out: &mut dyn Output,
+  ) -> HelperResult {
+    let body = render_helper_template(h, r, ctx, rc)?;
+    out.write(&json_string(&body))?;
+    out.write(",")?;
+    Ok(())
+  }
+}
+
+fn omit_helper(
+  _: &Helper<'_>,
+  _: &Handlebars<'_>,
+  _: &HandlebarsContext,
+  _: &mut RenderContext<'_, '_>,
+  out: &mut dyn Output,
+) -> HelperResult {
+  out.write(ARGS_SENTINEL_VALUE)?;
+  out.write("[]")?;
+  Ok(())
 }
 
 fn launch_arg_handlebars() -> Handlebars<'static> {
@@ -291,6 +390,9 @@ fn launch_arg_handlebars() -> Handlebars<'static> {
   handlebars.register_escape_fn(no_escape);
   handlebars.register_helper("toml", Box::new(toml_helper));
   handlebars.register_helper("json", Box::new(json_helper));
+  handlebars.register_helper("args", Box::new(ArgsHelper));
+  handlebars.register_helper("arg", Box::new(ArgHelper));
+  handlebars.register_helper("OMIT", Box::new(omit_helper));
   handlebars
 }
 
@@ -512,6 +614,116 @@ mod tests {
     let plan = build_launch_plan(&config, &HashMap::new(), &context).unwrap();
 
     assert_eq!(plan.args[0], "token=token<&>\"'");
+  }
+
+  #[test]
+  fn custom_plan_flattens_args_block_templates() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec![
+        "before".to_string(),
+        "{{#args}}{{#arg}}--cwd={{cwd}}{{/arg}}{{#arg}}token={{terminai_mcp_auth_token}}{{/arg}}{{/args}}".to_string(),
+        "after".to_string(),
+      ],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
+
+    assert_eq!(
+      plan.args,
+      vec![
+        "before".to_string(),
+        "--cwd=/tmp/project".to_string(),
+        "token=test-token".to_string(),
+        "after".to_string(),
+      ]
+    );
+  }
+
+  #[test]
+  fn custom_plan_strips_one_trailing_comma_from_args_block() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec![
+        "{{#args}}{{#arg}}one{{/arg}}{{#arg}}two{{/arg}}{{/args}}".to_string(),
+      ],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
+
+    assert_eq!(plan.args, vec!["one".to_string(), "two".to_string()]);
+  }
+
+  #[test]
+  fn custom_plan_omit_helper_produces_zero_arguments() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec![
+        "before".to_string(),
+        "{{OMIT}}".to_string(),
+        "after".to_string(),
+      ],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
+
+    assert_eq!(plan.args, vec!["before".to_string(), "after".to_string()]);
+  }
+
+  #[test]
+  fn custom_plan_rejects_misplaced_args_sentinel() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec!["prefix {{#args}}{{/args}}".to_string()],
+      ..Default::default()
+    };
+
+    let err = build_launch_plan(&config, &HashMap::new(), &context())
+      .expect_err("misplaced args sentinel should fail");
+
+    assert!(err.to_string().contains("ARGS sentinel"));
+  }
+
+  #[test]
+  fn custom_plan_allows_leading_whitespace_before_args_sentinel() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec![" \n\t{{#args}}{{#arg}}one{{/arg}}{{/args}}".to_string()],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
+
+    assert_eq!(plan.args, vec!["one".to_string()]);
+  }
+
+  #[test]
+  fn custom_plan_rejects_repeated_args_sentinel() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec![format!("{{{{OMIT}}}} {ARGS_SENTINEL_VALUE}")],
+      ..Default::default()
+    };
+
+    let err = build_launch_plan(&config, &HashMap::new(), &context())
+      .expect_err("repeated args sentinel should fail");
+
+    assert!(err.to_string().contains("ARGS sentinel"));
   }
 
   #[test]
