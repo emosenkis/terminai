@@ -121,8 +121,8 @@ pub enum AgentKind {
 
 /// Agent configuration.
 ///
-/// The `args` and `extra-args` fields support handlebars-style substitutions
-/// when Terminai builds the launch command:
+/// The `args` and `extra-args` fields are rendered as Handlebars templates
+/// when Terminai builds the launch command. Available variables and helpers:
 /// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,
 /// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
 /// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,
@@ -140,12 +140,12 @@ pub struct AgentConfig {
   pub kind: Option<AgentKind>,
   #[serde(default)]
   pub command: Option<String>,
-  /// CLI arguments passed to the agent. Supports the same
-  /// handlebars-style substitutions documented on [`AgentConfig`].
+  /// CLI arguments passed to the agent. Supports the same Handlebars
+  /// template variables and helpers documented on [`AgentConfig`].
   #[serde(default)]
   pub args: Vec<String>,
   /// Additional CLI arguments appended after `args`. Supports the same
-  /// handlebars-style substitutions documented on [`AgentConfig`].
+  /// Handlebars template variables and helpers documented on [`AgentConfig`].
   #[serde(default, rename = "extra-args")]
   pub extra_args: Vec<String>,
   /// Initial prompt passed to the agent. See the default value in
@@ -197,8 +197,8 @@ impl Default for AgentConfig {
 
 /// Agent preset configuration.
 ///
-/// The `args` and `extra-args` fields support handlebars-style substitutions
-/// when Terminai builds the launch command:
+/// The `args` and `extra-args` fields are rendered as Handlebars templates
+/// when Terminai builds the launch command. Available variables and helpers:
 /// `{{cwd}}`, `{{mcp_url}}`, `{{toml mcp_url}}`,
 /// `{{terminai_mcp_command}}`, `{{toml terminai_mcp_command}}`,
 /// `{{json terminai_mcp_command}}`, `{{terminai_mcp_port}}`,

@@ -2,8 +2,12 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use anyhow::{Context as AnyhowContext, Result, bail};
+use handlebars::{
+  Context as HandlebarsContext, Handlebars, Helper, HelperResult, JsonRender,
+  Output, RenderContext, RenderErrorReason, no_escape,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::terminai_config::{AgentConfig, AgentKind, AgentPresetConfig};
 
@@ -70,7 +74,7 @@ pub fn build_launch_plan(
   );
 
   let command = resolved.command;
-  let args = expand_args(resolved.args, context);
+  let args = expand_args(resolved.args, context)?;
   let metadata = AgentLaunchMetadata {
     mcp_url: context.mcp_url.clone(),
     mcp_auth_token: context.mcp_auth_token.clone(),
@@ -242,52 +246,82 @@ fn resolve_preset(
   Ok(resolved)
 }
 
-fn expand_args(args: Vec<String>, context: &AgentLaunchContext) -> Vec<String> {
-  let cwd = context.cwd.display().to_string();
-  let mut expanded = Vec::new();
+#[derive(Debug, Serialize)]
+struct AgentLaunchTemplateData<'a> {
+  cwd: String,
+  mcp_url: &'a str,
+  terminai_mcp_command: &'a str,
+  terminai_mcp_port: &'a str,
+  terminai_mcp_auth_token: &'a str,
+  context_prompt: &'a str,
+}
 
-  for arg in args {
-    expanded.push(
-      arg
-        .replace("{{cwd}}", &cwd)
-        .replace("{{mcp_url}}", &context.mcp_url)
-        .replace("{{toml mcp_url}}", &toml_string(&context.mcp_url))
-        .replace("{{terminai_mcp_command}}", &context.terminai_mcp_command)
-        .replace(
-          "{{toml terminai_mcp_command}}",
-          &toml_string(&context.terminai_mcp_command),
-        )
-        .replace(
-          "{{json terminai_mcp_command}}",
-          &json_string(&context.terminai_mcp_command),
-        )
-        .replace("{{terminai_mcp_port}}", &context.terminai_mcp_port)
-        .replace(
-          "{{toml terminai_mcp_port}}",
-          &toml_string(&context.terminai_mcp_port),
-        )
-        .replace(
-          "{{json terminai_mcp_port}}",
-          &json_string(&context.terminai_mcp_port),
-        )
-        .replace("{{terminai_mcp_auth_token}}", &context.mcp_auth_token)
-        .replace(
-          "{{toml terminai_mcp_auth_token}}",
-          &toml_string(&context.mcp_auth_token),
-        )
-        .replace(
-          "{{json terminai_mcp_auth_token}}",
-          &json_string(&context.mcp_auth_token),
-        )
-        .replace("{{context_prompt}}", &context.context_prompt)
-        .replace(
-          "{{toml context_prompt}}",
-          &toml_string(&context.context_prompt),
-        ),
-    );
+impl<'a> AgentLaunchTemplateData<'a> {
+  fn new(context: &'a AgentLaunchContext) -> Self {
+    Self {
+      cwd: context.cwd.display().to_string(),
+      mcp_url: &context.mcp_url,
+      terminai_mcp_command: &context.terminai_mcp_command,
+      terminai_mcp_port: &context.terminai_mcp_port,
+      terminai_mcp_auth_token: &context.mcp_auth_token,
+      context_prompt: &context.context_prompt,
+    }
   }
+}
 
-  expanded
+fn expand_args(
+  args: Vec<String>,
+  context: &AgentLaunchContext,
+) -> Result<Vec<String>> {
+  let handlebars = launch_arg_handlebars();
+  let data = AgentLaunchTemplateData::new(context);
+  args
+    .into_iter()
+    .map(|arg| {
+      handlebars
+        .render_template(&arg, &data)
+        .with_context(|| format!("failed to render agent arg template: {arg}"))
+    })
+    .collect()
+}
+
+fn launch_arg_handlebars() -> Handlebars<'static> {
+  let mut handlebars = Handlebars::new();
+  handlebars.set_strict_mode(true);
+  handlebars.register_escape_fn(no_escape);
+  handlebars.register_helper("toml", Box::new(toml_helper));
+  handlebars.register_helper("json", Box::new(json_helper));
+  handlebars
+}
+
+fn toml_helper(
+  h: &Helper<'_>,
+  r: &Handlebars<'_>,
+  _: &HandlebarsContext,
+  _: &mut RenderContext<'_, '_>,
+  out: &mut dyn Output,
+) -> HelperResult {
+  let param = h
+    .param(0)
+    .filter(|param| !r.strict_mode() || !param.is_value_missing())
+    .ok_or(RenderErrorReason::ParamNotFoundForIndex("toml", 0))?;
+  out.write(&toml_string(param.value().render().as_ref()))?;
+  Ok(())
+}
+
+fn json_helper(
+  h: &Helper<'_>,
+  r: &Handlebars<'_>,
+  _: &HandlebarsContext,
+  _: &mut RenderContext<'_, '_>,
+  out: &mut dyn Output,
+) -> HelperResult {
+  let param = h
+    .param(0)
+    .filter(|param| !r.strict_mode() || !param.is_value_missing())
+    .ok_or(RenderErrorReason::ParamNotFoundForIndex("json", 0))?;
+  out.write(&json_string(param.value().render().as_ref()))?;
+  Ok(())
 }
 
 fn toml_string(value: &str) -> String {
@@ -438,6 +472,8 @@ mod tests {
         "--url={{mcp_url}}".to_string(),
         "--cwd={{cwd}}".to_string(),
         "--mcp-command={{terminai_mcp_command}}".to_string(),
+        "--json-command={{json terminai_mcp_command}}".to_string(),
+        "--toml-token={{toml terminai_mcp_auth_token}}".to_string(),
         "_mcp".to_string(),
       ],
       extra_args: Vec::new(),
@@ -449,10 +485,72 @@ mod tests {
     assert_eq!(plan.args[0], "--url=http://127.0.0.1:3456/mcp");
     assert_eq!(plan.args[1], "--cwd=/tmp/project");
     assert_eq!(plan.args[2], "--mcp-command=/usr/bin/terminai");
-    assert_eq!(plan.args[3], "_mcp");
+    assert_eq!(plan.args[3], "--json-command=\"/usr/bin/terminai\"");
+    assert_eq!(plan.args[4], "--toml-token=\"test-token\"");
+    assert_eq!(plan.args[5], "_mcp");
     assert_eq!(
       plan.env.get("TERMINAI_MCP_PORT").map(String::as_str),
       Some("3456")
+    );
+  }
+
+  #[test]
+  fn custom_plan_uses_handlebars_expressions_without_html_escaping() {
+    let mut context = context();
+    context.mcp_auth_token = "token<&>\"'".to_string();
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec![
+        "{{#if terminai_mcp_auth_token}}token={{terminai_mcp_auth_token}}{{/if}}"
+          .to_string(),
+      ],
+      ..Default::default()
+    };
+
+    let plan = build_launch_plan(&config, &HashMap::new(), &context).unwrap();
+
+    assert_eq!(plan.args[0], "token=token<&>\"'");
+  }
+
+  #[test]
+  fn custom_plan_rejects_unknown_template_variables() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec!["--bad={{mc_url}}".to_string()],
+      ..Default::default()
+    };
+
+    let err = build_launch_plan(&config, &HashMap::new(), &context())
+      .expect_err("unknown template variable should fail");
+
+    assert!(
+      err
+        .to_string()
+        .contains("failed to render agent arg template")
+    );
+  }
+
+  #[test]
+  fn custom_plan_rejects_unknown_template_helper_arguments() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec!["--bad={{toml mc_url}}".to_string()],
+      ..Default::default()
+    };
+
+    let err = build_launch_plan(&config, &HashMap::new(), &context())
+      .expect_err("unknown template helper argument should fail");
+
+    assert!(
+      err
+        .to_string()
+        .contains("failed to render agent arg template")
     );
   }
 
