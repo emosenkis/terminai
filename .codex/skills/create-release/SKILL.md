@@ -1,6 +1,6 @@
 ---
 name: create-release
-description: Use whenever the user asks to create, cut, publish, or prepare a Terminai release. Requires the user to specify whether the release is major, minor, or patch before updating versions.
+description: Use only when the user explicitly asks to create, cut, publish, or prepare a Terminai release. Do not use for requests that only ask to commit, push, or commit and push changes.
 ---
 
 # Create Release
@@ -8,6 +8,8 @@ description: Use whenever the user asks to create, cut, publish, or prepare a Te
 ## Required Trigger
 
 You MUST use this skill any time the user asks to create a release for this repository.
+
+Do not use this skill when the user only asks to commit, push, or commit and push changes. Those requests are not release requests unless the user also explicitly asks for a release.
 
 Before changing release files, confirm the release type is known:
 
@@ -31,10 +33,21 @@ If the user did not specify major, minor, or patch, stop and ask for that one mi
 7. Push `main`.
 8. Create a GitHub release for the new tag/version.
 9. Wait for the GitHub release build workflow to complete successfully.
-10. Download or inspect the built release artifacts and compute the file hashes required by the Homebrew formula.
-11. Update the local ignored `homebrew-tap/` checkout with the new formula version and hashes.
-12. Commit and push the Homebrew tap update.
-13. Report the released version, commit, release URL, build status, and tap commit.
+10. Verify the release artifacts exist and are usable.
+11. Update the ignored `homebrew-tap/` checkout on a branch. Preserve the existing formula structure and update only the release-specific values.
+12. Open a tap PR for the formula update. Do not stop for human review.
+13. Wait for the tap `brew test-bot` workflow to complete.
+    - Confirm every supported architecture completed successfully and produced bottle artifacts, not only passing checks.
+    - Download or inspect artifacts and verify they contain `*.bottle.*.tar.gz` and `*.bottle.json`.
+14. Publish bottles before merging the tap PR:
+    - Run the tap's GitHub `brew pr-pull` workflow for the PR.
+    - Wait for it to publish all supported bottles and push the bottle commit successfully.
+15. Merge the tap PR only after the bottle publish step has succeeded. If the publish step already merged or pushed the required commits, verify `main` includes them.
+16. Run `brew update`, then verify local install uses the bottle:
+    - `brew info emosenkis/tap/terminai` must show `(bottled)`.
+    - `brew fetch --force --bottle-tag=x86_64_linux emosenkis/tap/terminai` must fetch a bottle.
+    - `brew reinstall emosenkis/tap/terminai` must show `Pouring ...bottle...`, not `cargo install`.
+17. Report the released version, main release URL, tap PR, bottle workflow run, tap release URL, and final tap commit.
 
 ## Guardrails
 
@@ -42,3 +55,5 @@ If the user did not specify major, minor, or patch, stop and ask for that one mi
 - Do not skip the Homebrew tap update when artifacts are available.
 - Keep the tap as an ignored checkout in `./homebrew-tap`; do not convert it to a submodule.
 - If GitHub build artifacts are not available yet, poll the workflow/release state rather than guessing hashes.
+- Do not leave the Homebrew bottle workflow at "checks passed" only. Confirm artifacts, bottle publishing, and a local bottle pour.
+- Do not wait for human intervention or review during the release/tap PR flow unless credentials or repository permissions are missing.
