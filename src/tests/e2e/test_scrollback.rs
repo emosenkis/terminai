@@ -17,7 +17,7 @@ use crate::scrollback::{
 use crate::ui_layer::TerminalWidget;
 use crate::vt100::{self, TermReplySender};
 use tui::Terminal;
-use tui::backend::TestBackend;
+use tui::backend::{Backend, CrosstermBackend, TestBackend};
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::widgets::Widget;
@@ -152,11 +152,23 @@ fn test_pending_native_scrollback_snapshot_drains_all_pending_rows() {
     "test should have more pending rows than a viewport"
   );
 
-  let (_content, rows) =
+  let (_content, rows, _row_wrapped) =
     drain_pending_native_scrollback_snapshot(&mut parser, 8).unwrap();
 
   assert_eq!(rows, pending);
   assert_eq!(parser.pending_native_scrollback_len(), 0);
+}
+
+#[test]
+fn test_pending_native_scrollback_snapshot_preserves_soft_wraps() {
+  let mut parser = vt100::Parser::new(2, 4, 100, TestReplySender);
+  parser.process(b"abcdefghi");
+
+  let (_content, rows, row_wrapped) =
+    drain_pending_native_scrollback_snapshot(&mut parser, 4).unwrap();
+
+  assert_eq!(rows, 1);
+  assert_eq!(row_wrapped, vec![true]);
 }
 
 #[test]
@@ -176,13 +188,52 @@ fn test_native_scroll_snapshot_can_exceed_viewport_height() {
         }
       }
 
-      frame.set_scroll_snapshot(content, 5, 6);
+      frame.set_scroll_snapshot(content, 5, 6, vec![false; 6]);
     })
     .unwrap();
 
   terminal.backend().assert_scrollback_lines([
     "aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff",
   ]);
+}
+
+#[test]
+fn test_native_scrollback_stream_preserves_soft_wrapped_rows() {
+  #[derive(Clone, Default)]
+  struct SharedWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+  impl std::io::Write for SharedWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+      self.0.lock().unwrap().write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+      Ok(())
+    }
+  }
+
+  let writer = SharedWriter::default();
+  let output = writer.0.clone();
+  let mut backend = CrosstermBackend::new(writer);
+  let content = ["a", "b", "c", "d"]
+    .into_iter()
+    .map(|symbol| {
+      let mut cell = tui::buffer::Cell::default();
+      cell.set_symbol(symbol);
+      cell
+    })
+    .collect::<Vec<_>>();
+
+  backend
+    .stream_lines_to_scrollback(&content, 2, 2, 2, &[true, true])
+    .unwrap();
+
+  let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+  assert!(!output.contains("ab\r\ncd"));
+  assert!(
+    output.contains("abcd \x08"),
+    "the final pending auto-wrap should be triggered without adding content: {output:?}"
+  );
 }
 
 #[test]

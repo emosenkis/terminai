@@ -1792,7 +1792,7 @@ fn render(
     None
   };
 
-  if let Some((content, scroll_up_lines)) = scroll_snapshot {
+  if let Some((content, scroll_up_lines, row_wrapped)) = scroll_snapshot {
     log::trace!(
       "Scrolling up {} lines (pending: {})",
       scroll_up_lines,
@@ -1803,7 +1803,12 @@ fn render(
         .map(|vt| vt.pending_native_scrollback_len() > 0)
         .unwrap_or(false)
     );
-    frame.set_scroll_snapshot(content, area.width, scroll_up_lines);
+    frame.set_scroll_snapshot(
+      content,
+      area.width,
+      scroll_up_lines,
+      row_wrapped,
+    );
   }
 
   let buf = frame.buffer_mut();

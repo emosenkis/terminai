@@ -119,12 +119,14 @@ impl Backend for StickyClearBackend {
     width: u16,
     line_count: usize,
     screen_height: u16,
+    row_wrapped: &[bool],
   ) -> std::io::Result<()> {
     self.inner.stream_lines_to_scrollback(
       content,
       width,
       line_count,
       screen_height,
+      row_wrapped,
     )
   }
 }

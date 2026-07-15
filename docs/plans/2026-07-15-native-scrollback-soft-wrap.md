@@ -46,6 +46,10 @@ Return a wrap-flag vector from `drain_pending_native_scrollback_snapshot`, store
 
 In the Crossterm backend, emit `\r\n` after a row only when its wrap flag is false. Keep the existing final screen-height padding advances.
 
+If the final snapshot row is wrapped, trigger its pending host auto-wrap with
+an erased placeholder before the padding advances so the physical row still
+enters scrollback without acquiring a hard line ending.
+
 **Step 3: Verify focused tests pass**
 
 Run: `cargo test --manifest-path ratatui/Cargo.toml --features native-scrolling stream_lines_to_scrollback_`

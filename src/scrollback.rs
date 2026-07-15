@@ -277,7 +277,7 @@ pub fn process_pending_native_scrollback<T: TermReplySender + Clone>(
 pub fn drain_pending_native_scrollback_snapshot<T: TermReplySender + Clone>(
   parser: &mut vt100::Parser<T>,
   width: u16,
-) -> Option<(Vec<tui::buffer::Cell>, usize)> {
+) -> Option<(Vec<tui::buffer::Cell>, usize, Vec<bool>)> {
   let rows_to_scroll = parser.pending_native_scrollback_len();
   if rows_to_scroll == 0 || width == 0 {
     return None;
@@ -285,6 +285,7 @@ pub fn drain_pending_native_scrollback_snapshot<T: TermReplySender + Clone>(
 
   let rows = parser.drain_pending_native_scrollback(rows_to_scroll);
   let mut content = Vec::with_capacity(rows.len() * width as usize);
+  let row_wrapped = rows.iter().map(vt100::Row::wrapped).collect();
 
   for row in &rows {
     for col in 0..width {
@@ -299,7 +300,7 @@ pub fn drain_pending_native_scrollback_snapshot<T: TermReplySender + Clone>(
     }
   }
 
-  Some((content, rows.len()))
+  Some((content, rows.len(), row_wrapped))
 }
 
 /// High-level function to process scrollback injection in a single call.

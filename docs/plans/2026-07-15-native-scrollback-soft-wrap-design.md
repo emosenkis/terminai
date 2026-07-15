@@ -26,6 +26,12 @@ When streaming a row:
   next row's first character will trigger the host terminal's pending automatic
   wrap and preserve the logical line for native selection and copy.
 
+If the final snapshot row is wrapped, its continuation is still in the visible
+VT screen rather than in the snapshot. Trigger that pending host wrap with a
+temporary space, then backspace and erase it. This advances the physical row
+without creating a hard line ending; the subsequent frame redraw supplies the
+real continuation content.
+
 The final blank-line advances used to push streamed rows into native
 scrollback remain unchanged. A full-width row cannot be used to infer wrapping
 because it may be followed by a real newline; the VT100 flag is authoritative.
