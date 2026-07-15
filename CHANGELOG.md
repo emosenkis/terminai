@@ -1,3 +1,8 @@
+## 0.1.6 - 2026-07-15
+
+- Use Minijinja for agent argument templates, including Jinja expressions that can expand to multiple arguments.
+- Preserve soft-wrapped terminal lines during native scrolling and redraw so copying and line selection do not insert spurious newlines.
+
 ## 0.1.5 - 2026-07-13
 
 - Add configurable Terminai MCP and CLI tool integration flags for agent presets.
