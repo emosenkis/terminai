@@ -234,6 +234,15 @@ impl<Reply: TermReplySender> Screen<Reply> {
       .visible_cell(crate::vt100::grid::Pos { row, col })
   }
 
+  /// Returns whether the visible row continues onto the next through wrapping.
+  #[must_use]
+  pub fn row_wrapped(&self, row: u16) -> bool {
+    self
+      .grid()
+      .visible_row(row)
+      .is_some_and(|row| row.wrapped())
+  }
+
   /// Returns an iterator over the currently visible drawing rows (no scrollback).
   /// This is the actual terminal content being displayed.
   #[must_use]

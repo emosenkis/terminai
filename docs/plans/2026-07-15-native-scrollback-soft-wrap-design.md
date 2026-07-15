@@ -8,10 +8,10 @@ screen wraps a line across physical rows.
 ## Root cause
 
 The VT100 `Row` records whether its content continues onto the next physical
-row through `Row::wrapped()`. Native scrollback snapshots currently retain only
-the rendered cells, so this distinction is lost before the rows reach the
-Crossterm backend. The backend consequently emits `\r\n` after every physical
-row, causing copied text to contain newlines at soft-wrap boundaries.
+row through `Row::wrapped()`. That distinction must survive both paths that
+write the VT model to the host terminal: native scrollback streaming and the
+subsequent visible-frame redraw. Losing it in either path makes the host record
+separate logical lines at the wrap boundary.
 
 ## Design
 
@@ -36,9 +36,17 @@ The final blank-line advances used to push streamed rows into native
 scrollback remain unchanged. A full-width row cannot be used to infer wrapping
 because it may be followed by a real newline; the VT100 flag is authoritative.
 
+The visible-frame buffer also marks the last drawable cell of each wrapped VT
+row. During ordinary Ratatui drawing, a transition from that cell to column
+zero of the following physical row is emitted without absolute cursor
+positioning, allowing the next printable cell to trigger host auto-wrap. Rows
+without the marker retain the normal absolute move, including full-width rows
+that end with a real newline.
+
 ## Verification
 
 Add focused tests showing that a soft-wrapped row is streamed without an
-intervening `\r\n`, while a full-width row with a hard line ending retains the
-explicit `\r\n`. Existing native-scrollback and workspace tests must continue
-to pass.
+intervening `\r\n`, its visible redraw contains no absolute row transition, and
+a full-width row with a hard line ending retains that transition. Cover the
+tail-like case where newly arriving output turns the previous visible row into
+a soft-wrapped continuation while another row enters native scrollback.

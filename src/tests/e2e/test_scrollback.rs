@@ -21,6 +21,7 @@ use tui::backend::{Backend, CrosstermBackend, TestBackend};
 use tui::buffer::Buffer;
 use tui::layout::Rect;
 use tui::widgets::Widget;
+use tui::{TerminalOptions, Viewport};
 
 /// Simple reply sender for testing (no-op implementation)
 #[derive(Clone)]
@@ -29,6 +30,29 @@ struct TestReplySender;
 impl TermReplySender for TestReplySender {
   fn reply(&self, _reply: compact_str::CompactString) {
     // No-op for testing
+  }
+}
+
+#[derive(Clone, Default)]
+struct SharedWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl SharedWriter {
+  fn output(&self) -> String {
+    String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+  }
+
+  fn clear(&self) {
+    self.0.lock().unwrap().clear();
+  }
+}
+
+impl std::io::Write for SharedWriter {
+  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    self.0.lock().unwrap().write(buf)
+  }
+
+  fn flush(&mut self) -> std::io::Result<()> {
+    Ok(())
   }
 }
 
@@ -199,22 +223,8 @@ fn test_native_scroll_snapshot_can_exceed_viewport_height() {
 
 #[test]
 fn test_native_scrollback_stream_preserves_soft_wrapped_rows() {
-  #[derive(Clone, Default)]
-  struct SharedWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-  impl std::io::Write for SharedWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-      self.0.lock().unwrap().write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-      Ok(())
-    }
-  }
-
   let writer = SharedWriter::default();
-  let output = writer.0.clone();
-  let mut backend = CrosstermBackend::new(writer);
+  let mut backend = CrosstermBackend::new(writer.clone());
   let content = ["a", "b", "c", "d"]
     .into_iter()
     .map(|symbol| {
@@ -228,11 +238,188 @@ fn test_native_scrollback_stream_preserves_soft_wrapped_rows() {
     .stream_lines_to_scrollback(&content, 2, 2, 2, &[true, true])
     .unwrap();
 
-  let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+  let output = writer.output();
   assert!(!output.contains("ab\r\ncd"));
   assert!(
     output.contains("abcd \x08"),
     "the final pending auto-wrap should be triggered without adding content: {output:?}"
+  );
+}
+
+#[test]
+fn test_terminal_widget_draw_preserves_soft_wrapped_rows() {
+  let mut parser = vt100::Parser::new(3, 4, 100, TestReplySender);
+  parser.process(b"abcdefgh");
+  assert!(parser.screen().drawing_rows().next().unwrap().wrapped());
+
+  let writer = SharedWriter::default();
+  let backend = CrosstermBackend::new(writer.clone());
+  let mut terminal = Terminal::with_options(
+    backend,
+    TerminalOptions {
+      viewport: Viewport::Fixed(Rect::new(0, 0, 4, 3)),
+    },
+  )
+  .unwrap();
+
+  terminal
+    .draw(|frame| {
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+
+  let output = writer.output();
+  assert!(
+    output.contains("abcdefgh"),
+    "visible soft-wrapped rows should be streamed continuously: {output:?}"
+  );
+  assert!(
+    !output.contains("abcd\x1b[2;1Hefgh"),
+    "an absolute cursor move must not split a soft-wrapped line: {output:?}"
+  );
+}
+
+#[test]
+fn test_terminal_widget_draw_keeps_hard_break_after_full_width_row() {
+  let mut parser = vt100::Parser::new(3, 4, 100, TestReplySender);
+  parser.process(b"abcd\r\nefgh");
+  assert!(!parser.screen().drawing_rows().next().unwrap().wrapped());
+
+  let writer = SharedWriter::default();
+  let backend = CrosstermBackend::new(writer.clone());
+  let mut terminal = Terminal::with_options(
+    backend,
+    TerminalOptions {
+      viewport: Viewport::Fixed(Rect::new(0, 0, 4, 3)),
+    },
+  )
+  .unwrap();
+
+  terminal
+    .draw(|frame| {
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+
+  let output = writer.output();
+  assert!(output.contains("abcd\x1b[2;1Hefgh"));
+  assert!(!output.contains("abcdefgh"));
+}
+
+#[test]
+fn test_native_scrollback_redraw_preserves_new_tail_wrap() {
+  let mut parser = vt100::Parser::new(3, 4, 100, TestReplySender);
+  parser.process(b"abcdefghijkl");
+
+  let writer = SharedWriter::default();
+  let backend = CrosstermBackend::new(writer.clone());
+  let mut terminal = Terminal::with_options(
+    backend,
+    TerminalOptions {
+      viewport: Viewport::Fixed(Rect::new(0, 0, 4, 3)),
+    },
+  )
+  .unwrap();
+
+  terminal
+    .draw(|frame| {
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+  writer.clear();
+
+  parser.process(b"mnop");
+  let (content, lines, row_wrapped) =
+    drain_pending_native_scrollback_snapshot(&mut parser, 4).unwrap();
+  terminal
+    .draw(|frame| {
+      frame.set_scroll_snapshot(content, 4, lines, row_wrapped);
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+
+  let output = writer.output();
+  assert!(
+    output.contains("lmnop"),
+    "the newly wrapped tail should continue without cursor positioning: {output:?}"
+  );
+  assert!(
+    !output.contains("l\x1b[3;1Hmnop"),
+    "the redraw must not split the new tail wrap: {output:?}"
+  );
+}
+
+#[test]
+fn test_draw_forces_unchanged_soft_wrap_continuation() {
+  let mut parser = vt100::Parser::new(3, 4, 100, TestReplySender);
+  parser.process(b"abcd\x1b[2;1He");
+
+  let writer = SharedWriter::default();
+  let backend = CrosstermBackend::new(writer.clone());
+  let mut terminal = Terminal::with_options(
+    backend,
+    TerminalOptions {
+      viewport: Viewport::Fixed(Rect::new(0, 0, 4, 3)),
+    },
+  )
+  .unwrap();
+  terminal
+    .draw(|frame| {
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+  writer.clear();
+
+  parser.process(b"\x1b[1;4Hde");
+  assert!(parser.screen().drawing_rows().next().unwrap().wrapped());
+  terminal
+    .draw(|frame| {
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+
+  let output = writer.output();
+  assert!(
+    output.contains("de"),
+    "the unchanged first continuation cell must still trigger auto-wrap: {output:?}"
+  );
+}
+
+#[test]
+fn test_scrollback_redraw_forces_unchanged_soft_wrap_continuation() {
+  let mut parser = vt100::Parser::new(3, 4, 100, TestReplySender);
+  parser.process(b"xxxx\x1b[2;1Habcd\x1b[3;1He");
+
+  let writer = SharedWriter::default();
+  let backend = CrosstermBackend::new(writer.clone());
+  let mut terminal = Terminal::with_options(
+    backend,
+    TerminalOptions {
+      viewport: Viewport::Fixed(Rect::new(0, 0, 4, 3)),
+    },
+  )
+  .unwrap();
+  terminal
+    .draw(|frame| {
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+  writer.clear();
+
+  parser.process(b"\x1b[2;4Hde\r\n");
+  let (content, lines, row_wrapped) =
+    drain_pending_native_scrollback_snapshot(&mut parser, 4).unwrap();
+  terminal
+    .draw(|frame| {
+      frame.set_scroll_snapshot(content, 4, lines, row_wrapped);
+      frame.render_widget(TerminalWidget::new(parser.screen()), frame.area());
+    })
+    .unwrap();
+
+  let output = writer.output();
+  assert!(
+    output.contains("de"),
+    "scrollback redraw must trigger an unchanged continuation: {output:?}"
   );
 }
 

@@ -6,6 +6,10 @@
 
 **Architecture:** Retain each VT row's `wrapped()` flag in the application snapshot and carry it through Ratatui's `Frame` and `Backend` interfaces. The Crossterm backend will omit `\r\n` only after rows explicitly marked as soft-wrapped, allowing the host terminal to perform its normal automatic wrap.
 
+The same flag is also represented on visible-frame buffer cells so Ratatui's
+ordinary redraw path does not reintroduce absolute cursor moves at soft-wrap
+boundaries.
+
 **Tech Stack:** Rust, Terminai VT100 model, patched Ratatui backend, Crossterm, Cargo tests.
 
 ---

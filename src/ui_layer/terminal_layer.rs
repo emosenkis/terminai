@@ -28,6 +28,7 @@ impl<R: TermReplySender + Clone> Widget for TerminalWidget<'_, R> {
     // Render each cell from the VT100 screen to the tui buffer
     // Pattern borrowed from mprocs' ui_term.rs
     for row in 0..area.height {
+      let source_row = row + self.row_offset;
       for col in 0..area.width {
         let pos = tui::layout::Position {
           x: area.x + col,
@@ -36,7 +37,7 @@ impl<R: TermReplySender + Clone> Widget for TerminalWidget<'_, R> {
 
         if let Some(to_cell) = buf.cell_mut(pos) {
           // Apply row offset to shift viewport (for AI overlay)
-          if let Some(cell) = self.screen.cell(row + self.row_offset, col) {
+          if let Some(cell) = self.screen.cell(source_row, col) {
             // Convert VT100 cell to tui cell (using mprocs' conversion)
             *to_cell = cell.to_tui();
             if !cell.has_contents() {
@@ -45,6 +46,21 @@ impl<R: TermReplySender + Clone> Widget for TerminalWidget<'_, R> {
           } else {
             // Out of bounds (offset pushed us past screen size)
             to_cell.set_char(' ');
+          }
+        }
+      }
+
+      if self.screen.row_wrapped(source_row) {
+        for col in (0..area.width).rev() {
+          if self
+            .screen
+            .cell(source_row, col)
+            .is_some_and(vt100::Cell::has_contents)
+          {
+            if let Some(cell) = buf.cell_mut((area.x + col, area.y + row)) {
+              cell.set_soft_wrap(true);
+            }
+            break;
           }
         }
       }
