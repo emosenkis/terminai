@@ -22,15 +22,19 @@ interface:
 
 agent:
   preset: codex
+  # prompt-template: custom.jinja
+  # Templates are loaded from this directory. A default.jinja here shadows
+  # the bundled default; it can extend "builtin/default.jinja".
   # extra-args:
   #   - --model
   #   - gpt-5
+  #   - expr: '["--search"] if uses_mcp else []'
 
 # Built-in agent preset reference configs are bundled from:
 # - config/codex.yaml
 # - config/claude.yaml
 # - config/opencode.yaml
-# - config/general.yaml
+# - config/default.jinja
 # Add overrides or new presets here using the same shape.
 agent-presets: {}
 "#,

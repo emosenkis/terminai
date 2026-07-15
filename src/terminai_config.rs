@@ -119,6 +119,30 @@ pub enum AgentKind {
   Custom,
 }
 
+/// A command-line argument rendered for an agent process.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum AgentArg {
+  /// A static string or Minijinja template that produces one argument.
+  Template(String),
+  /// A Minijinja expression that produces an array of strings.
+  Expression { expr: String },
+}
+
+impl From<String> for AgentArg {
+  fn from(value: String) -> Self {
+    Self::Template(value)
+  }
+}
+
+impl From<&str> for AgentArg {
+  fn from(value: &str) -> Self {
+    Self::Template(value.to_string())
+  }
+}
+
 /// Agent configuration.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
@@ -133,47 +157,51 @@ pub struct AgentConfig {
   pub command: Option<String>,
   /// CLI arguments passed to the agent.
   ///
-  /// Each argument is rendered as a Handlebars template. Available variables:
+  /// Each argument can be a string rendered as a Minijinja template or an
+  /// object containing `expr`, whose Minijinja expression must return an array
+  /// of strings. Available variables:
   ///
   /// General:
-  /// - `{{cwd}}`: the working directory where the agent starts.
-  /// - `{{context_prompt}}`: the rendered Terminai context prompt for the
+  /// - `{{ cwd }}`: the working directory where the agent starts.
+  /// - `{{ context_prompt }}`: the rendered Terminai context prompt for the
   ///   resolved agent config.
-  /// - `{{uses_mcp}}`: whether the resolved agent config enables
+  /// - `{{ uses_mcp }}`: whether the resolved agent config enables
   ///   the Terminai MCP server.
-  /// - `{{uses_tool_cli}}`: whether the resolved agent config enables
+  /// - `{{ uses_tool_cli }}`: whether the resolved agent config enables
   ///   Terminai CLI tool instructions.
   ///
   /// MCP:
-  /// - `{{mcp_url}}`: the Terminai MCP server URL.
-  /// - `{{mcp_command}}`: the command to launch MCP.
-  /// - `{{mcp_port}}`: the local port used by the Terminai MCP server.
+  /// - `{{ mcp_url }}`: the Terminai MCP server URL.
+  /// - `{{ mcp_command }}`: the command to launch MCP.
+  /// - `{{ mcp_port }}`: the local port used by the Terminai MCP server.
   ///
   /// The MCP bearer token is available to the agent as the
   /// `TERMINAI_MCP_AUTH_TOKEN` environment variable.
   ///
   /// Tool CLI:
-  /// - `{{tool_command}}`: the command to interact with Terminai-provided
+  /// - `{{ tool_command }}`: the command to interact with Terminai-provided
   ///   tools.
   ///
-  /// Available helpers:
-  /// - `{{toml value}}`: render `value` as a TOML string.
-  /// - `{{json value}}`: render `value` as a JSON string.
-  /// - `{{#args}}...{{/args}}`: render zero or more arguments from its body.
-  ///   Use it when one config entry should expand to multiple arguments, or
-  ///   to no arguments.
-  /// - `{{#arg}}...{{/arg}}`: render one argument inside `{{#args}}`.
-  /// - `{{OMIT}}`: omit this argument. Equivalent to `{{#args}}{{/args}}`.
+  /// Available filters:
+  /// - `{{ value|toml }}`: render `value` as a TOML string.
+  /// - `{{ value|json }}`: render `value` as a JSON string.
+  ///
+  /// For zero or multiple arguments, use an expression object such as
+  /// `expr: '["--mcp", mcp_url] if uses_mcp else []'`.
   #[serde(default)]
-  pub args: Vec<String>,
+  pub args: Vec<AgentArg>,
   /// Additional CLI arguments appended after `args`. Supports the same
-  /// Handlebars template variables and helpers documented on `args`.
+  /// Minijinja template variables, filters, and expressions documented on
+  /// `args`.
   #[serde(default)]
-  pub extra_args: Vec<String>,
-  /// Initial prompt passed to the agent. See the default value in
-  /// [`config/general.yaml`](https://github.com/emosenkis/terminai/blob/main/config/general.yaml).
+  pub extra_args: Vec<AgentArg>,
+  /// Prompt template to render for this agent. Defaults to `default.jinja`,
+  /// which is loaded from the Terminai XDG config directory when present and
+  /// otherwise falls back to the bundled template. Other names are loaded from
+  /// the same directory. `builtin/default.jinja` always names the bundled
+  /// template and can be extended by a user-provided default.
   #[serde(default)]
-  pub initial_prompt: Option<String>,
+  pub prompt_template: Option<String>,
   /// Whether this agent uses the Terminai MCP server. Defaults to false for
   /// custom agents and inherits from the selected preset when unset.
   #[serde(default)]
@@ -192,7 +220,7 @@ impl AgentConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
-      initial_prompt: None,
+      prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
     }
@@ -205,7 +233,7 @@ impl AgentConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
-      initial_prompt: None,
+      prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
     }
@@ -241,43 +269,48 @@ pub struct AgentPresetConfig {
   pub command: Option<String>,
   /// CLI arguments passed to the agent.
   ///
-  /// Each argument is rendered as a Handlebars template. Available variables:
+  /// Each argument can be a string rendered as a Minijinja template or an
+  /// object containing `expr`, whose Minijinja expression must return an array
+  /// of strings. Available variables:
   ///
   /// General:
-  /// - `{{cwd}}`: the working directory where the agent starts.
-  /// - `{{context_prompt}}`: the rendered Terminai context prompt for the
+  /// - `{{ cwd }}`: the working directory where the agent starts.
+  /// - `{{ context_prompt }}`: the rendered Terminai context prompt for the
   ///   resolved agent config.
-  /// - `{{uses_mcp}}`: whether the resolved agent config enables
+  /// - `{{ uses_mcp }}`: whether the resolved agent config enables
   ///   the Terminai MCP server.
-  /// - `{{uses_tool_cli}}`: whether the resolved agent config enables
+  /// - `{{ uses_tool_cli }}`: whether the resolved agent config enables
   ///   Terminai CLI tool instructions.
   ///
   /// MCP:
-  /// - `{{mcp_url}}`: the Terminai MCP server URL.
-  /// - `{{mcp_command}}`: the command to launch MCP.
-  /// - `{{mcp_port}}`: the local port used by the Terminai MCP server.
+  /// - `{{ mcp_url }}`: the Terminai MCP server URL.
+  /// - `{{ mcp_command }}`: the command to launch MCP.
+  /// - `{{ mcp_port }}`: the local port used by the Terminai MCP server.
   ///
   /// The MCP bearer token is available to the agent as the
   /// `TERMINAI_MCP_AUTH_TOKEN` environment variable.
   ///
   /// Tool CLI:
-  /// - `{{tool_command}}`: the command to interact with Terminai-provided
+  /// - `{{ tool_command }}`: the command to interact with Terminai-provided
   ///   tools.
   ///
-  /// Available helpers:
-  /// - `{{toml value}}`: render `value` as a TOML string.
-  /// - `{{json value}}`: render `value` as a JSON string.
-  /// - `{{#args}}...{{/args}}`: render zero or more arguments from its body.
-  ///   Use it when one config entry should expand to multiple arguments, or
-  ///   to no arguments.
-  /// - `{{#arg}}...{{/arg}}`: render one argument inside `{{#args}}`.
-  /// - `{{OMIT}}`: omit this argument. Equivalent to `{{#args}}{{/args}}`.
+  /// Available filters:
+  /// - `{{ value|toml }}`: render `value` as a TOML string.
+  /// - `{{ value|json }}`: render `value` as a JSON string.
+  ///
+  /// For zero or multiple arguments, use an expression object such as
+  /// `expr: '["--mcp", mcp_url] if uses_mcp else []'`.
   #[serde(default)]
-  pub args: Vec<String>,
+  pub args: Vec<AgentArg>,
   /// Additional CLI arguments appended after `args`. Supports the same
-  /// Handlebars template variables and helpers documented on `args`.
+  /// Minijinja template variables, filters, and expressions documented on
+  /// `args`.
   #[serde(default)]
-  pub extra_args: Vec<String>,
+  pub extra_args: Vec<AgentArg>,
+  /// Prompt template inherited by agents using this preset. Uses the same XDG
+  /// lookup and `default.jinja` shadowing behavior as the agent setting.
+  #[serde(default)]
+  pub prompt_template: Option<String>,
   #[serde(default)]
   pub env: HashMap<String, String>,
   #[serde(default)]
@@ -389,11 +422,65 @@ agent-presets:
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
     assert_eq!(config.agent.uses_mcp, Some(true));
     assert_eq!(config.agent.uses_tool_cli, Some(false));
-    assert_eq!(config.agent.extra_args, vec!["--model", "gpt-5.5"]);
+    assert_eq!(
+      config.agent.extra_args,
+      vec![AgentArg::from("--model"), AgentArg::from("gpt-5.5")]
+    );
     let preset = config.agent_presets.get("opencode-fast").unwrap();
     assert_eq!(preset.extends.as_deref(), Some("opencode"));
     assert_eq!(preset.uses_mcp, Some(false));
     assert_eq!(preset.uses_tool_cli, Some(true));
+  }
+
+  #[test]
+  fn test_agent_args_accept_templates_and_expressions() {
+    let yaml = r#"
+agent:
+  command: my-agent
+  prompt-template: custom.jinja
+  args:
+    - --static
+    - "--cwd={{ cwd }}"
+    - expr: '["--mcp", mcp_url] if uses_mcp else []'
+  extra-args:
+    - expr: '["--verbose"]'
+    "#;
+
+    let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
+
+    assert_eq!(
+      config.agent.prompt_template.as_deref(),
+      Some("custom.jinja")
+    );
+    assert_eq!(
+      config.agent.args,
+      vec![
+        AgentArg::Template("--static".to_string()),
+        AgentArg::Template("--cwd={{ cwd }}".to_string()),
+        AgentArg::Expression {
+          expr: "[\"--mcp\", mcp_url] if uses_mcp else []".to_string(),
+        },
+      ]
+    );
+    assert_eq!(
+      config.agent.extra_args,
+      vec![AgentArg::Expression {
+        expr: "[\"--verbose\"]".to_string(),
+      }]
+    );
+  }
+
+  #[test]
+  fn test_agent_expression_rejects_unknown_fields() {
+    let yaml = r#"
+agent:
+  args:
+    - expr: '["--verbose"]'
+      typo: true
+    "#;
+
+    serde_yaml::from_str::<TerminaiConfig>(yaml)
+      .expect_err("unknown expression fields should fail");
   }
 
   #[test]
@@ -472,6 +559,9 @@ agent:
     let config: TerminaiConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.agent.effective_kind(), AgentKind::Custom);
     assert_eq!(config.agent.command.as_deref(), Some("my-agent"));
-    assert_eq!(config.agent.args, vec!["--mcp", "{mcp_url}"]);
+    assert_eq!(
+      config.agent.args,
+      vec![AgentArg::from("--mcp"), AgentArg::from("{mcp_url}")]
+    );
   }
 }

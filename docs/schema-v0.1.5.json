@@ -4,29 +4,16 @@
   "description": "Top-level Terminai configuration loaded from\n`$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to\n`~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset.\n\nDefault configuration can be installed with `terminai init-config`",
   "type": "object",
   "properties": {
-    "interface": {
-      "description": "Interface configuration",
-      "$ref": "#/$defs/InterfaceConfig",
-      "default": {
-        "chat-position": "bottom",
-        "key_bindings": {
-          "activate-overlay": "Ctrl-Space",
-          "deactivate-overlay": "Ctrl-Space",
-          "approve": "y",
-          "deny": "n"
-        }
-      }
-    },
     "agent": {
       "description": "External CLI agent to run in the AI terminal.",
       "$ref": "#/$defs/AgentConfig",
       "default": {
-        "preset": "codex",
-        "kind": "codex",
-        "command": null,
         "args": [],
+        "command": null,
         "extra-args": [],
-        "initial-prompt": null,
+        "kind": "codex",
+        "preset": "codex",
+        "prompt-template": null,
         "uses-mcp": null,
         "uses-tool-cli": null
       }
@@ -38,75 +25,42 @@
         "$ref": "#/$defs/AgentPresetConfig"
       },
       "default": {}
+    },
+    "interface": {
+      "description": "Interface configuration",
+      "$ref": "#/$defs/InterfaceConfig",
+      "default": {
+        "chat-position": "bottom",
+        "key_bindings": {
+          "activate-overlay": "Ctrl-Space",
+          "approve": "y",
+          "deactivate-overlay": "Ctrl-Space",
+          "deny": "n"
+        }
+      }
     }
   },
   "additionalProperties": false,
   "$defs": {
-    "InterfaceConfig": {
-      "description": "Interface configuration",
-      "type": "object",
-      "properties": {
-        "chat-position": {
-          "description": "Position of the AI chat overlay (default: bottom)",
-          "$ref": "#/$defs/ChatPosition",
-          "default": "bottom"
-        },
-        "key_bindings": {
-          "description": "Key bindings\n\nThe syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).",
-          "$ref": "#/$defs/KeyBindingsConfig",
-          "default": {
-            "activate-overlay": "Ctrl-Space",
-            "deactivate-overlay": "Ctrl-Space",
-            "approve": "y",
-            "deny": "n"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "ChatPosition": {
-      "description": "Position of the AI chat overlay",
-      "type": "string",
-      "enum": [
-        "bottom",
-        "top"
-      ]
-    },
-    "KeyBindingsConfig": {
-      "type": "object",
-      "properties": {
-        "activate-overlay": {
-          "$ref": "#/$defs/OneOrMoreBindings"
-        },
-        "deactivate-overlay": {
-          "$ref": "#/$defs/OneOrMoreBindings"
-        },
-        "approve": {
-          "$ref": "#/$defs/OneOrMoreBindings"
-        },
-        "deny": {
-          "$ref": "#/$defs/OneOrMoreBindings"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "activate-overlay",
-        "deactivate-overlay",
-        "approve",
-        "deny"
-      ]
-    },
-    "OneOrMoreBindings": {
-      "oneOf": [
+    "AgentArg": {
+      "description": "A command-line argument rendered for an agent process.",
+      "anyOf": [
         {
-          "description": "A single key combination such as Ctrl-Space",
+          "description": "A static string or Minijinja template that produces one argument.",
           "type": "string"
         },
         {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "description": "A Minijinja expression that produces an array of strings.",
+          "type": "object",
+          "properties": {
+            "expr": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "expr"
+          ]
         }
       ]
     },
@@ -114,12 +68,28 @@
       "description": "Agent configuration.",
       "type": "object",
       "properties": {
-        "preset": {
+        "args": {
+          "description": "CLI arguments passed to the agent.\n\nEach argument can be a string rendered as a Minijinja template or an\nobject containing `expr`, whose Minijinja expression must return an array\nof strings. Available variables:\n\nGeneral:\n- `{{ cwd }}`: the working directory where the agent starts.\n- `{{ context_prompt }}`: the rendered Terminai context prompt for the\n  resolved agent config.\n- `{{ uses_mcp }}`: whether the resolved agent config enables\n  the Terminai MCP server.\n- `{{ uses_tool_cli }}`: whether the resolved agent config enables\n  Terminai CLI tool instructions.\n\nMCP:\n- `{{ mcp_url }}`: the Terminai MCP server URL.\n- `{{ mcp_command }}`: the command to launch MCP.\n- `{{ mcp_port }}`: the local port used by the Terminai MCP server.\n\nThe MCP bearer token is available to the agent as the\n`TERMINAI_MCP_AUTH_TOKEN` environment variable.\n\nTool CLI:\n- `{{ tool_command }}`: the command to interact with Terminai-provided\n  tools.\n\nAvailable filters:\n- `{{ value|toml }}`: render `value` as a TOML string.\n- `{{ value|json }}`: render `value` as a JSON string.\n\nFor zero or multiple arguments, use an expression object such as\n`expr: '[\"--mcp\", mcp_url] if uses_mcp else []'`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
+        },
+        "command": {
           "type": [
             "string",
             "null"
           ],
           "default": null
+        },
+        "extra-args": {
+          "description": "Additional CLI arguments appended after `args`. Supports the same\nMinijinja template variables, filters, and expressions documented on\n`args`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
         },
         "kind": {
           "anyOf": [
@@ -132,31 +102,15 @@
           ],
           "default": null
         },
-        "command": {
+        "preset": {
           "type": [
             "string",
             "null"
           ],
           "default": null
         },
-        "args": {
-          "description": "CLI arguments passed to the agent.\n\nEach argument is rendered as a Handlebars template. Available variables:\n\nGeneral:\n- `{{cwd}}`: the working directory where the agent starts.\n- `{{context_prompt}}`: the rendered Terminai context prompt for the\n  resolved agent config.\n- `{{uses_mcp}}`: whether the resolved agent config enables\n  the Terminai MCP server.\n- `{{uses_tool_cli}}`: whether the resolved agent config enables\n  Terminai CLI tool instructions.\n\nMCP:\n- `{{mcp_url}}`: the Terminai MCP server URL.\n- `{{mcp_command}}`: the command to launch MCP.\n- `{{mcp_port}}`: the local port used by the Terminai MCP server.\n\nThe MCP bearer token is available to the agent as the\n`TERMINAI_MCP_AUTH_TOKEN` environment variable.\n\nTool CLI:\n- `{{tool_command}}`: the command to interact with Terminai-provided\n  tools.\n\nAvailable helpers:\n- `{{toml value}}`: render `value` as a TOML string.\n- `{{json value}}`: render `value` as a JSON string.\n- `{{#args}}...{{/args}}`: render zero or more arguments from its body.\n  Use it when one config entry should expand to multiple arguments, or\n  to no arguments.\n- `{{#arg}}...{{/arg}}`: render one argument inside `{{#args}}`.\n- `{{OMIT}}`: omit this argument. Equivalent to `{{#args}}{{/args}}`.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": []
-        },
-        "extra-args": {
-          "description": "Additional CLI arguments appended after `args`. Supports the same\nHandlebars template variables and helpers documented on `args`.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": []
-        },
-        "initial-prompt": {
-          "description": "Initial prompt passed to the agent. See the default value in\n[`config/general.yaml`](https://github.com/emosenkis/terminai/blob/main/config/general.yaml).",
+        "prompt-template": {
+          "description": "Prompt template to render for this agent. Defaults to `default.jinja`,\nwhich is loaded from the Terminai XDG config directory when present and\notherwise falls back to the bundled template. Other names are loaded from\nthe same directory. `builtin/default.jinja` always names the bundled\ntemplate and can be extended by a user-provided default.",
           "type": [
             "string",
             "null"
@@ -194,12 +148,13 @@
       "description": "Agent preset configuration.",
       "type": "object",
       "properties": {
-        "extends": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
+        "args": {
+          "description": "CLI arguments passed to the agent.\n\nEach argument can be a string rendered as a Minijinja template or an\nobject containing `expr`, whose Minijinja expression must return an array\nof strings. Available variables:\n\nGeneral:\n- `{{ cwd }}`: the working directory where the agent starts.\n- `{{ context_prompt }}`: the rendered Terminai context prompt for the\n  resolved agent config.\n- `{{ uses_mcp }}`: whether the resolved agent config enables\n  the Terminai MCP server.\n- `{{ uses_tool_cli }}`: whether the resolved agent config enables\n  Terminai CLI tool instructions.\n\nMCP:\n- `{{ mcp_url }}`: the Terminai MCP server URL.\n- `{{ mcp_command }}`: the command to launch MCP.\n- `{{ mcp_port }}`: the local port used by the Terminai MCP server.\n\nThe MCP bearer token is available to the agent as the\n`TERMINAI_MCP_AUTH_TOKEN` environment variable.\n\nTool CLI:\n- `{{ tool_command }}`: the command to interact with Terminai-provided\n  tools.\n\nAvailable filters:\n- `{{ value|toml }}`: render `value` as a TOML string.\n- `{{ value|json }}`: render `value` as a JSON string.\n\nFor zero or multiple arguments, use an expression object such as\n`expr: '[\"--mcp\", mcp_url] if uses_mcp else []'`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
         },
         "command": {
           "type": [
@@ -208,28 +163,35 @@
           ],
           "default": null
         },
-        "args": {
-          "description": "CLI arguments passed to the agent.\n\nEach argument is rendered as a Handlebars template. Available variables:\n\nGeneral:\n- `{{cwd}}`: the working directory where the agent starts.\n- `{{context_prompt}}`: the rendered Terminai context prompt for the\n  resolved agent config.\n- `{{uses_mcp}}`: whether the resolved agent config enables\n  the Terminai MCP server.\n- `{{uses_tool_cli}}`: whether the resolved agent config enables\n  Terminai CLI tool instructions.\n\nMCP:\n- `{{mcp_url}}`: the Terminai MCP server URL.\n- `{{mcp_command}}`: the command to launch MCP.\n- `{{mcp_port}}`: the local port used by the Terminai MCP server.\n\nThe MCP bearer token is available to the agent as the\n`TERMINAI_MCP_AUTH_TOKEN` environment variable.\n\nTool CLI:\n- `{{tool_command}}`: the command to interact with Terminai-provided\n  tools.\n\nAvailable helpers:\n- `{{toml value}}`: render `value` as a TOML string.\n- `{{json value}}`: render `value` as a JSON string.\n- `{{#args}}...{{/args}}`: render zero or more arguments from its body.\n  Use it when one config entry should expand to multiple arguments, or\n  to no arguments.\n- `{{#arg}}...{{/arg}}`: render one argument inside `{{#args}}`.\n- `{{OMIT}}`: omit this argument. Equivalent to `{{#args}}{{/args}}`.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": []
-        },
-        "extra-args": {
-          "description": "Additional CLI arguments appended after `args`. Supports the same\nHandlebars template variables and helpers documented on `args`.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": []
-        },
         "env": {
           "type": "object",
           "additionalProperties": {
             "type": "string"
           },
           "default": {}
+        },
+        "extends": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "extra-args": {
+          "description": "Additional CLI arguments appended after `args`. Supports the same\nMinijinja template variables, filters, and expressions documented on\n`args`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
+        },
+        "prompt-template": {
+          "description": "Prompt template inherited by agents using this preset. Uses the same XDG\nlookup and `default.jinja` shadowing behavior as the agent setting.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         },
         "uses-mcp": {
           "type": [
@@ -247,6 +209,74 @@
         }
       },
       "additionalProperties": false
+    },
+    "ChatPosition": {
+      "description": "Position of the AI chat overlay",
+      "type": "string",
+      "enum": [
+        "bottom",
+        "top"
+      ]
+    },
+    "InterfaceConfig": {
+      "description": "Interface configuration",
+      "type": "object",
+      "properties": {
+        "chat-position": {
+          "description": "Position of the AI chat overlay (default: bottom)",
+          "$ref": "#/$defs/ChatPosition",
+          "default": "bottom"
+        },
+        "key_bindings": {
+          "description": "Key bindings\n\nThe syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).",
+          "$ref": "#/$defs/KeyBindingsConfig",
+          "default": {
+            "activate-overlay": "Ctrl-Space",
+            "approve": "y",
+            "deactivate-overlay": "Ctrl-Space",
+            "deny": "n"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "KeyBindingsConfig": {
+      "type": "object",
+      "properties": {
+        "activate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "approve": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deactivate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deny": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "activate-overlay",
+        "deactivate-overlay",
+        "approve",
+        "deny"
+      ]
+    },
+    "OneOrMoreBindings": {
+      "oneOf": [
+        {
+          "description": "A single key combination such as Ctrl-Space",
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     }
   }
 }

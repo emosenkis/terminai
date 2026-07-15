@@ -2496,7 +2496,7 @@ mod tests {
     let config = TerminaiConfig {
       agent: termin::terminai_config::AgentConfig {
         command: Some("my-agent".to_string()),
-        args: vec!["--workdir".to_string(), "{{cwd}}".to_string()],
+        args: vec!["--workdir".into(), "{{cwd}}".into()],
         ..Default::default()
       },
       ..Default::default()

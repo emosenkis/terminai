@@ -4,8 +4,10 @@ claude:
   uses-tool-cli: true
   args:
     - --append-system-prompt
-    - "{{context_prompt}}"
-    - "{{#if uses_mcp}}--mcp-config{{else}}{{OMIT}}{{/if}}"
+    - "{{ context_prompt }}"
     # Claude MCP JSON env expansion: https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcp-json
-    - '{{#if uses_mcp}}{"mcpServers":{"terminai":{"type":"http","url":"{{mcp_url}}","headers":{"Authorization":"Bearer ${TERMINAI_MCP_AUTH_TOKEN}"}}}}{{else}}{{OMIT}}{{/if}}'
-    - "{{#if uses_mcp}}--strict-mcp-config{{else}}{{OMIT}}{{/if}}"
+    - expr: >-
+        ["--mcp-config",
+         '{"mcpServers":{"terminai":{"type":"http","url":' ~ (mcp_url|json) ~ ',"headers":{"Authorization":"Bearer ${TERMINAI_MCP_AUTH_TOKEN}"}}}}',
+         "--strict-mcp-config"]
+        if uses_mcp else []

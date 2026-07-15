@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context as AnyhowContext, Result, bail};
-use handlebars::{
-  Context as HandlebarsContext, Handlebars, Helper, HelperDef, HelperResult,
-  JsonRender, Output, RenderContext, RenderError, RenderErrorReason,
-  Renderable, StringOutput, no_escape,
+use minijinja::{
+  AutoEscape, Environment, Error as MinijinjaError,
+  ErrorKind as MinijinjaErrorKind, UndefinedBehavior,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::terminai_config::{AgentConfig, AgentKind, AgentPresetConfig};
+use crate::terminai_config::{
+  AgentArg, AgentConfig, AgentKind, AgentPresetConfig,
+};
 
-const ARGS_SENTINEL_VALUE: &str = "__TERMINAI_AGENT_ARGS_SENTINEL_5D1A2E49__";
+const DEFAULT_PROMPT_TEMPLATE: &str = "default.jinja";
+const BUILTIN_DEFAULT_PROMPT_TEMPLATE: &str = "builtin/default.jinja";
+const BUILTIN_DEFAULT_PROMPT: &str = include_str!("../config/default.jinja");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLaunchPlan {
@@ -42,7 +45,7 @@ pub struct AgentLaunchContext {
   pub terminai_tool_command: String,
   pub terminai_mcp_command: String,
   pub terminai_mcp_port: String,
-  pub context_prompt: String,
+  pub config_dir: Option<PathBuf>,
 }
 
 impl AgentLaunchContext {
@@ -63,7 +66,8 @@ impl AgentLaunchContext {
       terminai_tool_command,
       terminai_mcp_command,
       terminai_mcp_port,
-      context_prompt: builtin_context_prompt(),
+      config_dir: xdg::BaseDirectories::with_prefix("terminai")
+        .get_config_home(),
     }
   }
 }
@@ -85,9 +89,16 @@ pub fn build_launch_plan(
   );
 
   let command = resolved.command;
-  let rendered_context_prompt =
-    render_context_prompt(context, resolved.uses_mcp, resolved.uses_tool_cli)?;
+  let environment = launch_template_environment(context.config_dir.clone());
+  let rendered_context_prompt = render_context_prompt(
+    &environment,
+    context,
+    &resolved.prompt_template,
+    resolved.uses_mcp,
+    resolved.uses_tool_cli,
+  )?;
   let args = expand_args(
+    &environment,
     resolved.args,
     context,
     &rendered_context_prompt,
@@ -115,10 +126,11 @@ pub fn build_launch_plan(
 #[derive(Debug, Clone)]
 struct ResolvedAgentConfig {
   command: String,
-  args: Vec<String>,
+  args: Vec<AgentArg>,
   env: HashMap<String, String>,
   uses_mcp: bool,
   uses_tool_cli: bool,
+  prompt_template: String,
 }
 
 const BUILTIN_AGENT_PRESET_CONFIGS: &[(&str, &str)] = &[
@@ -128,23 +140,16 @@ const BUILTIN_AGENT_PRESET_CONFIGS: &[(&str, &str)] = &[
     "config/opencode.yaml",
     include_str!("../config/opencode.yaml"),
   ),
-  (
-    "config/general.yaml",
-    include_str!("../config/general.yaml"),
-  ),
 ];
 
 #[derive(Debug, Default)]
 struct BuiltinAgentConfig {
-  context_prompt: Option<String>,
   presets: HashMap<String, AgentPresetConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 struct BuiltinAgentConfigFile {
-  #[serde(default)]
-  context_prompt: Option<String>,
   #[serde(flatten)]
   presets: HashMap<String, AgentPresetConfig>,
 }
@@ -156,12 +161,6 @@ fn builtin_agent_config() -> Result<BuiltinAgentConfig> {
     let file_config: BuiltinAgentConfigFile = serde_yaml::from_str(contents)
       .with_context(|| format!("failed to parse bundled {path}"))?;
 
-    if let Some(context_prompt) = file_config.context_prompt {
-      if config.context_prompt.replace(context_prompt).is_some() {
-        bail!("bundled context-prompt is defined more than once");
-      }
-    }
-
     for (name, preset) in file_config.presets {
       if config.presets.insert(name.clone(), preset).is_some() {
         bail!("bundled agent preset '{name}' is defined more than once");
@@ -170,13 +169,6 @@ fn builtin_agent_config() -> Result<BuiltinAgentConfig> {
   }
 
   Ok(config)
-}
-
-fn builtin_context_prompt() -> String {
-  builtin_agent_config()
-    .expect("bundled agent YAML must parse")
-    .context_prompt
-    .expect("bundled agent YAML must define context-prompt")
 }
 
 fn builtin_agent_presets() -> Result<HashMap<String, AgentPresetConfig>> {
@@ -214,6 +206,7 @@ fn resolve_agent_config(
       env: HashMap::new(),
       uses_mcp: config.uses_mcp.unwrap_or(false),
       uses_tool_cli: config.uses_tool_cli.unwrap_or(true),
+      prompt_template: DEFAULT_PROMPT_TEMPLATE.to_string(),
     }
   };
 
@@ -229,6 +222,9 @@ fn resolve_agent_config(
   }
   if let Some(uses_tool_cli) = config.uses_tool_cli {
     resolved.uses_tool_cli = uses_tool_cli;
+  }
+  if let Some(prompt_template) = &config.prompt_template {
+    resolved.prompt_template = prompt_template.clone();
   }
 
   Ok(resolved)
@@ -259,6 +255,7 @@ fn resolve_preset(
       env: HashMap::new(),
       uses_mcp: false,
       uses_tool_cli: true,
+      prompt_template: DEFAULT_PROMPT_TEMPLATE.to_string(),
     }
   };
 
@@ -275,6 +272,9 @@ fn resolve_preset(
   }
   if let Some(uses_tool_cli) = preset.uses_tool_cli {
     resolved.uses_tool_cli = uses_tool_cli;
+  }
+  if let Some(prompt_template) = preset.prompt_template {
+    resolved.prompt_template = prompt_template;
   }
 
   if resolved.command.is_empty() {
@@ -318,30 +318,32 @@ impl<'a> AgentLaunchTemplateData<'a> {
 }
 
 fn render_context_prompt(
+  environment: &Environment<'_>,
   context: &AgentLaunchContext,
+  template_name: &str,
   uses_mcp: bool,
   uses_tool_cli: bool,
 ) -> Result<String> {
-  let handlebars = launch_arg_handlebars();
-  let data = AgentLaunchTemplateData::new(
-    context,
-    &context.context_prompt,
-    uses_mcp,
-    uses_tool_cli,
-  );
-  handlebars
-    .render_template(&context.context_prompt, &data)
-    .context("failed to render agent context prompt template")
+  let data = AgentLaunchTemplateData::new(context, "", uses_mcp, uses_tool_cli);
+  environment
+    .get_template(template_name)
+    .with_context(|| {
+      format!("failed to load prompt template '{template_name}'")
+    })?
+    .render(&data)
+    .with_context(|| {
+      format!("failed to render prompt template '{template_name}'")
+    })
 }
 
 fn expand_args(
-  args: Vec<String>,
+  environment: &Environment<'_>,
+  args: Vec<AgentArg>,
   context: &AgentLaunchContext,
   context_prompt: &str,
   uses_mcp: bool,
   uses_tool_cli: bool,
 ) -> Result<Vec<String>> {
-  let handlebars = launch_arg_handlebars();
   let data = AgentLaunchTemplateData::new(
     context,
     context_prompt,
@@ -351,149 +353,134 @@ fn expand_args(
   let mut expanded = Vec::new();
 
   for arg in args {
-    let rendered = handlebars
-      .render_template(&arg, &data)
-      .with_context(|| format!("failed to render agent arg template: {arg}"))?;
-    expanded.extend(expand_rendered_arg(rendered, &arg)?);
+    match arg {
+      AgentArg::Template(template) => {
+        let rendered = environment
+          .render_named_str("<agent-arg>", &template, &data)
+          .with_context(|| {
+            format!("failed to render agent arg template: {template}")
+          })?;
+        expanded.push(rendered);
+      }
+      AgentArg::Expression { expr } => {
+        let value = environment
+          .compile_expression_owned(expr.clone())
+          .with_context(|| {
+            format!("failed to compile agent arg expression: {expr}")
+          })?
+          .eval(&data)
+          .with_context(|| {
+            format!("failed to evaluate agent arg expression: {expr}")
+          })?;
+        let values = Vec::<String>::deserialize(value).with_context(|| {
+          format!(
+            "agent arg expression must produce an array of strings: {expr}"
+          )
+        })?;
+        expanded.extend(values);
+      }
+    }
   }
 
   Ok(expanded)
 }
 
-fn expand_rendered_arg(
-  rendered: String,
-  template: &str,
-) -> Result<Vec<String>> {
-  let trimmed_start = rendered.trim_start();
-  if let Some(remainder) = trimmed_start.strip_prefix(ARGS_SENTINEL_VALUE) {
-    if remainder.contains(ARGS_SENTINEL_VALUE) {
-      bail!(
-        "ARGS sentinel may only appear once at the beginning of an agent arg template"
+fn launch_template_environment(
+  config_dir: Option<PathBuf>,
+) -> Environment<'static> {
+  let mut environment = Environment::new();
+  environment.set_undefined_behavior(UndefinedBehavior::Strict);
+  environment.set_auto_escape_callback(|_| AutoEscape::None);
+  environment.set_keep_trailing_newline(true);
+  environment.add_filter("toml", toml_string);
+  environment.add_filter("json", json_string);
+  environment
+    .set_loader(move |name| load_template(config_dir.as_deref(), name));
+  environment
+}
+
+fn load_template(
+  config_dir: Option<&Path>,
+  name: &str,
+) -> std::result::Result<Option<String>, MinijinjaError> {
+  if !is_safe_template_name(name) {
+    return Err(MinijinjaError::new(
+      MinijinjaErrorKind::InvalidOperation,
+      format!(
+        "template name must stay within the Terminai config directory: {name}"
+      ),
+    ));
+  }
+
+  if name == BUILTIN_DEFAULT_PROMPT_TEMPLATE {
+    return Ok(Some(BUILTIN_DEFAULT_PROMPT.to_string()));
+  }
+
+  if let Some(config_dir) = config_dir
+    && let Some(source) = load_user_template(config_dir, name)?
+  {
+    return Ok(Some(source));
+  }
+
+  if name == DEFAULT_PROMPT_TEMPLATE {
+    Ok(Some(BUILTIN_DEFAULT_PROMPT.to_string()))
+  } else {
+    Ok(None)
+  }
+}
+
+fn is_safe_template_name(name: &str) -> bool {
+  !name.is_empty()
+    && Path::new(name)
+      .components()
+      .all(|component| matches!(component, Component::Normal(_)))
+}
+
+fn load_user_template(
+  config_dir: &Path,
+  name: &str,
+) -> std::result::Result<Option<String>, MinijinjaError> {
+  let config_dir = match std::fs::canonicalize(config_dir) {
+    Ok(path) => path,
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    Err(err) => {
+      return Err(
+        MinijinjaError::new(
+          MinijinjaErrorKind::InvalidOperation,
+          "failed to resolve Terminai config directory",
+        )
+        .with_source(err),
       );
     }
-    return serde_json::from_str::<Vec<String>>(remainder).with_context(|| {
-      format!("failed to parse rendered agent arg array template: {template}")
-    });
-  }
-
-  if rendered.contains(ARGS_SENTINEL_VALUE) {
-    bail!(
-      "ARGS sentinel may only appear at the beginning of an agent arg template"
-    );
-  }
-
-  Ok(vec![rendered])
-}
-
-fn render_helper_template<'reg: 'rc, 'rc>(
-  h: &Helper<'rc>,
-  r: &'reg Handlebars<'reg>,
-  ctx: &'rc HandlebarsContext,
-  rc: &mut RenderContext<'reg, 'rc>,
-) -> std::result::Result<String, RenderError> {
-  let Some(template) = h.template() else {
-    return Ok(String::new());
   };
-  let mut output = StringOutput::new();
-  template.render(r, ctx, rc, &mut output)?;
-  Ok(output.into_string().expect("string output is always utf-8"))
-}
-
-fn strip_single_trailing_comma(value: &str) -> &str {
-  let trimmed = value.trim_end();
-  trimmed.strip_suffix(',').unwrap_or(trimmed)
-}
-
-struct ArgsHelper;
-
-impl HelperDef for ArgsHelper {
-  fn call<'reg: 'rc, 'rc>(
-    &self,
-    h: &Helper<'rc>,
-    r: &'reg Handlebars<'reg>,
-    ctx: &'rc HandlebarsContext,
-    rc: &mut RenderContext<'reg, 'rc>,
-    out: &mut dyn Output,
-  ) -> HelperResult {
-    let body = render_helper_template(h, r, ctx, rc)?;
-    out.write(ARGS_SENTINEL_VALUE)?;
-    out.write("[")?;
-    out.write(strip_single_trailing_comma(&body))?;
-    out.write("]")?;
-    Ok(())
+  let candidate = match std::fs::canonicalize(config_dir.join(name)) {
+    Ok(path) => path,
+    Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    Err(err) => {
+      return Err(
+        MinijinjaError::new(
+          MinijinjaErrorKind::InvalidOperation,
+          format!("failed to resolve prompt template '{name}'"),
+        )
+        .with_source(err),
+      );
+    }
+  };
+  if !candidate.starts_with(&config_dir) {
+    return Err(MinijinjaError::new(
+      MinijinjaErrorKind::InvalidOperation,
+      format!(
+        "prompt template '{name}' resolves outside the Terminai config directory"
+      ),
+    ));
   }
-}
-
-struct ArgHelper;
-
-impl HelperDef for ArgHelper {
-  fn call<'reg: 'rc, 'rc>(
-    &self,
-    h: &Helper<'rc>,
-    r: &'reg Handlebars<'reg>,
-    ctx: &'rc HandlebarsContext,
-    rc: &mut RenderContext<'reg, 'rc>,
-    out: &mut dyn Output,
-  ) -> HelperResult {
-    let body = render_helper_template(h, r, ctx, rc)?;
-    out.write(&json_string(&body))?;
-    out.write(",")?;
-    Ok(())
-  }
-}
-
-fn omit_helper(
-  _: &Helper<'_>,
-  _: &Handlebars<'_>,
-  _: &HandlebarsContext,
-  _: &mut RenderContext<'_, '_>,
-  out: &mut dyn Output,
-) -> HelperResult {
-  out.write(ARGS_SENTINEL_VALUE)?;
-  out.write("[]")?;
-  Ok(())
-}
-
-fn launch_arg_handlebars() -> Handlebars<'static> {
-  let mut handlebars = Handlebars::new();
-  handlebars.set_strict_mode(true);
-  handlebars.register_escape_fn(no_escape);
-  handlebars.register_helper("toml", Box::new(toml_helper));
-  handlebars.register_helper("json", Box::new(json_helper));
-  handlebars.register_helper("args", Box::new(ArgsHelper));
-  handlebars.register_helper("arg", Box::new(ArgHelper));
-  handlebars.register_helper("OMIT", Box::new(omit_helper));
-  handlebars
-}
-
-fn toml_helper(
-  h: &Helper<'_>,
-  r: &Handlebars<'_>,
-  _: &HandlebarsContext,
-  _: &mut RenderContext<'_, '_>,
-  out: &mut dyn Output,
-) -> HelperResult {
-  let param = h
-    .param(0)
-    .filter(|param| !r.strict_mode() || !param.is_value_missing())
-    .ok_or(RenderErrorReason::ParamNotFoundForIndex("toml", 0))?;
-  out.write(&toml_string(param.value().render().as_ref()))?;
-  Ok(())
-}
-
-fn json_helper(
-  h: &Helper<'_>,
-  r: &Handlebars<'_>,
-  _: &HandlebarsContext,
-  _: &mut RenderContext<'_, '_>,
-  out: &mut dyn Output,
-) -> HelperResult {
-  let param = h
-    .param(0)
-    .filter(|param| !r.strict_mode() || !param.is_value_missing())
-    .ok_or(RenderErrorReason::ParamNotFoundForIndex("json", 0))?;
-  out.write(&json_string(param.value().render().as_ref()))?;
-  Ok(())
+  std::fs::read_to_string(candidate).map(Some).map_err(|err| {
+    MinijinjaError::new(
+      MinijinjaErrorKind::InvalidOperation,
+      format!("failed to read prompt template '{name}'"),
+    )
+    .with_source(err)
+  })
 }
 
 fn toml_string(value: &str) -> String {
@@ -507,15 +494,35 @@ fn json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use tempfile::TempDir;
 
   fn context() -> AgentLaunchContext {
-    AgentLaunchContext::new(
+    let mut context = AgentLaunchContext::new(
       PathBuf::from("/tmp/project"),
       "http://127.0.0.1:3456/mcp".to_string(),
       "test-token".to_string(),
       "/usr/bin/terminai".to_string(),
       "3456".to_string(),
-    )
+    );
+    context.config_dir = None;
+    context
+  }
+
+  fn context_in(config_dir: &Path) -> AgentLaunchContext {
+    let mut context = context();
+    context.config_dir = Some(config_dir.to_path_buf());
+    context
+  }
+
+  fn custom_agent_with_prompt(template: Option<&str>) -> AgentConfig {
+    AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec!["{{ context_prompt }}".into()],
+      prompt_template: template.map(str::to_string),
+      ..Default::default()
+    }
   }
 
   #[test]
@@ -530,13 +537,8 @@ mod tests {
       presets.get("codex").unwrap().command.as_deref(),
       Some("codex")
     );
-    assert!(
-      builtin_agent_config()
-        .unwrap()
-        .context_prompt
-        .unwrap()
-        .contains("check_for_updates")
-    );
+    assert!(BUILTIN_DEFAULT_PROMPT.contains("check_for_updates"));
+    assert!(BUILTIN_DEFAULT_PROMPT.contains("{% block introduction %}"));
   }
 
   #[test]
@@ -600,8 +602,7 @@ mod tests {
       developer_instructions.contains("suggest_input with the exact input")
     );
     assert!(developer_instructions.contains("Do not claim you ran a command"));
-    let context = context();
-    assert!(!plan.args.iter().any(|arg| arg == &context.context_prompt));
+    assert!(!developer_instructions.contains("{% block"));
     assert!(
       plan
         .args
@@ -646,18 +647,18 @@ mod tests {
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
       args: vec![
-        "--url={{mcp_url}}".to_string(),
-        "--cwd={{cwd}}".to_string(),
-        "--tool={{tool_command}}".to_string(),
-        "--mcp-command={{mcp_command}}".to_string(),
-        "--json-command={{json mcp_command}}".to_string(),
-        "--toml-port={{toml mcp_port}}".to_string(),
-        "--uses-mcp={{uses_mcp}}".to_string(),
-        "--uses-cli={{uses_tool_cli}}".to_string(),
-        "_mcp".to_string(),
+        "--url={{ mcp_url }}".into(),
+        "--cwd={{ cwd }}".into(),
+        "--tool={{ tool_command }}".into(),
+        "--mcp-command={{ mcp_command }}".into(),
+        "--json-command={{ mcp_command|json }}".into(),
+        "--toml-port={{ mcp_port|toml }}".into(),
+        "--uses-mcp={{ uses_mcp }}".into(),
+        "--uses-cli={{ uses_tool_cli }}".into(),
+        "_mcp".into(),
       ],
       extra_args: Vec::new(),
-      initial_prompt: None,
+      prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
     };
@@ -685,7 +686,7 @@ mod tests {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec!["{{context_prompt}}".to_string()],
+      args: vec!["{{ context_prompt }}".into()],
       ..Default::default()
     };
 
@@ -721,14 +722,14 @@ mod tests {
   }
 
   #[test]
-  fn custom_plan_uses_handlebars_expressions_without_html_escaping() {
+  fn custom_plan_uses_jinja_expressions_without_html_escaping() {
     let mut context = context();
     context.mcp_url = "http://127.0.0.1:3456/<&>\"'".to_string();
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec!["{{#if mcp_url}}url={{mcp_url}}{{/if}}".to_string()],
+      args: vec!["{% if mcp_url %}url={{ mcp_url }}{% endif %}".into()],
       ..Default::default()
     };
 
@@ -738,15 +739,17 @@ mod tests {
   }
 
   #[test]
-  fn custom_plan_flattens_args_block_templates() {
+  fn custom_plan_flattens_expression_args() {
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
       args: vec![
-        "before".to_string(),
-        "{{#args}}{{#arg}}--cwd={{cwd}}{{/arg}}{{#arg}}port={{mcp_port}}{{/arg}}{{/args}}".to_string(),
-        "after".to_string(),
+        "before".into(),
+        AgentArg::Expression {
+          expr: r#"["--cwd=" ~ cwd, "port=" ~ mcp_port]"#.to_string(),
+        },
+        "after".into(),
       ],
       ..Default::default()
     };
@@ -765,32 +768,17 @@ mod tests {
   }
 
   #[test]
-  fn custom_plan_strips_one_trailing_comma_from_args_block() {
+  fn custom_plan_expression_can_produce_zero_arguments() {
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
       args: vec![
-        "{{#args}}{{#arg}}one{{/arg}}{{#arg}}two{{/arg}}{{/args}}".to_string(),
-      ],
-      ..Default::default()
-    };
-
-    let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
-
-    assert_eq!(plan.args, vec!["one".to_string(), "two".to_string()]);
-  }
-
-  #[test]
-  fn custom_plan_omit_helper_produces_zero_arguments() {
-    let config = AgentConfig {
-      preset: None,
-      kind: Some(AgentKind::Custom),
-      command: Some("my-agent".to_string()),
-      args: vec![
-        "before".to_string(),
-        "{{OMIT}}".to_string(),
-        "after".to_string(),
+        "before".into(),
+        AgentArg::Expression {
+          expr: "[]".to_string(),
+        },
+        "after".into(),
       ],
       ..Default::default()
     };
@@ -801,50 +789,54 @@ mod tests {
   }
 
   #[test]
-  fn custom_plan_rejects_misplaced_args_sentinel() {
+  fn custom_plan_rejects_non_array_expression_results() {
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec!["prefix {{#args}}{{/args}}".to_string()],
+      args: vec![AgentArg::Expression {
+        expr: r#""one""#.to_string(),
+      }],
       ..Default::default()
     };
 
     let err = build_launch_plan(&config, &HashMap::new(), &context())
-      .expect_err("misplaced args sentinel should fail");
+      .expect_err("string expression result should fail");
 
-    assert!(err.to_string().contains("ARGS sentinel"));
+    assert!(err.to_string().contains("must produce an array of strings"));
   }
 
   #[test]
-  fn custom_plan_allows_leading_whitespace_before_args_sentinel() {
+  fn custom_plan_rejects_non_string_expression_items() {
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec![" \n\t{{#args}}{{#arg}}one{{/arg}}{{/args}}".to_string()],
+      args: vec![AgentArg::Expression {
+        expr: r#"["one", 2]"#.to_string(),
+      }],
+      ..Default::default()
+    };
+
+    let err = build_launch_plan(&config, &HashMap::new(), &context())
+      .expect_err("non-string expression item should fail");
+
+    assert!(err.to_string().contains("must produce an array of strings"));
+  }
+
+  #[test]
+  fn custom_plan_preserves_empty_template_arguments() {
+    let config = AgentConfig {
+      preset: None,
+      kind: Some(AgentKind::Custom),
+      command: Some("my-agent".to_string()),
+      args: vec!["".into()],
       ..Default::default()
     };
 
     let plan = build_launch_plan(&config, &HashMap::new(), &context()).unwrap();
 
-    assert_eq!(plan.args, vec!["one".to_string()]);
-  }
-
-  #[test]
-  fn custom_plan_rejects_repeated_args_sentinel() {
-    let config = AgentConfig {
-      preset: None,
-      kind: Some(AgentKind::Custom),
-      command: Some("my-agent".to_string()),
-      args: vec![format!("{{{{OMIT}}}} {ARGS_SENTINEL_VALUE}")],
-      ..Default::default()
-    };
-
-    let err = build_launch_plan(&config, &HashMap::new(), &context())
-      .expect_err("repeated args sentinel should fail");
-
-    assert!(err.to_string().contains("ARGS sentinel"));
+    assert_eq!(plan.args, vec![String::new()]);
   }
 
   #[test]
@@ -853,7 +845,7 @@ mod tests {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec!["--bad={{mc_url}}".to_string()],
+      args: vec!["--bad={{mc_url}}".into()],
       ..Default::default()
     };
 
@@ -868,17 +860,17 @@ mod tests {
   }
 
   #[test]
-  fn custom_plan_rejects_unknown_template_helper_arguments() {
+  fn custom_plan_rejects_unknown_template_filters() {
     let config = AgentConfig {
       preset: None,
       kind: Some(AgentKind::Custom),
       command: Some("my-agent".to_string()),
-      args: vec!["--bad={{toml mc_url}}".to_string()],
+      args: vec!["--bad={{ mcp_url|missing_filter }}".into()],
       ..Default::default()
     };
 
     let err = build_launch_plan(&config, &HashMap::new(), &context())
-      .expect_err("unknown template helper argument should fail");
+      .expect_err("unknown template filter should fail");
 
     assert!(
       err
@@ -888,19 +880,136 @@ mod tests {
   }
 
   #[test]
+  fn user_default_prompt_shadows_builtin_default() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+      dir.path().join(DEFAULT_PROMPT_TEMPLATE),
+      "User default for {{ tool_command }}",
+    )
+    .unwrap();
+
+    let plan = build_launch_plan(
+      &custom_agent_with_prompt(None),
+      &HashMap::new(),
+      &context_in(dir.path()),
+    )
+    .unwrap();
+
+    assert_eq!(plan.args, ["User default for /usr/bin/terminai tool"]);
+  }
+
+  #[test]
+  fn user_default_prompt_can_extend_builtin_default() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+      dir.path().join(DEFAULT_PROMPT_TEMPLATE),
+      r#"{% extends "builtin/default.jinja" %}{% block introduction %}User introduction.
+{% endblock %}"#,
+    )
+    .unwrap();
+
+    let plan = build_launch_plan(
+      &custom_agent_with_prompt(None),
+      &HashMap::new(),
+      &context_in(dir.path()),
+    )
+    .unwrap();
+
+    assert!(plan.args[0].contains("User introduction."));
+    assert!(plan.args[0].contains("Important Terminai rules:"));
+  }
+
+  #[test]
+  fn selected_prompt_extends_user_shadowed_default() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+      dir.path().join(DEFAULT_PROMPT_TEMPLATE),
+      r#"{% extends "builtin/default.jinja" %}{% block introduction %}User introduction.
+{% endblock %}"#,
+    )
+    .unwrap();
+    std::fs::write(
+      dir.path().join("custom.jinja"),
+      r#"{% extends "default.jinja" %}{% block general_rules %}Custom rules.
+{% endblock %}"#,
+    )
+    .unwrap();
+
+    let plan = build_launch_plan(
+      &custom_agent_with_prompt(Some("custom.jinja")),
+      &HashMap::new(),
+      &context_in(dir.path()),
+    )
+    .unwrap();
+
+    assert!(plan.args[0].contains("User introduction."));
+    assert!(plan.args[0].contains("Custom rules."));
+    assert!(!plan.args[0].contains("base assumption"));
+  }
+
+  #[test]
+  fn prompt_template_is_inherited_from_preset_and_overridden_by_agent() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("preset.jinja"), "Preset prompt").unwrap();
+    std::fs::write(dir.path().join("agent.jinja"), "Agent prompt").unwrap();
+    let mut presets = HashMap::new();
+    presets.insert(
+      "custom".to_string(),
+      AgentPresetConfig {
+        command: Some("my-agent".to_string()),
+        args: vec!["{{ context_prompt }}".into()],
+        prompt_template: Some("preset.jinja".to_string()),
+        ..Default::default()
+      },
+    );
+    let mut config = AgentConfig {
+      preset: Some("custom".to_string()),
+      ..Default::default()
+    };
+
+    let preset_plan =
+      build_launch_plan(&config, &presets, &context_in(dir.path())).unwrap();
+    assert_eq!(preset_plan.args, ["Preset prompt"]);
+
+    config.prompt_template = Some("agent.jinja".to_string());
+    let agent_plan =
+      build_launch_plan(&config, &presets, &context_in(dir.path())).unwrap();
+
+    assert_eq!(agent_plan.args, ["Agent prompt"]);
+  }
+
+  #[test]
+  fn prompt_template_cannot_escape_config_directory() {
+    let parent = TempDir::new().unwrap();
+    let config_dir = parent.path().join("config");
+    std::fs::create_dir(&config_dir).unwrap();
+    std::fs::write(parent.path().join("outside.jinja"), "Outside").unwrap();
+
+    let err = build_launch_plan(
+      &custom_agent_with_prompt(Some("../outside.jinja")),
+      &HashMap::new(),
+      &context_in(&config_dir),
+    )
+    .expect_err("template traversal should fail");
+
+    assert!(err.to_string().contains("failed to load prompt template"));
+    assert!(format!("{err:#}").contains("must stay within"));
+  }
+
+  #[test]
   fn user_preset_can_extend_builtin_and_append_flags() {
     let mut presets = HashMap::new();
     presets.insert(
       "codex-fast".to_string(),
       AgentPresetConfig {
         extends: Some("codex".to_string()),
-        extra_args: vec!["--model".to_string(), "gpt-5.5".to_string()],
+        extra_args: vec!["--model".into(), "gpt-5.5".into()],
         ..Default::default()
       },
     );
     let config = AgentConfig {
       preset: Some("codex-fast".to_string()),
-      extra_args: vec!["--search".to_string()],
+      extra_args: vec!["--search".into()],
       ..Default::default()
     };
 
