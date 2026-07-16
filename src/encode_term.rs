@@ -629,7 +629,7 @@ mod windows_smoke_tests {
         KeyCodeEncodeModes::default()
       )
       .unwrap(),
-      "\r"
+      "\x1b[13;0;13;1;0;1_"
     );
     assert_eq!(
       encode_key(

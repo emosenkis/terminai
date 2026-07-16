@@ -437,6 +437,43 @@ mod windows_smoke_tests {
   use super::*;
   use std::time::{Duration, Instant};
 
+  fn screen_text(shell: &Shell, cols: u16) -> String {
+    shell
+      .vt
+      .read()
+      .unwrap()
+      .screen()
+      .all_rows()
+      .flat_map(|row| (0..cols).filter_map(move |col| row.get(col)))
+      .map(|cell| cell.contents())
+      .collect()
+  }
+
+  fn wait_for_output_and_exit(
+    shell: &Shell,
+    events: &mut UnboundedReceiver<ShellEvent>,
+    expected_output: &str,
+    cols: u16,
+  ) -> (String, Option<u32>) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut exit_code = None;
+    while Instant::now() < deadline {
+      while let Ok(event) = events.try_recv() {
+        match event {
+          ShellEvent::Output(wakeup) => wakeup.clear(),
+          ShellEvent::Exited(code) => exit_code = Some(code),
+          ShellEvent::TermReply(_) | ShellEvent::HostEscape(_) => {}
+        }
+      }
+      let text = screen_text(shell, cols);
+      if text.contains(expected_output) && exit_code.is_some() {
+        return (text, exit_code);
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    (screen_text(shell, cols), exit_code)
+  }
+
   #[test]
   fn conpty_cmd_echo_resize_and_exit() {
     let (mut shell, mut events) = Shell::spawn_command(
@@ -447,31 +484,17 @@ mod windows_smoke_tests {
     )
     .expect("cmd.exe should spawn through ConPTY");
     shell.resize(30, 100).expect("ConPTY should resize");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let mut exited = false;
-    while Instant::now() < deadline {
-      match events.try_recv() {
-        Ok(ShellEvent::Exited(_)) => {
-          exited = true;
-          break;
-        }
-        Ok(_) | Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
-          std::thread::sleep(Duration::from_millis(10))
-        }
-        Err(err) => panic!("ConPTY event stream ended unexpectedly: {err}"),
-      }
-    }
-    assert!(exited, "cmd.exe did not exit cleanly");
-    let text = shell
-      .vt
-      .read()
-      .unwrap()
-      .screen()
-      .all_rows()
-      .flat_map(|row| (0..100).filter_map(move |col| row.get(col)))
-      .map(|cell| cell.contents())
-      .collect::<String>();
-    assert!(text.contains("terminai-conpty"));
+    let (text, exit_code) =
+      wait_for_output_and_exit(&shell, &mut events, "terminai-conpty", 100);
+    assert_eq!(
+      exit_code,
+      Some(0),
+      "cmd.exe did not exit cleanly; captured output: {text:?}"
+    );
+    assert!(
+      text.contains("terminai-conpty"),
+      "captured output: {text:?}"
+    );
   }
 
   #[test]
@@ -490,22 +513,16 @@ mod windows_smoke_tests {
       80,
     )
     .expect("powershell.exe should spawn through ConPTY");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline {
-      if matches!(events.try_recv(), Ok(ShellEvent::Exited(_))) {
-        break;
-      }
-      std::thread::sleep(Duration::from_millis(10));
-    }
-    let text = shell
-      .vt
-      .read()
-      .unwrap()
-      .screen()
-      .all_rows()
-      .flat_map(|row| (0..80).filter_map(move |col| row.get(col)))
-      .map(|cell| cell.contents())
-      .collect::<String>();
-    assert!(text.contains("terminai-powershell"));
+    let (text, exit_code) =
+      wait_for_output_and_exit(&shell, &mut events, "terminai-powershell", 80);
+    assert_eq!(
+      exit_code,
+      Some(0),
+      "powershell.exe did not exit cleanly; captured output: {text:?}"
+    );
+    assert!(
+      text.contains("terminai-powershell"),
+      "captured output: {text:?}"
+    );
   }
 }

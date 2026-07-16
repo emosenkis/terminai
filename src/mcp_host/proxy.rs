@@ -78,13 +78,16 @@ mod tests {
 
   #[tokio::test]
   async fn stdio_proxy_completes_handshake_and_forwards_tools() {
-    let (shell, _rx) = Shell::spawn_command(
-      "/bin/sh",
-      &["-c".to_string(), "sleep 1".to_string()],
-      24,
-      80,
-    )
-    .expect("test shell should spawn");
+    #[cfg(windows)]
+    let (shell_command, shell_args) = (
+      "cmd.exe",
+      vec!["/C".to_string(), "timeout /T 1 /NOBREAK > NUL".to_string()],
+    );
+    #[cfg(not(windows))]
+    let (shell_command, shell_args) =
+      ("/bin/sh", vec!["-c".to_string(), "sleep 1".to_string()]);
+    let (shell, _rx) = Shell::spawn_command(shell_command, &shell_args, 24, 80)
+      .expect("test shell should spawn");
     let (tx, _suggestion_rx) = mpsc::unbounded_channel();
     let state = TerminaiMcpState::new(shell.vt.clone(), tx, "test-shell");
     let http_server = start_http_mcp_server(state, "test-token".to_string())
