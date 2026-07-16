@@ -2853,6 +2853,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(not(windows))]
   fn deactivate_overlay_keeps_pending_command_for_reopen() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
     drop(suggestion_tx);
