@@ -1,3 +1,7 @@
+## 0.1.8 - 2026-07-16
+
+- Recover from Terminai errors and panics by resetting the terminal and starting the wrapped command during startup or an interactive shell after startup.
+
 ## 0.1.7 - 2026-07-16
 
 - Add experimental Windows build, packaging, shell-selection, and terminal integration groundwork. Windows remains unqualified pending required CI and human QA.
