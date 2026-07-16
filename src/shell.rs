@@ -450,7 +450,7 @@ mod windows_smoke_tests {
   }
 
   fn wait_for_output_and_exit(
-    shell: &Shell,
+    shell: &mut Shell,
     events: &mut UnboundedReceiver<ShellEvent>,
     expected_output: &str,
     cols: u16,
@@ -462,7 +462,11 @@ mod windows_smoke_tests {
         match event {
           ShellEvent::Output(wakeup) => wakeup.clear(),
           ShellEvent::Exited(code) => exit_code = Some(code),
-          ShellEvent::TermReply(_) | ShellEvent::HostEscape(_) => {}
+          ShellEvent::TermReply(reply) => {
+            shell.writer.write_all(reply.as_bytes()).unwrap();
+            shell.writer.flush().unwrap();
+          }
+          ShellEvent::HostEscape(_) => {}
         }
       }
       let text = screen_text(shell, cols);
@@ -485,7 +489,7 @@ mod windows_smoke_tests {
     .expect("cmd.exe should spawn through ConPTY");
     shell.resize(30, 100).expect("ConPTY should resize");
     let (text, exit_code) =
-      wait_for_output_and_exit(&shell, &mut events, "terminai-conpty", 100);
+      wait_for_output_and_exit(&mut shell, &mut events, "terminai-conpty", 100);
     assert_eq!(
       exit_code,
       Some(0),
@@ -502,7 +506,7 @@ mod windows_smoke_tests {
     if which::which("powershell.exe").is_err() {
       return;
     }
-    let (shell, mut events) = Shell::spawn_command(
+    let (mut shell, mut events) = Shell::spawn_command(
       "powershell.exe",
       &[
         "-NoProfile".into(),
@@ -513,8 +517,12 @@ mod windows_smoke_tests {
       80,
     )
     .expect("powershell.exe should spawn through ConPTY");
-    let (text, exit_code) =
-      wait_for_output_and_exit(&shell, &mut events, "terminai-powershell", 80);
+    let (text, exit_code) = wait_for_output_and_exit(
+      &mut shell,
+      &mut events,
+      "terminai-powershell",
+      80,
+    );
     assert_eq!(
       exit_code,
       Some(0),

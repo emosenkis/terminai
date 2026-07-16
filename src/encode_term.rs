@@ -637,7 +637,7 @@ mod windows_smoke_tests {
         KeyCodeEncodeModes::default()
       )
       .unwrap(),
-      "\x1b[A"
+      "\x1b[38;0;0;1;0;1_"
     );
   }
 }
