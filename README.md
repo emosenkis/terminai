@@ -14,7 +14,7 @@ The overlay is another PTY-backed terminal running the agent's actual CLI. Termi
 
 Terminai gives compatible agents controlled access to the shell through a local MCP server:
 
-- Read the visible terminal and recent scrollback, after privacy filtering.
+- Read the visible terminal and recent scrollback, after minimal privacy filtering.
 - Inspect session context such as the working directory, shell, OS, dimensions, mouse mode, and bracketed-paste state.
 - Receive context updates as the wrapped session changes.
 - Queue exact shell input for the user to review and approve or deny.
@@ -159,7 +159,7 @@ Terminai serves an authenticated, local Streamable HTTP MCP endpoint to agent pr
 | Tool | Purpose |
 | --- | --- |
 | `check_for_updates` | Return pending context changes before the agent handles a new request. |
-| `read_terminal` | Return visible output and recent scrollback after privacy filtering. |
+| `read_terminal` | Return visible output and recent scrollback after minimal privacy filtering. |
 | `get_terminal_context` | Return shell, cwd, OS, dimensions, and terminal mode state. |
 | `suggest_input` | Queue exact text for approval; it does not execute the text. |
 | `get_suggestion_status` | Report the latest queued suggestion and its disposition. |
@@ -168,7 +168,7 @@ The security boundary is deliberately narrow:
 
 - The selected agent CLI owns credentials, provider traffic, and model behavior.
 - Terminai itself does not upload terminal data or make model requests.
-- Terminal contents returned through MCP pass through sensitive-data filtering.
+- Terminal contents returned through MCP pass through a minimal, best-effort sensitive-data filter; it is not a guarantee that secrets or private information are removed. By activating an AI agent, you accept full responsibility for any terminal output and history it can access.
 - Agent-suggested input enters an approval flow before reaching the shell PTY.
 - Suggestions are classified as safe, caution, or dangerous to help the user review them; classification does not replace explicit approval.
 
@@ -196,7 +196,7 @@ Important implementation areas:
 - `src/mcp_host/`: authenticated MCP server built with `rmcp` and Streamable HTTP transport.
 - `src/agent_tools.rs`: suggestion state passed from MCP into the UI approval flow.
 - `src/command/`: parsing and safety classification for suggested shell input.
-- `src/privacy/`: filtering of sensitive terminal content.
+- `src/privacy/`: minimal, best-effort filtering of sensitive terminal content.
 - `src/vt100/`, `src/proc/`, and `src/term/`: terminal emulation and PTY foundations initially derived from [mprocs](https://github.com/pvolok/mprocs).
 
 See [the architecture note](https://terminai.app/llm_architecture.html) for a compact runtime diagram.
@@ -218,9 +218,7 @@ Contributions, bug reports, and documentation improvements are welcome. Read [CL
 
 ## Acknowledgements
 
-Terminai was initially forked from [mprocs](https://github.com/pvolok/mprocs), which provided much of the original VT100 host/guest and PTY foundation. It also uses project-specific forks of [Ratatui](https://ratatui.rs/) and [rat-salsa](https://github.com/thscharler/rat-salsa) for native scrolling and copy support.
-
-Terminai is a distinct, single-shell product focused on integrating existing AI CLIs; it is not a multi-process manager or an mprocs compatibility layer.
+Terminai uses terminal-emulation, host/guest terminal, and PTY-management code from [mprocs](https://github.com/pvolok/mprocs). It also uses project-specific forks of [Ratatui](https://ratatui.rs/) and [rat-salsa](https://github.com/thscharler/rat-salsa) for native scrolling and copy support.
 
 ## License
 
