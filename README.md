@@ -4,7 +4,9 @@ Terminai is a transparent terminal wrapper that puts a real AI CLI in an on-dema
 
 **Website:** [terminai.app](https://terminai.app)
 
-> Terminai is alpha-quality software. It is used as a daily driver, but keep an ordinary shell profile available as a fallback.
+[![Terminai demo](https://asciinema.org/a/cGPNcuBwIpYDSUY4.svg)](https://asciinema.org/a/cGPNcuBwIpYDSUY4)
+
+> Terminai is in alpha. I use it as my daily driver, but you should always keep an ordinary shell profile available as a fallback.
 
 ## What Terminai does
 
