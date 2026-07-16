@@ -29,7 +29,9 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
@@ -83,6 +85,177 @@ use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
 use termin::shell_resolution::{parent_shell, resolve_shell};
 
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecoveryPhase {
+  Starting,
+  Running,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RecoveryFallback {
+  RequestedCommand,
+  InteractiveShell,
+}
+
+fn recovery_fallback(phase: RecoveryPhase) -> RecoveryFallback {
+  match phase {
+    RecoveryPhase::Starting => RecoveryFallback::RequestedCommand,
+    RecoveryPhase::Running => RecoveryFallback::InteractiveShell,
+  }
+}
+
+#[derive(Clone, Debug)]
+struct RecoveryCommand {
+  command: String,
+  args: Vec<String>,
+}
+
+impl RecoveryCommand {
+  fn from_resolved(shell: termin::shell_resolution::ResolvedShell) -> Self {
+    Self {
+      command: shell.command,
+      args: shell.fallback_args,
+    }
+  }
+
+  fn display(&self) -> String {
+    std::iter::once(self.command.as_str())
+      .chain(self.args.iter().map(String::as_str))
+      .collect::<Vec<_>>()
+      .join(" ")
+  }
+}
+
+struct RecoveryContext {
+  phase: AtomicU8,
+  recovering: AtomicBool,
+  requested: RecoveryCommand,
+  interactive: RecoveryCommand,
+}
+
+impl RecoveryContext {
+  fn new(command: &[String]) -> Self {
+    let config = TerminaiConfig::load().ok();
+    let requested = resolve_shell(
+      command,
+      std::env::var("TERMINAI_SHELL").ok(),
+      config.as_ref().map(|config| &config.shell),
+      parent_shell(),
+    )
+    .map(RecoveryCommand::from_resolved)
+    .unwrap_or_else(|_| RecoveryCommand {
+      command: command
+        .first()
+        .cloned()
+        .unwrap_or_else(default_shell_command),
+      args: command.get(1..).unwrap_or_default().to_vec(),
+    });
+    let interactive = resolve_shell(&[], None, None, parent_shell())
+      .map(RecoveryCommand::from_resolved)
+      .unwrap_or_else(|_| RecoveryCommand {
+        command: default_shell_command(),
+        args: Vec::new(),
+      });
+    Self {
+      phase: AtomicU8::new(0),
+      recovering: AtomicBool::new(false),
+      requested,
+      interactive,
+    }
+  }
+
+  fn mark_running(&self) {
+    self.phase.store(1, Ordering::Release);
+  }
+
+  fn phase(&self) -> RecoveryPhase {
+    match self.phase.load(Ordering::Acquire) {
+      0 => RecoveryPhase::Starting,
+      _ => RecoveryPhase::Running,
+    }
+  }
+
+  fn recover(&self, reason: &str) -> ! {
+    if self
+      .recovering
+      .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+      .is_err()
+    {
+      loop {
+        std::thread::park();
+      }
+    }
+
+    reset_host_terminal();
+    let fallback = recovery_fallback(self.phase());
+    let command = match fallback {
+      RecoveryFallback::RequestedCommand => &self.requested,
+      RecoveryFallback::InteractiveShell => &self.interactive,
+    };
+    let message = match fallback {
+      RecoveryFallback::RequestedCommand => format!(
+        "Terminai failed {reason}. Starting the requested command: {}",
+        command.display()
+      ),
+      RecoveryFallback::InteractiveShell => format!(
+        "Terminai failed {reason}. It would have restarted: {}. Starting an interactive fallback shell: {}",
+        self.requested.display(),
+        command.display()
+      ),
+    };
+    log::error!("{message}");
+    eprintln!("{message}");
+    execute_recovery_command(command)
+  }
+}
+
+fn reset_host_terminal() {
+  let _ = disable_raw_mode();
+  let mut stdout = std::io::stdout();
+  // RIS (Reset to Initial State) restores terminal modes, rendition, cursor,
+  // character sets, and colors before the fallback takes over the terminal.
+  let _ = stdout.write_all(b"\x1bc");
+  let _ = stdout.flush();
+}
+
+#[cfg(unix)]
+fn default_shell_command() -> String {
+  std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+}
+
+#[cfg(windows)]
+fn default_shell_command() -> String {
+  "cmd.exe".to_string()
+}
+
+#[cfg(unix)]
+fn execute_recovery_command(command: &RecoveryCommand) -> ! {
+  use std::os::unix::process::CommandExt;
+  let error = Command::new(&command.command).args(&command.args).exec();
+  eprintln!("Terminai could not start fallback command: {error}");
+  std::process::exit(1)
+}
+
+#[cfg(windows)]
+fn execute_recovery_command(command: &RecoveryCommand) -> ! {
+  match Command::new(&command.command).args(&command.args).status() {
+    Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+    Err(error) => {
+      eprintln!("Terminai could not start fallback command: {error}");
+      std::process::exit(1)
+    }
+  }
+}
+
+fn install_panic_recovery(recovery: Arc<RecoveryContext>) {
+  std::panic::set_hook(Box::new(move |info| {
+    let message = format!("after a panic: {info}");
+    log::error!("Terminai panic: {info}");
+    let recovery = Arc::clone(&recovery);
+    std::thread::spawn(move || recovery.recover(&message));
+  }));
+}
 
 fn overlay_height_for_rows(rows: u16) -> u16 {
   (rows / 2).max(10)
@@ -1048,6 +1221,22 @@ fn main() -> Result<()> {
     None => {}
   }
 
+  let recovery = Arc::new(RecoveryContext::new(&args.command));
+  install_panic_recovery(Arc::clone(&recovery));
+  let command = args.command;
+  match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    run_interactive(command, Arc::clone(&recovery))
+  })) {
+    Ok(Ok(())) => Ok(()),
+    Ok(Err(error)) => recovery.recover(&format!("with an error: {error:#}")),
+    Err(_) => recovery.recover("after a panic"),
+  }
+}
+
+fn run_interactive(
+  command: Vec<String>,
+  recovery: Arc<RecoveryContext>,
+) -> Result<()> {
   // Setup logging to file with rotation
   termin::terminai_init::setup_logging()?;
   termin::terminai_init::require_windows_terminal()?;
@@ -1080,7 +1269,7 @@ fn main() -> Result<()> {
     config,
     chat_position,
     config_error,
-  ) = tokio_rt.block_on(initialize_app_components(args.command))?;
+  ) = tokio_rt.block_on(initialize_app_components(command))?;
   log::info!(
     "Shell and AI components initialized, agent_deferred=true, chat_position={:?}",
     chat_position
@@ -1147,6 +1336,7 @@ fn main() -> Result<()> {
     key_combiner,
     shell_output_pending: false,
     agent_output_pending: false,
+    recovery: Some(recovery),
   };
 
   // Run rat-salsa event loop
@@ -1214,6 +1404,7 @@ struct AppState {
   /// This batches multiple shell outputs into a single render on the next timer tick.
   shell_output_pending: bool,
   agent_output_pending: bool,
+  recovery: Option<Arc<RecoveryContext>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1789,6 +1980,9 @@ fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
   ctx.add_timer(TimerDef::new().timer(RENDER_INTERVAL).repeat_forever());
   log::debug!("Started 60fps render timer");
 
+  if let Some(recovery) = &state.recovery {
+    recovery.mark_running();
+  }
   log::debug!("init() completed");
   Ok(())
 }
@@ -2284,7 +2478,7 @@ fn error(
   _ctx: &mut Global,
 ) -> Result<Control<AppEvent>, Error> {
   log::error!("Error: {:?}", error);
-  Ok(Control::Quit)
+  Err(error)
 }
 
 impl Drop for AppState {
@@ -2524,6 +2718,22 @@ mod tests {
   }
 
   #[test]
+  fn recovery_uses_requested_command_before_startup() {
+    assert_eq!(
+      recovery_fallback(RecoveryPhase::Starting),
+      RecoveryFallback::RequestedCommand
+    );
+  }
+
+  #[test]
+  fn recovery_uses_interactive_shell_after_startup() {
+    assert_eq!(
+      recovery_fallback(RecoveryPhase::Running),
+      RecoveryFallback::InteractiveShell
+    );
+  }
+
+  #[test]
   fn rebuild_agent_launch_plan_updates_expanded_cwd_args() {
     let config = TerminaiConfig {
       agent: termin::terminai_config::AgentConfig {
@@ -2683,6 +2893,7 @@ mod tests {
       key_combiner: Combiner::default(),
       shell_output_pending: false,
       agent_output_pending: false,
+      recovery: None,
     };
 
     state.deactivate_ai_overlay().unwrap();
@@ -2743,6 +2954,7 @@ mod tests {
       key_combiner: Combiner::default(),
       shell_output_pending: false,
       agent_output_pending: false,
+      recovery: None,
     };
 
     state.scroll_approval(100, Rect::new(0, 0, 80, 24));
@@ -2793,6 +3005,7 @@ mod tests {
       key_combiner: Combiner::default(),
       shell_output_pending: false,
       agent_output_pending: false,
+      recovery: None,
     };
 
     state.toggle_approval_focus();
@@ -2843,6 +3056,7 @@ mod tests {
       key_combiner: Combiner::default(),
       shell_output_pending: false,
       agent_output_pending: false,
+      recovery: None,
     };
 
     state.run_approval_action(ApprovalAction::Approve);
@@ -2892,6 +3106,7 @@ mod tests {
       key_combiner: Combiner::default(),
       shell_output_pending: false,
       agent_output_pending: false,
+      recovery: None,
     };
 
     let terminal_area = Rect::new(0, 0, 80, 24);

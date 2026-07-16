@@ -7,6 +7,8 @@ use crate::terminai_config::ShellConfig;
 pub struct ResolvedShell {
   pub command: String,
   pub args: Vec<String>,
+  /// Arguments before Terminai adds its CWD-reporting bootstrap.
+  pub fallback_args: Vec<String>,
   pub identity: String,
   pub bootstrap: bool,
 }
@@ -79,6 +81,7 @@ fn with_bootstrap(
   command: String,
   mut args: Vec<String>,
 ) -> Result<ResolvedShell> {
+  let fallback_args = args.clone();
   let identity = shell_identity(&command).map(str::to_string);
   validate_bootstrap_args(identity.as_deref(), &args)?;
   let bootstrap = identity.is_some();
@@ -97,6 +100,7 @@ fn with_bootstrap(
     identity: identity.unwrap_or_else(|| command.clone()),
     command,
     args,
+    fallback_args,
     bootstrap,
   })
 }
