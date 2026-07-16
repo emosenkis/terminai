@@ -1,3 +1,7 @@
+## 0.1.9 - 2026-07-17
+
+- Prevent a panic when a terminal briefly reports a zero-sized window during resize.
+
 ## 0.1.8 - 2026-07-16
 
 - Recover from Terminai errors and panics by resetting the terminal and starting the wrapped command during startup or an interactive shell after startup.

@@ -40,6 +40,11 @@ impl<Reply: TermReplySender + Clone> Parser<Reply> {
 
   /// Resizes the terminal.
   pub fn set_size(&mut self, rows: u16, cols: u16) {
+    // Terminal backends can briefly report a zero-sized window while it is
+    // minimized. A grid requires at least one row and one column.
+    if rows == 0 || cols == 0 {
+      return;
+    }
     self.screen.set_size(rows, cols);
   }
 
@@ -85,5 +90,28 @@ impl<Reply: TermReplySender + Clone> std::io::Write for Parser<Reply> {
 
   fn flush(&mut self) -> std::io::Result<()> {
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[derive(Clone)]
+  struct TestReplySender;
+
+  impl TermReplySender for TestReplySender {
+    fn reply(&self, _reply: compact_str::CompactString) {}
+  }
+
+  #[test]
+  fn zero_column_resize_does_not_leave_the_parser_unwritable() {
+    let mut parser = Parser::new(24, 80, 0, TestReplySender);
+
+    parser.set_size(24, 0);
+    parser.process(b"output after a zero-column resize");
+
+    assert_eq!(parser.screen().size().cols, 80);
+    assert_eq!(parser.screen().cell(0, 0).unwrap().contents(), "o");
   }
 }
