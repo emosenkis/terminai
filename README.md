@@ -1,275 +1,227 @@
 # Terminai
 
-**Interactive Terminal with AI Assistant** - A transparent shell wrapper that provides context-aware AI assistance through an overlay interface.
+Terminai is a transparent terminal wrapper that puts a real AI CLI in an on-demand overlay. Use your shell normally, then press `Ctrl+Space` to open Codex, Claude Code, OpenCode, or a custom agent with live terminal context and approval-gated access to suggested shell input.
 
-> **Note:** Terminai borrows terminal virtualization code from [mprocs](https://github.com/pvolok/mprocs) but is a **distinct product** focused on AI-assisted terminal workflows, not multi-process management.
+**Website:** [terminai.app](https://terminai.app)
 
-## Overview
+> Terminai is alpha-quality software. It is used as a daily driver, but keep an ordinary shell profile available as a fallback.
 
-Terminai wraps your shell (bash, zsh, fish) and runs your configured AI CLI agent in a secondary terminal. The agent can:
-- View your wrapped terminal through Terminai's MCP tools
-- Suggest shell input with your approval
-- Help debug errors and explain command output
-- Answer questions about your current terminal session
+## What Terminai does
 
-**Key Feature:** Press `Ctrl+Space` to activate the AI terminal overlay. It contains the real IO of your configured CLI agent, such as Claude Code or Codex.
+Terminai starts one shell (or a command you provide) inside a PTY and renders it with VT100 emulation while preserving the host terminal's native scrollback and copy behavior. The wrapped terminal remains the primary interface; Terminai stays out of the way until the overlay is activated.
 
-## Features
+The overlay is another PTY-backed terminal running the agent's actual CLI. Terminai does not implement a model client, choose a provider, or hold model API keys. Authentication, model selection, conversation state, and network access remain the responsibility of the selected agent CLI.
 
-### 🤖 Context-Aware AI Assistant
-- Runs your configured CLI agent instead of Terminai owning model/provider logic
-- Exposes terminal context through a host MCP server
-- Privacy filtering for terminal data returned through MCP
-- Works with CLI agents that can load MCP servers, including Claude Code and Codex
+Terminai gives compatible agents controlled access to the shell through a local MCP server:
 
-### 🛡️ Safety First
-- Command approval workflow for dangerous operations
-- Safe/Caution/Dangerous command classification
-- AI-suggested shell input is sent only after approval
-- Terminai does not manage model API keys; your chosen CLI owns auth
+- Read the visible terminal and recent scrollback, after privacy filtering.
+- Inspect session context such as the working directory, shell, OS, dimensions, mouse mode, and bracketed-paste state.
+- Receive context updates as the wrapped session changes.
+- Queue exact shell input for the user to review and approve or deny.
+- Check the state of the most recent suggestion.
 
-### 🎨 Seamless UX
-- Transparent operation until AI is invoked
-- Overlay is a real terminal running your AI CLI
-- Full terminal emulation (vim, htop, colors, etc. all work)
-- < 100ms startup overhead
+Suggested input is never written to the wrapped shell without user approval.
 
 ## Installation
 
-### macOS (Homebrew - Recommended)
+Terminai supports macOS and Linux.
 
-```bash
-# Add the tap and install
-brew tap emosenkis/terminai https://github.com/emosenkis/terminai.git
-brew install terminai
+### Homebrew
+
+```sh
+brew install emosenkis/tap/terminai
 ```
 
-Homebrew now installs prebuilt release binaries from GitHub, so the Rust toolchain is not required on the target machine.
+The formula installs a prebuilt release binary, so Rust is not required.
 
-For other Mac installation methods, see [INSTALL_MACOS.md](INSTALL_MACOS.md).
+### GitHub release
 
-### macOS (Installation Script)
+Download the archive for your platform from [GitHub Releases](https://github.com/emosenkis/terminai/releases), unpack it, and place `terminai` somewhere on your `PATH`.
 
-```bash
-git clone https://github.com/emosenkis/terminai.git
+### Build from source
+
+The repository uses Git submodules for its patched Ratatui and rat-salsa dependencies.
+
+```sh
+git clone --recurse-submodules https://github.com/emosenkis/terminai.git
 cd terminai
-./scripts/install-macos.sh
+cargo install --path src
 ```
 
-### Linux / From Source
+## Quick start
 
-```bash
-git clone https://github.com/emosenkis/terminai.git
-cd terminai
-cargo build --release -p termin
+First install and authenticate at least one supported agent CLI, for example:
 
-# Install binary
-sudo cp target/release/terminai /usr/local/bin/
-
-```
-
-### Quick Start
-
-1. Install and configure your AI CLI:
-```bash
+```sh
 codex login
-# or
-claude auth
+# or authenticate with Claude Code using its CLI
 ```
 
-2. Create a config file (optional):
-```bash
-mkdir -p ~/.config/terminai
-cp terminai.example.yaml ~/.config/terminai/terminai.yaml
-# Edit terminai.yaml to set your preferences
-```
+Then launch Terminai:
 
-3. Launch Terminai:
-```bash
+```sh
 terminai
 ```
 
-4. Use normally until you need AI help, then press `Ctrl+Space`
+With no command, Terminai launches `$SHELL`. To wrap a specific command and its arguments instead:
+
+```sh
+terminai -- zsh -l
+```
+
+Use the terminal normally and press `Ctrl+Space` when you want the agent. Press `Ctrl+Space` or `Esc` to return to the shell. When an agent queues input, review it and press `y` to approve or `n` to deny; these bindings are configurable.
+
+For a terminal-emulator workflow, create a separate profile whose command is `terminai` and keep the emulator's normal shell profile as a fallback.
 
 ## Configuration
 
-Terminai no longer stores model provider settings or API keys. Install and authenticate the CLI agent you want to use, then point Terminai at it.
+Terminai loads YAML from `$XDG_CONFIG_HOME/terminai/terminai.yaml`, or `~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset. Generate the default configuration and prompt template with:
 
-Create `~/.config/terminai/terminai.yaml`:
+```sh
+terminai init-config
+```
+
+The default agent is Codex. A minimal explicit configuration is:
 
 ```yaml
 interface:
   chat-position: bottom
+  key_bindings:
+    activate-overlay: Ctrl-Space
+    deactivate-overlay: Ctrl-Space
+    approve: y
+    deny: n
 
 agent:
-  kind: codex
+  preset: codex
 ```
 
-Claude Code example:
+Switch to another bundled preset by changing `agent.preset`:
 
 ```yaml
 agent:
-  kind: claude
+  preset: claude # codex, claude, or opencode
 ```
 
-Custom agent example:
+The Codex and Claude presets enable Terminai's local MCP server and inject the rendered context prompt automatically. OpenCode receives the context prompt; custom agent support can opt into MCP, the tool CLI, or both.
+
+### Presets and custom agents
+
+Built-in presets are compiled from [`config/codex.yaml`](config/codex.yaml), [`config/claude.yaml`](config/claude.yaml), and [`config/opencode.yaml`](config/opencode.yaml). User presets can extend a built-in preset and append arguments:
+
+```yaml
+agent:
+  preset: codex-fast
+
+agent-presets:
+  codex-fast:
+    extends: codex
+    extra-args:
+      - --model
+      - gpt-5
+```
+
+A fully custom agent configuration can render runtime values into its command-line arguments:
 
 ```yaml
 agent:
   kind: custom
   command: my-agent
+  uses-mcp: true
+  uses-tool-cli: false
   args:
     - --mcp-url
     - "{{ mcp_url }}"
+    - --context
     - "{{ context_prompt }}"
-    - expr: '["--mcp-enabled"] if uses_mcp else []'
+    - expr: '["--cwd", cwd] if cwd else []'
 ```
 
-Terminai injects a host MCP server and clear context prompt into known agents. The MCP server exposes `check_for_updates`, `read_terminal`, `get_terminal_context`, `suggest_input`, and `get_suggestion_status`.
+String arguments are rendered as Minijinja templates. An `expr` entry must evaluate to an array of strings and can therefore emit zero, one, or multiple CLI arguments. Available values include `cwd`, `context_prompt`, `uses_mcp`, `uses_tool_cli`, `mcp_url`, `mcp_command`, `mcp_port`, and `tool_command`; the `json` and `toml` filters provide safe serialization for nested CLI configuration. The MCP bearer token is passed to the agent process in `TERMINAI_MCP_AUTH_TOKEN` rather than embedded in arguments.
 
-Agent strings use Minijinja templates. An argument can also be an `expr` object whose Minijinja expression returns an array of strings, allowing one configuration item to produce zero or multiple arguments.
+### Prompt customization
 
-Built-in agent presets are YAML reference configs bundled at build time from `config/codex.yaml`, `config/claude.yaml`, and `config/opencode.yaml`. User `agent-presets` use the same shape and can extend or override those presets.
+The bundled prompt is [`config/default.jinja`](config/default.jinja). A `default.jinja` in the Terminai config directory shadows it. You can also set `agent.prompt-template` to another template in that directory.
 
-The built-in prompt is `config/default.jinja`. Place a `default.jinja` in the Terminai XDG config directory to shadow it, or set `agent.prompt-template` to another template in that directory. Templates can extend the shadowable `default.jinja`; a user default can extend `builtin/default.jinja` and override the `introduction`, `general_rules`, `mcp_rules`, `tool_cli_introduction`, or `tool_cli_fallback_rules` block independently:
+Custom templates can extend the bundled prompt and override individual blocks:
 
 ```jinja
 {% extends "builtin/default.jinja" %}
 {% block introduction %}Your customized introduction.{% endblock %}
 ```
 
-## Usage
+The generated [configuration reference](https://terminai.app/config.html) documents every field, and versioned JSON Schemas are published at `https://terminai.app/schema-v<version>.json`.
 
-### Basic Workflow
+## MCP interface and safety boundary
 
-1. **Normal Terminal Usage**: Use your shell normally - Terminai is transparent
-2. **Activate AI**: Press `Ctrl+Space` to open the AI CLI terminal
-3. **Ask Questions**: Interact with the CLI agent normally
-4. **Command Approval**: Review and approve suggested shell input
-5. **Continue**: Press `Ctrl+Space` or `Esc` to close overlay and continue working
+Terminai serves an authenticated, local Streamable HTTP MCP endpoint to agent presets that enable it. The endpoint exposes:
 
-### Example Interactions
+| Tool | Purpose |
+| --- | --- |
+| `check_for_updates` | Return pending context changes before the agent handles a new request. |
+| `read_terminal` | Return visible output and recent scrollback after privacy filtering. |
+| `get_terminal_context` | Return shell, cwd, OS, dimensions, and terminal mode state. |
+| `suggest_input` | Queue exact text for approval; it does not execute the text. |
+| `get_suggestion_status` | Report the latest queued suggestion and its disposition. |
 
-**Debugging an error:**
-```
-$ npm run build
-Error: Module not found 'react-router-dom'
+The security boundary is deliberately narrow:
 
-[Press Ctrl+Space]
-You: why did this fail?
+- The selected agent CLI owns credentials, provider traffic, and model behavior.
+- Terminai itself does not upload terminal data or make model requests.
+- Terminal contents returned through MCP pass through sensitive-data filtering.
+- Agent-suggested input enters an approval flow before reaching the shell PTY.
+- Suggestions are classified as safe, caution, or dangerous to help the user review them; classification does not replace explicit approval.
 
-AI: The error indicates the 'react-router-dom' package is missing.
-    Would you like me to install it?
-
-    Command: npm install react-router-dom
-    [Execute] [Edit] [Cancel]
-```
-
-**Learning new commands:**
-```
-[Press Ctrl+Space]
-You: find all JavaScript files larger than 1MB
-
-AI: Here's a command to find large JavaScript files:
-
-    Command: find . -name "*.js" -type f -size +1M -exec ls -lh {} \;
-
-    This searches the current directory recursively for .js files
-    larger than 1MB and displays their sizes.
-    [Execute] [Edit] [Cancel]
-```
-
-## Keybindings
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+Space` | Toggle AI assistant overlay |
-| `Ctrl+A` | Toggle focus between process list and terminal |
-| `Ctrl+Q` | Quit |
-| `Esc` | Close AI overlay |
-| `Enter` | Send message to AI (when in AI input) |
-
-See the help window (`?` key) for complete keybindings.
-
-## Development Status
-
-**Current Version:** 0.1.0 (Alpha)
-
-### Completed ✅
-- PTY-backed CLI agent overlay
-- Command parsing and safety validation
-- Privacy filtering
-- Terminal virtualization
-- AI overlay UI
-- Basic integration with app
-
-### In Progress 🚧
-- Command execution workflow
-- History persistence
-
-### Planned 📋
-- Voice input (Whisper API)
-- SSH session support
-- Plugin system
-- Team collaboration features
+Zero-install MCP setup depends on the agent supporting MCP configuration through CLI flags or environment variables.
 
 ## Architecture
 
-Terminai consists of:
+```text
+host terminal
+└── Terminai process
+    ├── wrapped shell/command PTY
+    │   └── VT100 state, native scrollback, input forwarding
+    ├── authenticated local MCP server
+    │   ├── terminal/context reads → privacy filter
+    │   └── input suggestions → classification → approval queue
+    └── agent CLI PTY
+        └── Codex, Claude Code, OpenCode, or custom command
+```
 
-**Borrowed from mprocs (~30%):**
-- `src/vt100/` - Terminal emulation (VT100)
-- `src/proc/` - PTY handling
-- `src/term/` - Terminal abstractions
+Important implementation areas:
 
-**New Terminai code (~70%):**
-- `src/agent_launcher.rs` - CLI agent launch planning
-- `src/agent_terminal.rs` - AI CLI PTY terminal
-- `src/mcp_host/` - Host MCP server for terminal context and suggestions, served with `rmcp`
-- `src/command/` - Command parsing, validation, execution
-- `src/privacy/` - Sensitive data filtering
-- `src/app.rs` - Single-shell application (different from mprocs)
+- `src/bin/terminai.rs`: application entry point, event loop, rendering, and overlay coordination.
+- `src/agent_launcher.rs`: preset resolution, Minijinja rendering, and agent launch plans.
+- `src/agent_terminal.rs`: PTY lifecycle and rendering for the agent CLI.
+- `src/mcp_host/`: authenticated MCP server built with `rmcp` and Streamable HTTP transport.
+- `src/agent_tools.rs`: suggestion state passed from MCP into the UI approval flow.
+- `src/command/`: parsing and safety classification for suggested shell input.
+- `src/privacy/`: filtering of sensitive terminal content.
+- `src/vt100/`, `src/proc/`, and `src/term/`: terminal emulation and PTY foundations initially derived from [mprocs](https://github.com/pvolok/mprocs).
 
-See `IMPLEMENTATION_PLAN.md` for detailed architecture.
+See [the architecture note](https://terminai.app/llm_architecture.html) for a compact runtime diagram.
 
-## Contributing
+## Development
 
-This project is in active development. We welcome:
-- Bug reports
-- Feature requests
-- Documentation improvements
-- Code contributions
+Use a recent stable Rust toolchain and initialize the submodules before building.
 
-Please read `CLAUDE.md` for guidelines when working with AI assistants on this project.
+```sh
+git submodule update --init --recursive
+cargo build -p termin
+cargo test -p termin
+cargo fmt --all -- --check
+```
 
-## Relationship to mprocs
+The workspace patches crates.io dependencies to the local `ratatui`, `rat-salsa`, and Crossterm facade directories. Ratatui and rat-salsa contain changes required to preserve native terminal scrolling and copy behavior, so a source checkout without its submodules is incomplete.
 
-Terminai is **NOT**:
-- ❌ A fork of mprocs
-- ❌ An extension of mprocs
-- ❌ "mprocs with AI added"
+Contributions, bug reports, and documentation improvements are welcome. Read [CLAUDE.md](CLAUDE.md) for repository guidance used by coding agents.
 
-Terminai **IS**:
-- ✅ A new product with its own vision
-- ✅ Using mprocs' terminal virtualization as a code library
-- ✅ Building on proven technology to move faster
-- ✅ Focused on single-shell + AI assistance
+## Acknowledgements
 
-We're grateful to mprocs for their excellent terminal handling code and actively contribute improvements back upstream.
+Terminai was initially forked from [mprocs](https://github.com/pvolok/mprocs), which provided much of the original VT100 host/guest and PTY foundation. It also uses project-specific forks of [Ratatui](https://ratatui.rs/) and [rat-salsa](https://github.com/thscharler/rat-salsa) for native scrolling and copy support.
+
+Terminai is a distinct, single-shell product focused on integrating existing AI CLIs; it is not a multi-process manager or an mprocs compatibility layer.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-Portions of terminal virtualization code are from [mprocs](https://github.com/pvolok/mprocs) (MIT License).
-
-## Credits
-
-- **mprocs** by pvolok - Terminal virtualization foundation
-- **Ratatui** - Terminal UI framework
-
----
-
-**Status:** Alpha - Active Development
-
-For questions, issues, or contributions, please visit our [GitHub repository](https://github.com/emosenkis/terminai).
+Terminai is licensed under the [MIT License](LICENSE).

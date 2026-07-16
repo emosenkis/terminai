@@ -6,6 +6,14 @@
 
 ---
 
+## Plan File Location
+
+**All new design documents, implementation plans, and other planning artifacts must be created under `./plans/`. Never put plans under `./docs/`: that directory is the public website published at <https://terminai.app/>.**
+
+When a workflow or skill suggests `docs/plans/...`, use `plans/...` instead.
+
+---
+
 ## Overview
 
 You are working on **Terminai**, a terminal wrapper that provides AI assistance through an overlay interface. This is a Rust project that borrows terminal virtualization code from mprocs but builds a completely different product.
@@ -333,7 +341,7 @@ See the examples above in "When to Raise Issues" section.
 2. **Write tests** as you go (PRD specifies high test coverage)
 3. **Raise issues immediately** if you discover problems
 4. **Document deviations** if user approves changes
-5. **Update plan docs** if architecture changes
+5. **Update plan docs in `./plans/`** if architecture changes
 
 ### Before Completing
 
