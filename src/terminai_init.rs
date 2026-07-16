@@ -13,6 +13,7 @@ use crossterm::cursor::SetCursorStyle;
 use crossterm::event::KeyboardEnhancementFlags;
 use flexi_logger::{Cleanup, Criterion, FileSpec, Naming};
 use rat_salsa::terminal::{CrosstermTerminal, SalsaOptions};
+use std::io::IsTerminal;
 use std::io::stdout;
 use tui::{
   Terminal, TerminalOptions, Viewport,
@@ -45,6 +46,37 @@ pub fn setup_logging() -> Result<()> {
     .format_for_files(flexi_logger::with_thread) // Format with timestamp and thread
     .start()?;
 
+  Ok(())
+}
+
+/// Windows Terminai requires a VT-capable console. Windows Terminal provides
+/// this; legacy Console Host and redirected output are deliberately rejected.
+#[cfg(windows)]
+pub fn require_windows_terminal() -> Result<()> {
+  use winapi::um::consoleapi::{GetConsoleMode, SetConsoleMode};
+  use winapi::um::processenv::GetStdHandle;
+  use winapi::um::winbase::STD_OUTPUT_HANDLE;
+  const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
+  if !std::io::stdout().is_terminal() {
+    anyhow::bail!("Windows Terminal is required: stdout is not a console")
+  }
+  unsafe {
+    let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    let mut mode = 0;
+    if handle.is_null()
+      || GetConsoleMode(handle, &mut mode) == 0
+      || SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0
+    {
+      anyhow::bail!(
+        "Windows Terminal is required: unable to enable VT output processing"
+      )
+    }
+  }
+  Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn require_windows_terminal() -> Result<()> {
   Ok(())
 }
 
@@ -95,10 +127,9 @@ pub fn create_terminal() -> Result<CrosstermTerminal> {
 
 /// Get the cache directory for terminai
 pub fn get_cache_dir() -> String {
-  xdg::BaseDirectories::with_prefix("terminai")
-    .get_cache_home()
-    .map(|path| path.to_str().map(String::from))
-    .flatten()
+  crate::paths::cache_dir()
+    .ok()
+    .and_then(|path| path.to_str().map(String::from))
     .unwrap_or_else(|| {
       // Fallback to temporary directory if XDG not available
       std::env::temp_dir()

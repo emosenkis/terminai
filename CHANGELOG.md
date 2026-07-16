@@ -1,3 +1,9 @@
+## 0.1.7 - 2026-07-16
+
+- Add experimental Windows build, packaging, shell-selection, and terminal integration groundwork. Windows remains unqualified pending required CI and human QA.
+- Add Windows release artifacts with checksum-pinned Scoop manifests.
+- Replace legacy application-only dependencies and paths with Terminai-owned runtime paths.
+
 ## 0.1.6 - 2026-07-15
 
 - Use Minijinja for agent argument templates, including Jinja expressions that can expand to multiple arguments.

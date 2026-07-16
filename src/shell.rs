@@ -431,3 +431,81 @@ impl crate::vt100::TermReplySender for ReplySender {
     let _ = self.tx.send(ShellEvent::HostEscape(escape));
   }
 }
+
+#[cfg(all(test, windows))]
+mod windows_smoke_tests {
+  use super::*;
+  use std::time::{Duration, Instant};
+
+  #[test]
+  fn conpty_cmd_echo_resize_and_exit() {
+    let (mut shell, mut events) = Shell::spawn_command(
+      "cmd.exe",
+      &["/C".into(), "echo terminai-conpty".into()],
+      24,
+      80,
+    )
+    .expect("cmd.exe should spawn through ConPTY");
+    shell.resize(30, 100).expect("ConPTY should resize");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut exited = false;
+    while Instant::now() < deadline {
+      match events.try_recv() {
+        Ok(ShellEvent::Exited(_)) => {
+          exited = true;
+          break;
+        }
+        Ok(_) | Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+          std::thread::sleep(Duration::from_millis(10))
+        }
+        Err(err) => panic!("ConPTY event stream ended unexpectedly: {err}"),
+      }
+    }
+    assert!(exited, "cmd.exe did not exit cleanly");
+    let text = shell
+      .vt
+      .read()
+      .unwrap()
+      .screen()
+      .all_rows()
+      .flat_map(|row| (0..100).filter_map(move |col| row.get(col)))
+      .map(|cell| cell.contents())
+      .collect::<String>();
+    assert!(text.contains("terminai-conpty"));
+  }
+
+  #[test]
+  fn conpty_powershell_output_when_available() {
+    if which::which("powershell.exe").is_err() {
+      return;
+    }
+    let (shell, mut events) = Shell::spawn_command(
+      "powershell.exe",
+      &[
+        "-NoProfile".into(),
+        "-Command".into(),
+        "Write-Output terminai-powershell".into(),
+      ],
+      24,
+      80,
+    )
+    .expect("powershell.exe should spawn through ConPTY");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+      if matches!(events.try_recv(), Ok(ShellEvent::Exited(_))) {
+        break;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    let text = shell
+      .vt
+      .read()
+      .unwrap()
+      .screen()
+      .all_rows()
+      .flat_map(|row| (0..80).filter_map(move |col| row.get(col)))
+      .map(|cell| cell.contents())
+      .collect::<String>();
+    assert!(text.contains("terminai-powershell"));
+  }
+}

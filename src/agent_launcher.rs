@@ -66,8 +66,7 @@ impl AgentLaunchContext {
       terminai_tool_command,
       terminai_mcp_command,
       terminai_mcp_port,
-      config_dir: xdg::BaseDirectories::with_prefix("terminai")
-        .get_config_home(),
+      config_dir: crate::paths::config_dir().ok(),
     }
   }
 }

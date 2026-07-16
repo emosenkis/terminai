@@ -26,6 +26,7 @@ pub struct TerminaiMcpState {
   last_suggestion: Arc<AsyncMutex<Option<PendingCommand>>>,
   cwd: Arc<RwLock<PathBuf>>,
   pending_cwd_change: Arc<Mutex<Option<PathBuf>>>,
+  shell_identity: Arc<str>,
   tool_router: ToolRouter<Self>,
 }
 
@@ -33,6 +34,7 @@ impl TerminaiMcpState {
   pub fn new(
     vt_parser: Arc<RwLock<vt100::Parser<ReplySender>>>,
     suggestions: mpsc::UnboundedSender<PendingCommand>,
+    shell_identity: impl Into<Arc<str>>,
   ) -> Self {
     Self {
       vt_parser,
@@ -44,6 +46,7 @@ impl TerminaiMcpState {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
       )),
       pending_cwd_change: Arc::new(Mutex::new(None)),
+      shell_identity: shell_identity.into(),
       tool_router: Self::tool_router(),
     }
   }
@@ -193,7 +196,7 @@ impl TerminaiMcpState {
       .map_err(Self::lock_error)?
       .take()
       .map(|path| path.display().to_string());
-    let shell = std::env::var("SHELL").ok();
+    let shell = self.shell_identity.as_ref();
     let data = json!({
       "cwd": cwd,
       "cwd_changed_since_last_context": cwd_change.is_some(),

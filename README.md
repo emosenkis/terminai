@@ -63,7 +63,8 @@ Then launch Terminai:
 terminai
 ```
 
-With no command, Terminai launches `$SHELL`. To wrap a specific command and its arguments instead:
+With no command, Terminai resolves the configured shell (or the invoking shell
+on Windows). To wrap a specific command and its arguments instead:
 
 ```sh
 terminai -- zsh -l
@@ -75,11 +76,19 @@ For a terminal-emulator workflow, create a separate profile whose command is `te
 
 ## Configuration
 
-Terminai loads YAML from `$XDG_CONFIG_HOME/terminai/terminai.yaml`, or `~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset. Generate the default configuration and prompt template with:
+Terminai loads YAML from `$XDG_CONFIG_HOME/terminai/terminai.yaml`, or
+`~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset. On Windows
+it uses `%APPDATA%\\terminai\\terminai.yaml` (with logs/cache in
+`%LOCALAPPDATA%\\terminai`). Generate the default configuration and prompt
+template with:
 
 ```sh
 terminai init-config
 ```
+
+On Windows, use a current Windows Terminal with `pwsh.exe`, `powershell.exe`,
+or `cmd.exe`; see [Windows support](docs/windows-support.md) for the qualified
+environment and shell-selection precedence.
 
 The default agent is Codex. A minimal explicit configuration is:
 

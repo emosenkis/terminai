@@ -13,7 +13,6 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}
-    continue-on-error: ${{ matrix.os == 'windows' }}
     strategy:
       fail-fast: false
       matrix:
@@ -120,6 +119,22 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLower()
           "$hash  $(Split-Path $archive -Leaf)" | Out-File -Encoding ascii "$archive.sha256"
 
+      - name: Create Scoop manifest
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version_windows.outputs.version }}"
+          $archive = "terminai-$version-${{ matrix.suffix }}.${{ matrix.ext }}"
+          $hash = (Get-Content "release/$archive.sha256").Split()[0]
+          @{
+            version = $version
+            description = "Interactive terminal wrapper with AI assistant"
+            homepage = "https://github.com/emosenkis/terminai"
+            license = "MIT"
+            architecture = @{ "64bit" = @{ url = "https://github.com/emosenkis/terminai/releases/download/v$version/$archive"; hash = $hash } }
+            bin = "terminai.exe"
+          } | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8 "release/terminai.json"
+
       - name: Upload Unix build artifacts
         if: matrix.os != 'windows'
         uses: actions/upload-artifact@v4
@@ -138,6 +153,7 @@ jobs:
           path: |
             release/terminai-${{ steps.version_windows.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}
             release/terminai-${{ steps.version_windows.outputs.version }}-${{ matrix.suffix }}.${{ matrix.ext }}.sha256
+            release/terminai.json
           if-no-files-found: error
 
   publish:

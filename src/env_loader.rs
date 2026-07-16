@@ -8,10 +8,8 @@ use std::path::PathBuf;
 
 /// Get the path to the terminai.env file in the config directory
 pub fn env_file_path() -> PathBuf {
-  let xdg_dirs = xdg::BaseDirectories::with_prefix("terminai");
-  xdg_dirs
-    .get_config_home()
-    .expect("Failed to determine home directory")
+  crate::paths::config_dir()
+    .expect("Failed to determine Terminai config directory")
     .join("terminai.env")
 }
 

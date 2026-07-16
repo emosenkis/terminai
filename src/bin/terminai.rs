@@ -80,6 +80,7 @@ use termin::ui_approval::{
 };
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
+use termin::shell_resolution::{parent_shell, resolve_shell};
 
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 
@@ -136,7 +137,7 @@ struct Args {
   #[command(subcommand)]
   subcommand: Option<CliCommand>,
 
-  /// Command to run (if not specified, uses $SHELL)
+  /// Command to run (if not specified, resolves a supported shell)
   #[arg(last = true)]
   command: Vec<String>,
 }
@@ -569,19 +570,24 @@ async fn initialize_app_components(
   let (cols, rows) = crossterm::terminal::size()?;
 
   // Spawn shell or command (returns Shell and event receiver)
-  let (shell, shell_event_rx) = if command.is_empty() {
-    // No command specified, use $SHELL
-    let shell_cmd =
-      std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-    log::info!("Spawning shell: {}", shell_cmd);
-    Shell::spawn(&shell_cmd, rows, cols)?
-  } else {
-    // Command specified, spawn it directly
-    let cmd = &command[0];
-    let args = &command[1..];
-    log::info!("Spawning command: {} {:?}", cmd, args);
-    Shell::spawn_command(cmd, args, rows, cols)?
-  };
+  let config_for_shell = TerminaiConfig::load().ok();
+  let resolved_shell = resolve_shell(
+    &command,
+    std::env::var("TERMINAI_SHELL").ok(),
+    config_for_shell.as_ref().map(|config| &config.shell),
+    parent_shell(),
+  )?;
+  log::info!(
+    "Spawning wrapped command: {} {:?}",
+    resolved_shell.command,
+    resolved_shell.args
+  );
+  let (shell, shell_event_rx) = Shell::spawn_command(
+    &resolved_shell.command,
+    &resolved_shell.args,
+    rows,
+    cols,
+  )?;
 
   let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
   let (
@@ -592,7 +598,7 @@ async fn initialize_app_components(
     config,
     chat_position,
     config_error,
-  ) = prepare_agent(&shell, suggestion_tx).await;
+  ) = prepare_agent(&shell, suggestion_tx, &resolved_shell.identity).await;
 
   Ok((
     shell,
@@ -612,6 +618,7 @@ async fn initialize_app_components(
 async fn prepare_agent(
   shell: &Shell,
   suggestion_tx: mpsc::UnboundedSender<PendingCommand>,
+  shell_identity: &str,
 ) -> (
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
@@ -630,8 +637,11 @@ async fn prepare_agent(
       log::debug!("Loaded config: {:?}", config);
       let chat_position = config.interface.chat_position;
 
-      let mcp_state =
-        TerminaiMcpState::new(Arc::clone(&shell.vt), suggestion_tx);
+      let mcp_state = TerminaiMcpState::new(
+        Arc::clone(&shell.vt),
+        suggestion_tx,
+        shell_identity,
+      );
       let mcp_auth_token = match generate_mcp_auth_token() {
         Ok(token) => token,
         Err(err) => {
@@ -989,10 +999,22 @@ fn cwd_from_osc7_escape(escape: &str) -> Option<PathBuf> {
     cwd
   };
 
+  let path = percent_decode_path(path);
+  // file:///C:/... has an extra URI slash before the drive. cmd's $P uses
+  // backslashes, so normalize both forms before handing the path to the host.
+  let path = if path.as_bytes().get(0) == Some(&b'/')
+    && path.as_bytes().get(2) == Some(&b':')
+    && path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+  {
+    path[1..].replace('\\', "/")
+  } else {
+    path.replace('\\', "/")
+  };
+
   if path.is_empty() {
     None
   } else {
-    Some(PathBuf::from(percent_decode_path(path)))
+    Some(PathBuf::from(path))
   }
 }
 
@@ -1028,6 +1050,7 @@ fn main() -> Result<()> {
 
   // Setup logging to file with rotation
   termin::terminai_init::setup_logging()?;
+  termin::terminai_init::require_windows_terminal()?;
 
   // Load optional user environment variables from terminai.env.
   if let Err(e) = termin::env_loader::load_env_file() {
@@ -2292,6 +2315,10 @@ mod tests {
       Some(PathBuf::from("/tmp/project"))
     );
     assert_eq!(cwd_from_osc7_escape("\x1b]2;title\x07"), None);
+    assert_eq!(
+      cwd_from_osc7_escape("\x1b]7;file:///C:\\Users\\A%20B\x07"),
+      Some(PathBuf::from("C:/Users/A B"))
+    );
   }
 
   #[test]

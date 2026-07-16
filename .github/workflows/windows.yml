@@ -1,0 +1,24 @@
+name: Windows Build and Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Production tests
+        run: cargo test -p termin --lib --bin terminai
+      - name: Release build
+        run: cargo build --release -p termin --bin terminai --target x86_64-pc-windows-msvc

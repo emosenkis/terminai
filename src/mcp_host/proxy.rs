@@ -86,7 +86,7 @@ mod tests {
     )
     .expect("test shell should spawn");
     let (tx, _suggestion_rx) = mpsc::unbounded_channel();
-    let state = TerminaiMcpState::new(shell.vt.clone(), tx);
+    let state = TerminaiMcpState::new(shell.vt.clone(), tx, "test-shell");
     let http_server = start_http_mcp_server(state, "test-token".to_string())
       .await
       .expect("HTTP MCP server should start");

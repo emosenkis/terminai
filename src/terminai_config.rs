@@ -109,6 +109,18 @@ pub struct InterfaceConfig {
   pub key_bindings: KeyBindingsConfig,
 }
 
+/// Default shell for the wrapped terminal. This is a shell selector, not a
+/// shell-script launcher; use `terminai -- <command> [args...]` for commands.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ShellConfig {
+  #[serde(default)]
+  pub command: Option<String>,
+  #[serde(default)]
+  pub args: Vec<String>,
+}
+
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -321,13 +333,17 @@ pub struct AgentPresetConfig {
 
 /// Top-level Terminai configuration loaded from
 /// `$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to
-/// `~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset.
+/// `~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset. On
+/// Windows it is `%APPDATA%\\terminai\\terminai.yaml`.
 ///
 /// Default configuration can be installed with `terminai init-config`
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminaiConfig {
+  /// Default wrapped shell.
+  #[serde(default)]
+  pub shell: ShellConfig,
   /// Interface configuration
   #[serde(default)]
   pub interface: InterfaceConfig,
@@ -341,29 +357,18 @@ pub struct TerminaiConfig {
 
 impl TerminaiConfig {
   pub fn path() -> Result<PathBuf> {
-    let config_dir = xdg::BaseDirectories::with_prefix("terminai");
-    config_dir.find_config_file("terminai.yaml").ok_or_else(|| {
-      // Build expected path for error message
-      let expected_path = config_dir
-        .get_config_home()
-        .map(|p| p.join("terminai.yaml"))
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "~/.config/terminai/terminai.yaml".to_string());
-      anyhow::anyhow!(
+    let expected = crate::paths::config_dir()?.join("terminai.yaml");
+    if !expected.exists() {
+      anyhow::bail!(
         "Configuration file not found. Expected at: {}",
-        expected_path
-      )
-    })
+        expected.display()
+      );
+    }
+    Ok(expected)
   }
 
   pub fn expected_path() -> Result<PathBuf> {
-    let config_dir = xdg::BaseDirectories::with_prefix("terminai");
-    config_dir
-      .get_config_home()
-      .ok_or_else(|| {
-        anyhow::anyhow!("Failed to determine Terminai config directory")
-      })
-      .map(|path| path.join("terminai.yaml"))
+    Ok(crate::paths::config_dir()?.join("terminai.yaml"))
   }
 
   /// Load configuration from XDG config directory (~/.config/terminai/terminai.yaml)
@@ -396,6 +401,16 @@ agent:
     assert_eq!(config.agent.preset.as_deref(), Some("claude"));
     // Interface defaults to bottom when not specified
     assert_eq!(config.interface.chat_position, ChatPosition::Bottom);
+  }
+
+  #[test]
+  fn shell_config_deserializes() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      "shell:\n  command: pwsh.exe\n  args: [\"-NoLogo\"]\n",
+    )
+    .unwrap();
+    assert_eq!(config.shell.command.as_deref(), Some("pwsh.exe"));
+    assert_eq!(config.shell.args, ["-NoLogo"]);
   }
 
   #[test]

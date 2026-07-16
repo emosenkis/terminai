@@ -615,3 +615,29 @@ pub fn encode_mouse_event(mev: MouseEvent) -> String {
 
   buf
 }
+
+#[cfg(all(test, windows))]
+mod windows_smoke_tests {
+  use super::*;
+  use crate::key::Key;
+
+  #[test]
+  fn representative_cmd_keys_have_vt_encodings() {
+    assert_eq!(
+      encode_key(
+        &Key::new(KeyCode::Enter, KeyModifiers::NONE),
+        KeyCodeEncodeModes::default()
+      )
+      .unwrap(),
+      "\r"
+    );
+    assert_eq!(
+      encode_key(
+        &Key::new(KeyCode::Up, KeyModifiers::NONE),
+        KeyCodeEncodeModes::default()
+      )
+      .unwrap(),
+      "\x1b[A"
+    );
+  }
+}

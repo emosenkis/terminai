@@ -20,6 +20,11 @@ interface:
     approve: "Y"
     deny: "N"
 
+# Optional default shell (pwsh.exe, powershell.exe, or cmd.exe on Windows).
+# shell:
+#   command: pwsh.exe
+#   args: ["-NoLogo"]
+
 agent:
   preset: codex
   # prompt-template: custom.jinja
@@ -66,10 +71,7 @@ pub struct ConfigInitResult {
 }
 
 pub fn terminai_config_dir() -> Result<PathBuf> {
-  let xdg_dirs = xdg::BaseDirectories::with_prefix("terminai");
-  xdg_dirs.get_config_home().ok_or_else(|| {
-    anyhow::anyhow!("Failed to determine Terminai config directory")
-  })
+  crate::paths::config_dir()
 }
 
 pub fn init_config_files(force: bool) -> Result<ConfigInitResult> {
