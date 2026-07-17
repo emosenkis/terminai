@@ -725,6 +725,16 @@ impl PollEvents<AppEvent, Error> for PollShell {
 // Use TerminalWidget from ui_layer module
 use termin::ui_layer::TerminalWidget;
 
+const DEFAULT_STARTUP_TERMINAL_SIZE: (u16, u16) = (80, 24);
+
+fn startup_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
+  if cols == 0 || rows == 0 {
+    DEFAULT_STARTUP_TERMINAL_SIZE
+  } else {
+    (cols, rows)
+  }
+}
+
 /// Helper to initialize shell and prepare AI integration asynchronously
 async fn initialize_app_components(
   command: Vec<String>,
@@ -741,7 +751,17 @@ async fn initialize_app_components(
   Option<String>,
 )> {
   // Get terminal size
-  let (cols, rows) = crossterm::terminal::size()?;
+  let (reported_cols, reported_rows) = crossterm::terminal::size()?;
+  let (cols, rows) = startup_terminal_size(reported_cols, reported_rows);
+  if (cols, rows) != (reported_cols, reported_rows) {
+    log::warn!(
+      "Terminal reported invalid startup size {}x{}; using {}x{} until the first resize event",
+      reported_cols,
+      reported_rows,
+      cols,
+      rows
+    );
+  }
 
   // Spawn shell or command (returns Shell and event receiver)
   let config_for_shell = TerminaiConfig::load().ok();
@@ -2509,6 +2529,14 @@ impl Drop for AppState {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn startup_terminal_size_uses_default_when_any_dimension_is_zero() {
+    assert_eq!(startup_terminal_size(0, 0), (80, 24));
+    assert_eq!(startup_terminal_size(0, 24), (80, 24));
+    assert_eq!(startup_terminal_size(80, 0), (80, 24));
+    assert_eq!(startup_terminal_size(120, 40), (120, 40));
+  }
 
   #[test]
   fn agent_pty_size_matches_inner_overlay_area() {
