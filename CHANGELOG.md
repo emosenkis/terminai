@@ -1,3 +1,8 @@
+## 0.1.10 - 2026-07-17
+
+- Replace fixed terminal redaction with configurable privacy filters powered by Redact.
+- Prevent a panic when a terminal briefly reports a zero-sized window during resize or startup.
+
 ## 0.1.9 - 2026-07-17
 
 - Prevent a panic when a terminal briefly reports a zero-sized window during resize.
