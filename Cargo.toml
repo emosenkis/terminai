@@ -9,6 +9,7 @@ codegen-units = 1
 resolver = "2"
 default-members = ["src"]
 members = ["helpers/print-key", "src"]
+exclude = ["vendor/redact"]
 
 [workspace.lints.clippy]
 all = "allow"

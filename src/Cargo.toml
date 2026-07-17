@@ -76,6 +76,7 @@ log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 scopeguard = "1.2.0"
 itoa = "1"
 
+redact-core = { path = "../vendor/redact/crates/redact-core" }
 regex = "1.10"
 dotenvy = "0.15"
 

@@ -1,100 +1,99 @@
-use regex::Regex;
+use std::{collections::HashSet, sync::OnceLock};
 
-/// Privacy filter to redact sensitive information from terminal output
+use anyhow::{Result, bail};
+use redact_core::{
+  AnalyzerEngine, AnonymizationStrategy, AnonymizerConfig, EntityType,
+  gitleaks_entity_types,
+};
+
+use crate::terminai_config::{PrivacyConfig, PrivacyStrategy};
+
+/// Pattern-only privacy filter for terminal output returned to agents.
 pub struct PrivacyFilter {
-  patterns: Vec<(Regex, &'static str)>,
+  entity_types: Vec<EntityType>,
+  anonymizer_config: AnonymizerConfig,
 }
+
+static ANALYZER_ENGINE: OnceLock<AnalyzerEngine> = OnceLock::new();
+static ANALYZER_ENGINE_WARMUP: OnceLock<()> = OnceLock::new();
 
 impl PrivacyFilter {
   pub fn new() -> Self {
-    let patterns = vec![
-            // API keys and tokens
-            (
-                Regex::new(r#"(?i)(api[_-]?key|apikey)\s*[=:]\s*['"]?([a-zA-Z0-9_-]{16,})['"]?"#)
-                    .unwrap(),
-                "[REDACTED_API_KEY]",
-            ),
-            (
-                Regex::new(r#"(?i)(token|access[_-]?token)\s*[=:]\s*['"]?([a-zA-Z0-9_.]{16,})['"]?"#)
-                    .unwrap(),
-                "[REDACTED_TOKEN]",
-            ),
-            // Passwords
-            (
-                Regex::new(r#"(?i)(password|passwd|pwd)\s*[=:]\s*['"]?([^\s'";]{8,})['"]?"#)
-                    .unwrap(),
-                "[REDACTED_PASSWORD]",
-            ),
-            // AWS credentials
-            (
-                Regex::new(r#"(?i)(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY)\s*[=:]\s*['"]?([A-Za-z0-9/+=]{16,})['"]?"#)
-                    .unwrap(),
-                "[REDACTED_AWS_KEY]",
-            ),
-            // SSH private keys (header)
-            (
-                Regex::new(r"-----BEGIN [A-Z\s]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z\s]+ PRIVATE KEY-----")
-                    .unwrap(),
-                "[REDACTED_PRIVATE_KEY]",
-            ),
-            // Email addresses (optional - can be disabled)
-            (
-                Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
-                    .unwrap(),
-                "[REDACTED_EMAIL]",
-            ),
-            // Credit card numbers (basic pattern)
-            (
-                Regex::new(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b")
-                    .unwrap(),
-                "[REDACTED_CARD]",
-            ),
-            // Generic secrets
-            (
-                Regex::new(r#"(?i)(secret|secret[_-]?key)\s*[=:]\s*['"]?([a-zA-Z0-9_-]{16,})['"]?"#)
-                    .unwrap(),
-                "[REDACTED_SECRET]",
-            ),
-            // JWT tokens
-            (
-                Regex::new(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}")
-                    .unwrap(),
-                "[REDACTED_JWT]",
-            ),
-            // Database connection strings
-            (
-                Regex::new(r"(?i)(postgres|mysql|mongodb)://[^:]+:[^@]+@[\w\.\-:]+/?\S*")
-                    .unwrap(),
-                "[REDACTED_DB_URI]",
-            ),
-        ];
-
-    Self { patterns }
+    Self::from_config(&PrivacyConfig::default())
+      .expect("the built-in privacy configuration must be valid")
   }
 
-  /// Filter text and redact sensitive information
-  pub fn filter(&self, text: &str) -> String {
-    let mut filtered = text.to_string();
+  pub fn from_config(config: &PrivacyConfig) -> Result<Self> {
+    let entity_types = resolve_patterns(&config.patterns)?;
+    start_engine_warmup();
+    Ok(Self {
+      entity_types,
+      anonymizer_config: AnonymizerConfig {
+        strategy: match config.strategy {
+          PrivacyStrategy::Replace => AnonymizationStrategy::Replace,
+          PrivacyStrategy::Mask => AnonymizationStrategy::Mask,
+          PrivacyStrategy::Hash => AnonymizationStrategy::Hash,
+          PrivacyStrategy::Encrypt => AnonymizationStrategy::Encrypt,
+          PrivacyStrategy::Redact => AnonymizationStrategy::Redact,
+        },
+        ..Default::default()
+      },
+    })
+  }
 
-    for (pattern, replacement) in &self.patterns {
-      filtered = pattern.replace_all(&filtered, *replacement).to_string();
+  async fn engine(&self) -> &'static AnalyzerEngine {
+    tokio::task::spawn_blocking(|| {
+      ANALYZER_ENGINE.get_or_init(AnalyzerEngine::new)
+    })
+    .await
+    .expect("privacy analyzer initialization task must not panic")
+  }
+
+  #[cfg(test)]
+  async fn shared_engine_address(&self) -> usize {
+    self.engine().await as *const AnalyzerEngine as usize
+  }
+
+  /// Filter text. Fail closed if Redact cannot process a matching request.
+  pub async fn filter(&self, text: &str) -> String {
+    let engine = self.engine().await;
+    let Ok(analysis) =
+      engine.analyze_with_entities(text, &self.entity_types, None)
+    else {
+      return "[REDACTION_FAILED]".to_string();
+    };
+
+    engine
+      .anonymizer_registry()
+      .anonymize(text, analysis.detected_entities, &self.anonymizer_config)
+      .map(|result| result.text)
+      .unwrap_or_else(|_| "[REDACTION_FAILED]".to_string())
+  }
+
+  pub async fn filter_lines(&self, lines: &[String]) -> Vec<String> {
+    let mut filtered = Vec::with_capacity(lines.len());
+    for line in lines {
+      filtered.push(self.filter(line).await);
     }
-
     filtered
   }
 
-  /// Filter multiple lines
-  pub fn filter_lines(&self, lines: &[String]) -> Vec<String> {
-    lines.iter().map(|line| self.filter(line)).collect()
-  }
-
-  /// Check if text contains sensitive information
-  pub fn contains_sensitive(&self, text: &str) -> bool {
+  pub async fn contains_sensitive(&self, text: &str) -> bool {
     self
-      .patterns
-      .iter()
-      .any(|(pattern, _)| pattern.is_match(text))
+      .engine()
+      .await
+      .analyze_with_entities(text, &self.entity_types, None)
+      .map(|result| !result.detected_entities.is_empty())
+      .unwrap_or(true)
   }
+}
+
+fn start_engine_warmup() {
+  ANALYZER_ENGINE_WARMUP.get_or_init(|| {
+    std::thread::spawn(|| {
+      ANALYZER_ENGINE.get_or_init(AnalyzerEngine::new);
+    });
+  });
 }
 
 impl Default for PrivacyFilter {
@@ -103,113 +102,197 @@ impl Default for PrivacyFilter {
   }
 }
 
+fn resolve_patterns(patterns: &[String]) -> Result<Vec<EntityType>> {
+  let mut selected = HashSet::new();
+  for pattern in patterns {
+    let (remove, name) = pattern
+      .strip_prefix('-')
+      .map(|name| (true, name))
+      .unwrap_or((false, pattern.as_str()));
+    let types = pattern_set(name)?;
+    if remove {
+      for entity_type in types {
+        selected.remove(&entity_type);
+      }
+    } else {
+      selected.extend(types);
+    }
+  }
+
+  let mut entity_types: Vec<_> = selected.into_iter().collect();
+  entity_types.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+  Ok(entity_types)
+}
+
+fn pattern_set(name: &str) -> Result<Vec<EntityType>> {
+  if let Some(rule_name) = name.strip_prefix("gitleaks-") {
+    let entity_type = EntityType::Custom(format!(
+      "GITLEAKS_{}",
+      rule_name.replace('-', "_").to_uppercase()
+    ));
+    if gitleaks_entity_types().contains(&entity_type) {
+      return Ok(vec![entity_type]);
+    }
+  }
+
+  let types = match name {
+    // Sensible terminal-sharing default: credentials and identifiers that
+    // commonly enable access or identify a person. Network and diagnostic
+    // values (URLs, IPs, timestamps, MACs, GUIDs, hashes) stay visible.
+    "default" => {
+      let mut types = vec![
+        EntityType::EmailAddress,
+        EntityType::PhoneNumber,
+        EntityType::CreditCard,
+        EntityType::IbanCode,
+        EntityType::UsBankNumber,
+        EntityType::UsSsn,
+        EntityType::UsDriverLicense,
+        EntityType::UsPassport,
+        EntityType::UkNhs,
+        EntityType::UkNino,
+        EntityType::UkDriverLicense,
+        EntityType::UkPassportNumber,
+        EntityType::MedicalLicense,
+        EntityType::MedicalRecordNumber,
+        EntityType::PassportNumber,
+        EntityType::CryptoWallet,
+        EntityType::BtcAddress,
+        EntityType::EthAddress,
+      ];
+      types.extend(gitleaks_entity_types());
+      types
+    }
+    "credentials" => {
+      let mut types = vec![
+        EntityType::CryptoWallet,
+        EntityType::BtcAddress,
+        EntityType::EthAddress,
+      ];
+      types.extend(gitleaks_entity_types());
+      types
+    }
+    "gitleaks" | "secrets" => gitleaks_entity_types(),
+    "financial" => vec![
+      EntityType::CreditCard,
+      EntityType::IbanCode,
+      EntityType::UsBankNumber,
+      EntityType::UkSortCode,
+    ],
+    "identity" => vec![
+      EntityType::EmailAddress,
+      EntityType::PhoneNumber,
+      EntityType::UsSsn,
+      EntityType::UsDriverLicense,
+      EntityType::UsPassport,
+      EntityType::UkNino,
+      EntityType::UkDriverLicense,
+      EntityType::UkPassportNumber,
+      EntityType::PassportNumber,
+    ],
+    "medical" => vec![
+      EntityType::UkNhs,
+      EntityType::MedicalLicense,
+      EntityType::MedicalRecordNumber,
+    ],
+    "crypto" => vec![
+      EntityType::CryptoWallet,
+      EntityType::BtcAddress,
+      EntityType::EthAddress,
+    ],
+    "contact" => vec![
+      EntityType::EmailAddress,
+      EntityType::PhoneNumber,
+      EntityType::IpAddress,
+      EntityType::Url,
+      EntityType::DomainName,
+    ],
+    "technical" => vec![
+      EntityType::Guid,
+      EntityType::MacAddress,
+      EntityType::Md5Hash,
+      EntityType::Sha1Hash,
+      EntityType::Sha256Hash,
+    ],
+    "email-address" => vec![EntityType::EmailAddress],
+    "phone-number" => vec![EntityType::PhoneNumber],
+    "ip-address" => vec![EntityType::IpAddress],
+    "url" => vec![EntityType::Url],
+    "domain-name" => vec![EntityType::DomainName],
+    "credit-card" => vec![EntityType::CreditCard],
+    "iban" | "iban-code" => vec![EntityType::IbanCode],
+    "us-bank-number" => vec![EntityType::UsBankNumber],
+    "us-ssn" => vec![EntityType::UsSsn],
+    "us-driver-license" => vec![EntityType::UsDriverLicense],
+    "us-passport" => vec![EntityType::UsPassport],
+    "uk-nhs" => vec![EntityType::UkNhs],
+    "uk-nino" => vec![EntityType::UkNino],
+    "uk-driver-license" => vec![EntityType::UkDriverLicense],
+    "uk-passport-number" => vec![EntityType::UkPassportNumber],
+    "uk-sort-code" => vec![EntityType::UkSortCode],
+    "medical-license" => vec![EntityType::MedicalLicense],
+    "medical-record-number" => vec![EntityType::MedicalRecordNumber],
+    "passport-number" => vec![EntityType::PassportNumber],
+    "crypto-wallet" => vec![EntityType::CryptoWallet],
+    "btc-address" => vec![EntityType::BtcAddress],
+    "eth-address" => vec![EntityType::EthAddress],
+    "guid" => vec![EntityType::Guid],
+    "mac-address" => vec![EntityType::MacAddress],
+    "md5-hash" => vec![EntityType::Md5Hash],
+    "sha1-hash" => vec![EntityType::Sha1Hash],
+    "sha256-hash" => vec![EntityType::Sha256Hash],
+    "us-zip-code" => vec![EntityType::UsZipCode],
+    "uk-postcode" => vec![EntityType::UkPostcode],
+    "date-time" => vec![EntityType::DateTime],
+    "age" => vec![EntityType::Age],
+    _ => bail!("unknown privacy pattern or category `{name}`"),
+  };
+  Ok(types)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
 
-  #[test]
-  fn test_filter_api_key() {
+  #[tokio::test]
+  async fn defaults_redact_identifiers_but_preserve_diagnostics() {
     let filter = PrivacyFilter::new();
+    let text = "email=user@example.com ssn=123-45-6789 ip=192.0.2.1 url=https://example.com at=2026-07-17 mac=00:11:22:33:44:55";
+    let filtered = filter.filter(text).await;
 
-    let text = "API_KEY=sk-1234567890abcdef1234567890";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_API_KEY]"));
-    assert!(!filtered.contains("sk-1234567890"));
-  }
-
-  #[test]
-  fn test_filter_password() {
-    let filter = PrivacyFilter::new();
-
-    let text = "password=mysecretpass123";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_PASSWORD]"));
-    assert!(!filtered.contains("mysecretpass123"));
-  }
-
-  #[test]
-  fn test_filter_aws_credentials() {
-    let filter = PrivacyFilter::new();
-
-    let text = "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_AWS_KEY]"));
-    assert!(!filtered.contains("AKIAIOSFODNN7EXAMPLE"));
-  }
-
-  #[test]
-  fn test_filter_email() {
-    let filter = PrivacyFilter::new();
-
-    let text = "Contact me at user@example.com";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_EMAIL]"));
     assert!(!filtered.contains("user@example.com"));
+    assert!(!filtered.contains("123-45-6789"));
+    assert!(filtered.contains("192.0.2.1"));
+    assert!(filtered.contains("https://example.com"));
+    assert!(filtered.contains("2026-07-17"));
+    assert!(filtered.contains("00:11:22:33:44:55"));
   }
 
-  #[test]
-  fn test_filter_jwt() {
-    let filter = PrivacyFilter::new();
+  #[tokio::test]
+  async fn removal_applies_after_category_expansion() {
+    let filter = PrivacyFilter::from_config(&PrivacyConfig {
+      patterns: vec!["default".into(), "-btc-address".into()],
+      ..Default::default()
+    })
+    .unwrap();
+    let address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
 
-    let text = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_JWT]"));
-    assert!(!filtered.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
+    assert_eq!(filter.filter(address).await, address);
   }
 
-  #[test]
-  fn test_filter_multiple_secrets() {
-    let filter = PrivacyFilter::new();
+  #[tokio::test]
+  async fn filters_share_one_process_wide_recognizer_engine() {
+    let default_filter =
+      PrivacyFilter::from_config(&PrivacyConfig::default()).unwrap();
+    let mask_filter = PrivacyFilter::from_config(&PrivacyConfig {
+      strategy: PrivacyStrategy::Mask,
+      ..Default::default()
+    })
+    .unwrap();
 
-    let text = "api_key=sk-1234567890abcdef password=secret123456 token=xyz789abcdefghijk";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_API_KEY]"));
-    assert!(filtered.contains("[REDACTED_PASSWORD]"));
-    assert!(filtered.contains("[REDACTED_TOKEN]"));
-  }
-
-  #[test]
-  fn test_filter_lines() {
-    let filter = PrivacyFilter::new();
-
-    let lines = vec![
-      "Normal line".to_string(),
-      "API_KEY=secret1234567890abcdef".to_string(),
-      "Another normal line".to_string(),
-    ];
-
-    let filtered = filter.filter_lines(&lines);
-    assert_eq!(filtered[0], "Normal line");
-    assert!(filtered[1].contains("[REDACTED_API_KEY]"));
-    assert_eq!(filtered[2], "Another normal line");
-  }
-
-  #[test]
-  fn test_contains_sensitive() {
-    let filter = PrivacyFilter::new();
-
-    assert!(filter.contains_sensitive("password=secret123456"));
-    assert!(filter.contains_sensitive("api_key=sk-1234567890abcdef"));
-    assert!(!filter.contains_sensitive("just normal text"));
-  }
-
-  #[test]
-  fn test_no_false_positives() {
-    let filter = PrivacyFilter::new();
-
-    // These should not be filtered
-    let text = "The API is working fine";
-    let filtered = filter.filter(text);
-    assert_eq!(filtered, text);
-  }
-
-  #[test]
-  fn test_database_uri() {
-    let filter = PrivacyFilter::new();
-
-    let text = "postgres://user:pass@localhost:5432/mydb";
-    let filtered = filter.filter(text);
-    assert!(filtered.contains("[REDACTED_DB_URI]"));
-    assert!(!filtered.contains("user:pass"));
+    assert_eq!(
+      default_filter.shared_engine_address().await,
+      mask_filter.shared_engine_address().await,
+    );
   }
 }

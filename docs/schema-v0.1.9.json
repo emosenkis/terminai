@@ -39,6 +39,16 @@
         }
       }
     },
+    "privacy": {
+      "description": "Privacy filtering applied to terminal text returned through MCP.",
+      "$ref": "#/$defs/PrivacyConfig",
+      "default": {
+        "patterns": [
+          "default"
+        ],
+        "strategy": "replace"
+      }
+    },
     "shell": {
       "description": "Default wrapped shell.",
       "$ref": "#/$defs/ShellConfig",
@@ -284,6 +294,37 @@
             "type": "string"
           }
         }
+      ]
+    },
+    "PrivacyConfig": {
+      "description": "Pattern-based privacy filtering for terminal text returned to agents.\n\n`patterns` accepts a Redact entity name (for example `email-address`), a\ncategory (`credentials`, `financial`, `identity`, `medical`, `crypto`, or\n`gitleaks`),\nor `default`. Prefix a value with `-` to remove an earlier selection.",
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "default": [
+            "default"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "strategy": {
+          "$ref": "#/$defs/PrivacyStrategy",
+          "default": "replace"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PrivacyStrategy": {
+      "description": "How matching terminal data is anonymized before being sent to an agent.",
+      "type": "string",
+      "enum": [
+        "replace",
+        "mask",
+        "hash",
+        "encrypt",
+        "redact"
       ]
     },
     "ShellConfig": {

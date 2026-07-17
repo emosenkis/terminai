@@ -16,7 +16,7 @@ The overlay is another PTY-backed terminal running the agent's actual CLI. Termi
 
 Terminai gives compatible agents controlled access to the shell through a local MCP server:
 
-- Read the visible terminal and recent scrollback, after minimal privacy filtering.
+- Read the visible terminal and recent scrollback, after configurable pattern-based privacy filtering.
 - Inspect session context such as the working directory, shell, OS, dimensions, mouse mode, and bracketed-paste state.
 - Receive context updates as the wrapped session changes.
 - Queue exact shell input for the user to review and approve or deny.
@@ -170,7 +170,7 @@ Terminai serves an authenticated, local Streamable HTTP MCP endpoint to agent pr
 | Tool | Purpose |
 | --- | --- |
 | `check_for_updates` | Return pending context changes before the agent handles a new request. |
-| `read_terminal` | Return visible output and recent scrollback after minimal privacy filtering. |
+| `read_terminal` | Return visible output and recent scrollback after configurable pattern-based privacy filtering. |
 | `get_terminal_context` | Return shell, cwd, OS, dimensions, and terminal mode state. |
 | `suggest_input` | Queue exact text for approval; it does not execute the text. |
 | `get_suggestion_status` | Report the latest queued suggestion and its disposition. |
@@ -179,7 +179,7 @@ The security boundary is deliberately narrow:
 
 - The selected agent CLI owns credentials, provider traffic, and model behavior.
 - Terminai itself does not upload terminal data or make model requests.
-- Terminal contents returned through MCP pass through a minimal, best-effort sensitive-data filter; it is not a guarantee that secrets or private information are removed. By activating an AI agent, you accept full responsibility for any terminal output and history it can access.
+- Terminal contents returned through MCP pass through configurable, pattern-based filtering; it is not a guarantee that secrets or private information are removed. By default it redacts credentials and strong personal identifiers but retains URLs, IP addresses, dates, postal codes, and technical diagnostics. Configure `privacy.patterns` with `default`, a category (`credentials`, `financial`, `identity`, `medical`, `crypto`, or `gitleaks`), or an entity type such as `btc-address`; prefix an entry with `-` to remove it, for example `[default, -btc-address]`. `privacy.strategy` supports `replace`, `mask`, `hash`, `encrypt`, and `redact`.
 - Agent-suggested input enters an approval flow before reaching the shell PTY.
 - Suggestions are classified as safe, caution, or dangerous to help the user review them; classification does not replace explicit approval.
 

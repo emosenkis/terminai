@@ -20,6 +20,15 @@ interface:
     approve: "Y"
     deny: "N"
 
+# Terminal text returned to an AI agent is filtered with Redact's
+# pattern-based recognizers. `default` redacts credentials and strong personal
+# identifiers while retaining URLs, IPs, timestamps, postal codes, and
+# technical diagnostics. Add a category or entity type, or remove one with
+# a leading `-`, e.g. [default, -btc-address].
+privacy:
+  patterns: [default]
+  strategy: replace
+
 # Optional default shell (pwsh.exe, powershell.exe, or cmd.exe on Windows).
 # shell:
 #   command: pwsh.exe

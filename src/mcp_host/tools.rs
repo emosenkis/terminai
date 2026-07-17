@@ -36,10 +36,24 @@ impl TerminaiMcpState {
     suggestions: mpsc::UnboundedSender<PendingCommand>,
     shell_identity: impl Into<Arc<str>>,
   ) -> Self {
+    Self::with_privacy_filter(
+      vt_parser,
+      suggestions,
+      shell_identity,
+      PrivacyFilter::new(),
+    )
+  }
+
+  pub fn with_privacy_filter(
+    vt_parser: Arc<RwLock<vt100::Parser<ReplySender>>>,
+    suggestions: mpsc::UnboundedSender<PendingCommand>,
+    shell_identity: impl Into<Arc<str>>,
+    privacy_filter: PrivacyFilter,
+  ) -> Self {
     Self {
       vt_parser,
       suggestions,
-      privacy_filter: Arc::new(PrivacyFilter::new()),
+      privacy_filter: Arc::new(privacy_filter),
       safety_validator: Arc::new(SafetyValidator::new()),
       last_suggestion: Arc::new(AsyncMutex::new(None)),
       cwd: Arc::new(RwLock::new(
@@ -77,6 +91,75 @@ impl TerminaiMcpState {
   }
 }
 
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::{
+    privacy::PrivacyFilter, shell::Shell, terminai_config::TerminaiConfig,
+  };
+
+  async fn read_configured_terminal(
+    config: TerminaiConfig,
+    command: String,
+  ) -> String {
+    let (shell, mut events) =
+      Shell::spawn_command("/bin/sh", &["-c".to_string(), command], 24, 120)
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+      .await
+      .expect("shell should write terminal output");
+    let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+    let state = TerminaiMcpState::with_privacy_filter(
+      shell.vt.clone(),
+      tx,
+      "test-shell",
+      PrivacyFilter::from_config(&config.privacy).unwrap(),
+    );
+    state
+      .read_terminal(Parameters(ReadTerminalArgs {
+        max_lines: None,
+        include_visible: None,
+      }))
+      .await
+      .unwrap()
+      .structured_content
+      .unwrap()["lines"]
+      .to_string()
+  }
+
+  #[tokio::test]
+  async fn read_terminal_applies_default_privacy_config_before_returning_content()
+   {
+    let config: TerminaiConfig = serde_yaml::from_str("privacy: {}\n").unwrap();
+    let text = read_configured_terminal(
+      config,
+      "printf 'email=user@example.com ip=192.0.2.1\\n'; sleep 1".to_string(),
+    )
+    .await;
+
+    assert!(!text.contains("user@example.com"));
+    assert!(text.contains("[EMAIL_ADDRESS]"));
+    assert!(text.contains("192.0.2.1"));
+  }
+
+  #[tokio::test]
+  async fn read_terminal_honors_pattern_removals_from_privacy_config() {
+    let config: TerminaiConfig =
+      serde_yaml::from_str("privacy:\n  patterns: [default, -btc-address]\n")
+        .unwrap();
+    let bitcoin = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
+    let text = read_configured_terminal(
+      config,
+      format!("printf 'ssn=123-45-6789 btc={bitcoin}\\n'; sleep 1"),
+    )
+    .await;
+
+    assert!(!text.contains("123-45-6789"));
+    assert!(text.contains("[US_SSN]"));
+    assert!(text.contains(bitcoin));
+  }
+}
+
 #[tool_router(router = tool_router)]
 impl TerminaiMcpState {
   #[tool(
@@ -89,32 +172,40 @@ impl TerminaiMcpState {
     let _include_visible = args.include_visible.unwrap_or(true);
     let max_lines = args.max_lines.unwrap_or(120).max(1);
 
-    let parser = self.vt_parser.read().map_err(Self::lock_error)?;
-    let screen = parser.screen();
-    let rows: Vec<_> = screen.all_rows().collect();
-    let start = rows.len().saturating_sub(max_lines);
-    let mut lines = Vec::new();
+    let (lines, total_rows, visible_rows, visible_cols) = {
+      let parser = self.vt_parser.read().map_err(Self::lock_error)?;
+      let screen = parser.screen();
+      let rows: Vec<_> = screen.all_rows().collect();
+      let start = rows.len().saturating_sub(max_lines);
+      let mut lines = Vec::new();
 
-    for row in &rows[start..] {
-      let mut line = String::new();
-      let mut has_content = false;
-      for col in 0..screen.size().cols {
-        if let Some(cell) = row.get(col) {
-          if cell.has_contents() {
-            line.push_str(cell.contents());
-            has_content = true;
-          } else if has_content {
-            line.push(' ');
+      for row in &rows[start..] {
+        let mut line = String::new();
+        let mut has_content = false;
+        for col in 0..screen.size().cols {
+          if let Some(cell) = row.get(col) {
+            if cell.has_contents() {
+              line.push_str(cell.contents());
+              has_content = true;
+            } else if has_content {
+              line.push(' ');
+            }
           }
         }
+        let trimmed = line.trim_end();
+        if !trimmed.is_empty() {
+          lines.push(trimmed.to_string());
+        }
       }
-      let trimmed = line.trim_end();
-      if !trimmed.is_empty() {
-        lines.push(trimmed.to_string());
-      }
-    }
 
-    let filtered_lines = self.privacy_filter.filter_lines(&lines);
+      (
+        lines,
+        screen.total_rows(),
+        screen.size().rows,
+        screen.size().cols,
+      )
+    };
+    let filtered_lines = self.privacy_filter.filter_lines(&lines).await;
     let text = filtered_lines.join("\n");
     let response_text = if text.is_empty() {
       "The wrapped terminal currently has no readable text.".to_string()
@@ -127,9 +218,9 @@ impl TerminaiMcpState {
       json!({
         "lines": filtered_lines,
         "line_count": lines.len(),
-        "total_rows": screen.total_rows(),
-        "visible_rows": screen.size().rows,
-        "visible_cols": screen.size().cols
+        "total_rows": total_rows,
+        "visible_rows": visible_rows,
+        "visible_cols": visible_cols
       }),
     ))
   }

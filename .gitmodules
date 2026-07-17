@@ -4,3 +4,6 @@
 [submodule "rat-salsa"]
 	path = rat-salsa
 	url = https://github.com/emosenkis/rat-salsa.git
+[submodule "vendor/redact"]
+	path = vendor/redact
+	url = https://github.com/emosenkis/terminai-redact.git

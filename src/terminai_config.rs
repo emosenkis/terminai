@@ -121,6 +121,51 @@ pub struct ShellConfig {
   pub args: Vec<String>,
 }
 
+/// How matching terminal data is anonymized before being sent to an agent.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum PrivacyStrategy {
+  #[default]
+  Replace,
+  Mask,
+  Hash,
+  Encrypt,
+  Redact,
+}
+
+/// Pattern-based privacy filtering for terminal text returned to agents.
+///
+/// `patterns` accepts a Redact entity name (for example `email-address`), a
+/// category (`credentials`, `financial`, `identity`, `medical`, `crypto`, or
+/// `gitleaks`),
+/// or `default`. Prefix a value with `-` to remove an earlier selection.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct PrivacyConfig {
+  #[serde(default = "default_privacy_patterns")]
+  pub patterns: Vec<String>,
+  #[serde(default)]
+  pub strategy: PrivacyStrategy,
+}
+
+fn default_privacy_patterns() -> Vec<String> {
+  vec!["default".to_string()]
+}
+
+impl Default for PrivacyConfig {
+  fn default() -> Self {
+    Self {
+      patterns: default_privacy_patterns(),
+      strategy: PrivacyStrategy::default(),
+    }
+  }
+}
+
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -347,6 +392,9 @@ pub struct TerminaiConfig {
   /// Interface configuration
   #[serde(default)]
   pub interface: InterfaceConfig,
+  /// Privacy filtering applied to terminal text returned through MCP.
+  #[serde(default)]
+  pub privacy: PrivacyConfig,
   /// External CLI agent to run in the AI terminal.
   #[serde(default)]
   pub agent: AgentConfig,
@@ -401,6 +449,28 @@ agent:
     assert_eq!(config.agent.preset.as_deref(), Some("claude"));
     // Interface defaults to bottom when not specified
     assert_eq!(config.interface.chat_position, ChatPosition::Bottom);
+  }
+
+  #[test]
+  fn privacy_config_accepts_categories_removals_and_strategy() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+privacy:
+  patterns: [default, -btc-address, credentials]
+  strategy: mask
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+      config.privacy.patterns,
+      vec![
+        "default".to_string(),
+        "-btc-address".to_string(),
+        "credentials".to_string(),
+      ]
+    );
+    assert_eq!(config.privacy.strategy, PrivacyStrategy::Mask);
   }
 
   #[test]

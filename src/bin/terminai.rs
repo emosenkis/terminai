@@ -71,6 +71,7 @@ use termin::mcp_host::{
   McpServerHandle, TerminaiMcpState, run_stdio_mcp_proxy, start_http_mcp_server,
 };
 use termin::mouse::MouseEvent;
+use termin::privacy::PrivacyFilter;
 use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
@@ -810,10 +811,27 @@ async fn prepare_agent(
       log::debug!("Loaded config: {:?}", config);
       let chat_position = config.interface.chat_position;
 
-      let mcp_state = TerminaiMcpState::new(
+      let privacy_filter = match PrivacyFilter::from_config(&config.privacy) {
+        Ok(filter) => filter,
+        Err(err) => {
+          let message = format!("Invalid privacy configuration: {err}");
+          log::error!("{}", message);
+          return (
+            fallback_rx,
+            None,
+            None,
+            None,
+            config,
+            chat_position,
+            Some(message),
+          );
+        }
+      };
+      let mcp_state = TerminaiMcpState::with_privacy_filter(
         Arc::clone(&shell.vt),
         suggestion_tx,
         shell_identity,
+        privacy_filter,
       );
       let mcp_auth_token = match generate_mcp_auth_token() {
         Ok(token) => token,

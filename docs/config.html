@@ -11,8 +11,8 @@
     <script src="https://use.fontawesome.com/facf9fa52c.js"></script>
     <script src="schema_doc.min.js"></script>
     <meta charset="utf-8"/>
-
-
+        
+    
     <title>TerminaiConfig</title>
 </head>
 <body onload="anchorOnLoad();" id="root">
@@ -21,7 +21,8 @@
 <div class="description collapse" id="collapseDescription_root">
             <p>Top-level Terminai configuration loaded from<br />
 <code>$XDG_CONFIG_HOME/terminai/terminai.yaml</code>, falling back to<br />
-<code>~/.config/terminai/terminai.yaml</code> when <code>XDG_CONFIG_HOME</code> is unset.</p>
+<code>~/.config/terminai/terminai.yaml</code> when <code>XDG_CONFIG_HOME</code> is unset. On<br />
+Windows it is <code>%APPDATA%\\terminai\\terminai.yaml</code>.</p>
 
 <p>Default configuration can be installed with <code>terminai init-config</code></p>
 
@@ -31,12 +32,12 @@
                aria-expanded="false" aria-controls="collapseDescriptionroot"
             ></a>
         </div> <span class="badge badge-info no-additional">No Additional Properties</span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordionagent">
     <div class="card">
         <div class="card-header" id="headingagent">
@@ -63,12 +64,12 @@
 </span>
 
      <span class="badge badge-info no-additional">No Additional Properties</span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordionagent_args">
     <div class="card">
         <div class="card-header" id="headingagent_args">
@@ -139,15 +140,15 @@ of strings. Available variables:</p>
                aria-expanded="false" aria-controls="collapseDescriptionagent_args"
             ></a>
         </div>
+        
 
-
-
-
+        
+        
 
          <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
     <div class="card">
         <div class="card-body items-definition" id="agent_args_items">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -189,7 +190,7 @@ of strings. Available variables:</p>
         </li></ul>
 <div class="tab-content card"><div class="tab-pane fade card-body active show"
              id="tab-pane_agent_args_items_anyOf_i0" role="tabpanel">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -229,15 +230,15 @@ of strings. Available variables:</p>
     <a href="#agent_args_items_anyOf_i0" onclick="anchorLink('agent_args_items_anyOf_i0')">item 0</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
 <span class="description"><p>A static string or Minijinja template that produces one argument.</p>
 </span>
+        
 
+        
+        
 
-
-
-
-
+        
         </div><div class="tab-pane fade card-body "
              id="tab-pane_agent_args_items_anyOf_i1" role="tabpanel">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -277,12 +278,12 @@ of strings. Available variables:</p>
     <a href="#agent_args_items_anyOf_i1" onclick="anchorLink('agent_args_items_anyOf_i1')">item 1</a></div><span class="badge badge-dark value-type">Type: object</span><br/>
 <span class="description"><p>A Minijinja expression that produces an array of strings.</p>
 </span> <span class="badge badge-info no-additional">No Additional Properties</span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordionagent_args_items_anyOf_i1_expr">
     <div class="card">
         <div class="card-header" id="headingagent_args_items_anyOf_i1_expr">
@@ -341,23 +342,23 @@ of strings. Available variables:</p>
         </svg>
     <a href="#agent_args_items_anyOf_i1_expr" onclick="anchorLink('agent_args_items_anyOf_i1_expr')">expr</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
 </div>
         </div></div></div>
+        
 
+        
+        
 
-
-
-
-
+        
         </div>
     </div>
             </div>
@@ -394,12 +395,12 @@ of strings. Available variables:</p>
         </svg>
     <a href="#agent_command" onclick="anchorLink('agent_command')">command</a></div><span class="badge badge-dark value-type">Type: string or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -437,15 +438,15 @@ of strings. Available variables:</p>
 Minijinja template variables, filters, and expressions documented on<br />
 <code>args</code>.</p>
 </span>
+        
 
-
-
-
+        
+        
 
          <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
     <div class="card">
         <div class="card-body items-definition" id="agent_extra-args_items">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -521,7 +522,7 @@ Minijinja template variables, filters, and expressions documented on<br />
         </li></ul>
 <div class="tab-content card"><div class="tab-pane fade card-body active show"
              id="tab-pane_agent_kind_anyOf_i0" role="tabpanel">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -558,15 +559,15 @@ Minijinja template variables, filters, and expressions documented on<br />
             <h4>Must be one of:</h4>
             <ul class="list-group"><li class="list-group-item enum-item">"claude"</li><li class="list-group-item enum-item">"codex"</li><li class="list-group-item enum-item">"custom"</li></ul>
             </div>
+        
 
+        
+        
 
-
-
-
-
+        
         </div><div class="tab-pane fade card-body "
              id="tab-pane_agent_kind_anyOf_i1" role="tabpanel">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -598,19 +599,19 @@ Minijinja template variables, filters, and expressions documented on<br />
         </svg>
     <a href="#agent_kind_anyOf_i1" onclick="anchorLink('agent_kind_anyOf_i1')">item 1</a></div><span class="badge badge-dark value-type">Type: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
         </div></div></div>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -645,12 +646,12 @@ Minijinja template variables, filters, and expressions documented on<br />
         </svg>
     <a href="#agent_preset" onclick="anchorLink('agent_preset')">preset</a></div><span class="badge badge-dark value-type">Type: string or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -697,12 +698,12 @@ template and can be extended by a user-provided default.</p>
                aria-expanded="false" aria-controls="collapseDescriptionagent_prompt-template"
             ></a>
         </div>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -739,12 +740,12 @@ template and can be extended by a user-provided default.</p>
 <span class="description"><p>Whether this agent uses the Terminai MCP server. Defaults to false for<br />
 custom agents and inherits from the selected preset when unset.</p>
 </span>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -781,12 +782,12 @@ custom agents and inherits from the selected preset when unset.</p>
 <span class="description"><p>Whether this agent uses the Terminai CLI tools. Defaults to true for<br />
 custom agents and inherits from the selected preset when unset.</p>
 </span>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -819,12 +820,12 @@ custom agents and inherits from the selected preset when unset.</p>
     <a href="#agent-presets" onclick="anchorLink('agent-presets')">agent-presets</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {}</span><br/>
 <span class="description"><p>User-defined CLI agent presets. Built-in presets include codex and claude.</p>
 </span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordionagent-presets_additionalProperties">
     <div class="card">
         <div class="card-header" id="headingagent-presets_additionalProperties">
@@ -858,12 +859,12 @@ custom agents and inherits from the selected preset when unset.</p>
 </span>
 
      <span class="badge badge-info no-additional">No Additional Properties</span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordionagent-presets_additionalProperties_args">
     <div class="card">
         <div class="card-header" id="headingagent-presets_additionalProperties_args">
@@ -941,15 +942,15 @@ of strings. Available variables:</p>
                aria-expanded="false" aria-controls="collapseDescriptionagent-presets_additionalProperties_args"
             ></a>
         </div>
+        
 
-
-
-
+        
+        
 
          <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
     <div class="card">
         <div class="card-body items-definition" id="agent-presets_additionalProperties_args_items">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1025,12 +1026,12 @@ of strings. Available variables:</p>
         </svg>
     <a href="#agent-presets_additionalProperties_command" onclick="anchorLink('agent-presets_additionalProperties_command')">command</a></div><span class="badge badge-dark value-type">Type: string or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1072,12 +1073,12 @@ of strings. Available variables:</p>
         </svg>
     <a href="#agent-presets_additionalProperties_env" onclick="anchorLink('agent-presets_additionalProperties_env')">env</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {}</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordionagent-presets_additionalProperties_env_additionalProperties">
     <div class="card">
         <div class="card-header" id="headingagent-presets_additionalProperties_env_additionalProperties">
@@ -1122,12 +1123,12 @@ of strings. Available variables:</p>
         </svg>
     <a href="#agent-presets_additionalProperties_env_additionalProperties" onclick="anchorLink('agent-presets_additionalProperties_env_additionalProperties')">additionalProperties</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1173,12 +1174,12 @@ of strings. Available variables:</p>
         </svg>
     <a href="#agent-presets_additionalProperties_extends" onclick="anchorLink('agent-presets_additionalProperties_extends')">extends</a></div><span class="badge badge-dark value-type">Type: string or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1223,15 +1224,15 @@ of strings. Available variables:</p>
 Minijinja template variables, filters, and expressions documented on<br />
 <code>args</code>.</p>
 </span>
+        
 
-
-
-
+        
+        
 
          <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
     <div class="card">
         <div class="card-body items-definition" id="agent-presets_additionalProperties_extra-args_items">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1309,12 +1310,12 @@ Minijinja template variables, filters, and expressions documented on<br />
 <span class="description"><p>Prompt template inherited by agents using this preset. Uses the same XDG<br />
 lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</p>
 </span>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1356,12 +1357,12 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </svg>
     <a href="#agent-presets_additionalProperties_uses-mcp" onclick="anchorLink('agent-presets_additionalProperties_uses-mcp')">uses-mcp</a></div><span class="badge badge-dark value-type">Type: boolean or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1403,12 +1404,12 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </svg>
     <a href="#agent-presets_additionalProperties_uses-tool-cli" onclick="anchorLink('agent-presets_additionalProperties_uses-tool-cli')">uses-tool-cli</a></div><span class="badge badge-dark value-type">Type: boolean or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1447,12 +1448,12 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
 </span>
 
      <span class="badge badge-info no-additional">No Additional Properties</span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordioninterface_chat-position">
     <div class="card">
         <div class="card-header" id="headinginterface_chat-position">
@@ -1489,12 +1490,12 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
             <h4>Must be one of:</h4>
             <ul class="list-group"><li class="list-group-item enum-item">"bottom"</li><li class="list-group-item enum-item">"top"</li></ul>
             </div>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1534,12 +1535,12 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
 </span>
 
      <span class="badge badge-info no-additional">No Additional Properties</span>
+        
 
+        
+        
 
-
-
-
-
+        
 <div class="accordion" id="accordioninterface_key_bindings_activate-overlay">
     <div class="card">
         <div class="card-header" id="headinginterface_key_bindings_activate-overlay">
@@ -1593,7 +1594,7 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </li></ul>
 <div class="tab-content card"><div class="tab-pane fade card-body active show"
              id="tab-pane_interface_key_bindings_activate-overlay_oneOf_i0" role="tabpanel">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1633,15 +1634,15 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
     <a href="#interface_key_bindings_activate-overlay_oneOf_i0" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i0')">item 0</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
 <span class="description"><p>A single key combination such as Ctrl-Space</p>
 </span>
+        
 
+        
+        
 
-
-
-
-
+        
         </div><div class="tab-pane fade card-body "
              id="tab-pane_interface_key_bindings_activate-overlay_oneOf_i1" role="tabpanel">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1680,15 +1681,15 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </svg>
     <a href="#interface_key_bindings_activate-overlay_oneOf_i1" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i1')">item 1</a></div><span class="badge badge-dark value-type">Type: array of string</span><br/>
 
+        
 
-
-
-
+        
+        
 
          <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
     <div class="card">
         <div class="card-body items-definition" id="interface_key_bindings_activate-overlay_oneOf_i1_items">
-
+            
 
     <div class="breadcrumbs">root
         <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1734,21 +1735,21 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </svg>
     <a href="#interface_key_bindings_activate-overlay_oneOf_i1_items" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i1_items')">item 1 items</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
 
+        
 
+        
+        
 
-
-
-
-
+        
         </div>
     </div>
         </div></div></div>
+        
 
+        
+        
 
-
-
-
-
+        
             </div>
         </div>
     </div>
@@ -1884,8 +1885,316 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </div>
     </div>
 </div>
+<div class="accordion" id="accordionprivacy">
+    <div class="card">
+        <div class="card-header" id="headingprivacy">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#privacy"
+                        aria-expanded="" aria-controls="privacy" onclick="setAnchor('#privacy')"><span class="property-name">privacy</span></button>
+            </h2>
+        </div>
+
+        <div id="privacy"
+             class="collapse property-definition-div" aria-labelledby="headingprivacy"
+             data-parent="#accordionprivacy">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy" onclick="anchorLink('privacy')">privacy</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"patterns": ["default"], "strategy": "replace"}</span><br/>
+<span class="description"><p>Privacy filtering applied to terminal text returned through MCP.</p>
+</span>
+
+     <span class="badge badge-info no-additional">No Additional Properties</span>
+        
+
+        
+        
+
+        
+<div class="accordion" id="accordionprivacy_patterns">
+    <div class="card">
+        <div class="card-header" id="headingprivacy_patterns">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#privacy_patterns"
+                        aria-expanded="" aria-controls="privacy_patterns" onclick="setAnchor('#privacy_patterns')"><span class="property-name">patterns</span></button>
+            </h2>
+        </div>
+
+        <div id="privacy_patterns"
+             class="collapse property-definition-div" aria-labelledby="headingprivacy_patterns"
+             data-parent="#accordionprivacy_patterns">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy" onclick="anchorLink('privacy')">privacy</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy_patterns" onclick="anchorLink('privacy_patterns')">patterns</a></div><span class="badge badge-dark value-type">Type: array of string</span> <span class="badge badge-success default-value">Default: ["default"]</span><br/>
+
+        
+
+        
+        
+
+         <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
+    <div class="card">
+        <div class="card-body items-definition" id="privacy_patterns_items">
+            
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy" onclick="anchorLink('privacy')">privacy</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy_patterns" onclick="anchorLink('privacy_patterns')">patterns</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy_patterns_items" onclick="anchorLink('privacy_patterns_items')">patterns items</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
+
+        
+
+        
+        
+
+        
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="accordion" id="accordionprivacy_strategy">
+    <div class="card">
+        <div class="card-header" id="headingprivacy_strategy">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#privacy_strategy"
+                        aria-expanded="" aria-controls="privacy_strategy" onclick="setAnchor('#privacy_strategy')"><span class="property-name">strategy</span></button>
+            </h2>
+        </div>
+
+        <div id="privacy_strategy"
+             class="collapse property-definition-div" aria-labelledby="headingprivacy_strategy"
+             data-parent="#accordionprivacy_strategy">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy" onclick="anchorLink('privacy')">privacy</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#privacy_strategy" onclick="anchorLink('privacy_strategy')">strategy</a></div><span class="badge badge-dark value-type">Type: enum (of string)</span> <span class="badge badge-success default-value">Default: "replace"</span><br/>
+<span class="description"><p>How matching terminal data is anonymized before being sent to an agent.</p>
+</span>
+
+    <div class="enum-value" id="privacy_strategy_enum">
+            <h4>Must be one of:</h4>
+            <ul class="list-group"><li class="list-group-item enum-item">"replace"</li><li class="list-group-item enum-item">"mask"</li><li class="list-group-item enum-item">"hash"</li><li class="list-group-item enum-item">"encrypt"</li><li class="list-group-item enum-item">"redact"</li></ul>
+            </div>
+        
+
+        
+        
+
+        
+            </div>
+        </div>
+    </div>
+</div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="accordion" id="accordionshell">
+    <div class="card">
+        <div class="card-header" id="headingshell">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#shell"
+                        aria-expanded="" aria-controls="shell" onclick="setAnchor('#shell')"><span class="property-name">shell</span></button>
+            </h2>
+        </div>
+
+        <div id="shell"
+             class="collapse property-definition-div" aria-labelledby="headingshell"
+             data-parent="#accordionshell">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell" onclick="anchorLink('shell')">shell</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"args": [], "command": null}</span><br/>
+<span class="description"><p>Default wrapped shell.</p>
+</span>
+
+     <span class="badge badge-info no-additional">No Additional Properties</span>
+        
+
+        
+        
+
+        
+<div class="accordion" id="accordionshell_args">
+    <div class="card">
+        <div class="card-header" id="headingshell_args">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#shell_args"
+                        aria-expanded="" aria-controls="shell_args" onclick="setAnchor('#shell_args')"><span class="property-name">args</span></button>
+            </h2>
+        </div>
+
+        <div id="shell_args"
+             class="collapse property-definition-div" aria-labelledby="headingshell_args"
+             data-parent="#accordionshell_args">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell" onclick="anchorLink('shell')">shell</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell_args" onclick="anchorLink('shell_args')">args</a></div><span class="badge badge-dark value-type">Type: array of string</span> <span class="badge badge-success default-value">Default: []</span><br/>
+
+        
+
+        
+        
+
+         <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
+    <div class="card">
+        <div class="card-body items-definition" id="shell_args_items">
+            
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell" onclick="anchorLink('shell')">shell</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell_args" onclick="anchorLink('shell_args')">args</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell_args_items" onclick="anchorLink('shell_args_items')">args items</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
+
+        
+
+        
+        
+
+        
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="accordion" id="accordionshell_command">
+    <div class="card">
+        <div class="card-header" id="headingshell_command">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#shell_command"
+                        aria-expanded="" aria-controls="shell_command" onclick="setAnchor('#shell_command')"><span class="property-name">command</span></button>
+            </h2>
+        </div>
+
+        <div id="shell_command"
+             class="collapse property-definition-div" aria-labelledby="headingshell_command"
+             data-parent="#accordionshell_command">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell" onclick="anchorLink('shell')">shell</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#shell_command" onclick="anchorLink('shell_command')">command</a></div><span class="badge badge-dark value-type">Type: string or null</span> <span class="badge badge-success default-value">Default: null</span><br/>
+
+        
+
+        
+        
+
+        
+            </div>
+        </div>
+    </div>
+</div>
+            </div>
+        </div>
+    </div>
+</div>
 
     <footer>
-        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-15 at 00:07:03 +0300</p>
+        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-17 at 15:27:21 +0300</p>
     </footer></body>
 </html>
