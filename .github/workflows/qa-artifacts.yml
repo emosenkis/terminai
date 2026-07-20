@@ -18,32 +18,25 @@ jobs:
             runs_on: ubuntu-latest
             os: linux
             target: x86_64-unknown-linux-musl
-            arch: x86_64
             suffix: linux-x86_64-musl
-            ext: tar.gz
             binary_name: terminai
           - name: macOS x86_64
             runs_on: macos-15-intel
             os: unix
             target: x86_64-apple-darwin
-            arch: x86_64
             suffix: darwin-x86_64
-            ext: tar.gz
             binary_name: terminai
           - name: macOS arm64
             runs_on: macos-14
             os: unix
             target: aarch64-apple-darwin
-            arch: aarch64
             suffix: darwin-aarch64
-            ext: tar.gz
             binary_name: terminai
           - name: Windows x86_64
             runs_on: windows-latest
             os: windows
             target: x86_64-pc-windows-msvc
             suffix: windows-x86_64
-            ext: zip
             binary_name: terminai.exe
 
     steps:
@@ -61,41 +54,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      - name: Resolve version
-        id: version
-        if: matrix.os != 'windows'
-        run: |
-          version="$(bash scripts/version.sh)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --bin terminai
 
-      - name: Resolve version
-        id: version_windows
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: |
-          $metadata = cargo metadata --format-version 1 --no-deps | ConvertFrom-Json
-          $version = ($metadata.packages | Where-Object { $_.name -eq 'termin' }).version
-          "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Build Unix archive
-        if: matrix.os != 'windows'
-        run: ARCH=${{ matrix.arch }} bash scripts/build-unix.sh
-
-      - name: Build Windows archive
-        if: matrix.os == 'windows'
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version_windows.outputs.version }}"
-          $staging = "release/terminai-$version-${{ matrix.suffix }}"
-          New-Item -ItemType Directory -Force -Path $staging | Out-Null
-          cargo build --release --target ${{ matrix.target }}
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "$staging/${{ matrix.binary_name }}"
-          Compress-Archive -Path "$staging/${{ matrix.binary_name }}" -DestinationPath "release/terminai-$version-${{ matrix.suffix }}.${{ matrix.ext }}" -Force
-
-      - name: Upload archive
+      - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:
           name: terminai-${{ matrix.suffix }}
-          path: release/terminai-*-${{ matrix.suffix }}.${{ matrix.ext }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary_name }}
           if-no-files-found: error
           retention-days: 14

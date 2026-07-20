@@ -100,11 +100,23 @@ mod tests {
 
   async fn read_configured_terminal(
     config: TerminaiConfig,
-    command: String,
+    output: &str,
   ) -> String {
+    #[cfg(windows)]
+    let command = (
+      "cmd.exe",
+      vec![
+        "/C".to_string(),
+        format!("echo {output} & timeout /T 1 /NOBREAK >NUL"),
+      ],
+    );
+    #[cfg(not(windows))]
+    let command = (
+      "/bin/sh",
+      vec!["-c".to_string(), format!("printf '{output}\\n'; sleep 1")],
+    );
     let (shell, mut events) =
-      Shell::spawn_command("/bin/sh", &["-c".to_string(), command], 24, 120)
-        .unwrap();
+      Shell::spawn_command(command.0, &command.1, 24, 120).unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
       .await
       .expect("shell should write terminal output");
@@ -131,11 +143,9 @@ mod tests {
   async fn read_terminal_applies_default_privacy_config_before_returning_content()
    {
     let config: TerminaiConfig = serde_yaml::from_str("privacy: {}\n").unwrap();
-    let text = read_configured_terminal(
-      config,
-      "printf 'email=user@example.com ip=192.0.2.1\\n'; sleep 1".to_string(),
-    )
-    .await;
+    let text =
+      read_configured_terminal(config, "email=user@example.com ip=192.0.2.1")
+        .await;
 
     assert!(!text.contains("user@example.com"));
     assert!(text.contains("[EMAIL_ADDRESS]"));
@@ -150,7 +160,7 @@ mod tests {
     let bitcoin = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
     let text = read_configured_terminal(
       config,
-      format!("printf 'ssn=123-45-6789 btc={bitcoin}\\n'; sleep 1"),
+      &format!("ssn=123-45-6789 btc={bitcoin}"),
     )
     .await;
 
