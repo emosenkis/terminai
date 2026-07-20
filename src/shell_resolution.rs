@@ -74,7 +74,7 @@ pub fn powershell_bootstrap() -> String {
 }
 
 pub fn cmd_bootstrap() -> String {
-  "set \"PROMPT=$E]7;file:///$P$G$PROMPT\"".into()
+  "set \"PROMPT=$E]7;file:///$P$E\\$G$PROMPT\"".into()
 }
 
 fn with_bootstrap(
@@ -208,5 +208,13 @@ mod tests {
   fn bootstrap_payloads_emit_osc7() {
     assert!(powershell_bootstrap().contains("]7;file:///"));
     assert!(cmd_bootstrap().contains("$P"));
+  }
+
+  #[test]
+  fn cmd_bootstrap_terminates_osc7_before_the_prompt() {
+    assert_eq!(
+      cmd_bootstrap(),
+      "set \"PROMPT=$E]7;file:///$P$E\\$G$PROMPT\""
+    );
   }
 }
