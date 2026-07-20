@@ -1,5 +1,6 @@
 codex:
   command: codex
+  show-in-switcher: true
   uses-mcp: true
   uses-tool-cli: true
   args:

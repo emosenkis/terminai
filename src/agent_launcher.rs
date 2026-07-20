@@ -174,6 +174,24 @@ fn builtin_agent_presets() -> Result<HashMap<String, AgentPresetConfig>> {
   Ok(builtin_agent_config()?.presets)
 }
 
+pub fn available_agent_presets(
+  user_presets: &HashMap<String, AgentPresetConfig>,
+) -> Result<Vec<String>> {
+  let mut names: HashSet<String> = builtin_agent_presets()?
+    .into_iter()
+    .filter_map(|(name, preset)| preset.show_in_switcher.then_some(name))
+    .collect();
+  names.extend(
+    user_presets
+      .iter()
+      .filter(|(_, preset)| preset.show_in_switcher)
+      .map(|(name, _)| name.clone()),
+  );
+  let mut names: Vec<_> = names.into_iter().collect();
+  names.sort();
+  Ok(names)
+}
+
 fn builtin_preset(name: &str) -> Result<Option<AgentPresetConfig>> {
   Ok(builtin_agent_presets()?.remove(name))
 }
@@ -538,6 +556,30 @@ mod tests {
     );
     assert!(BUILTIN_DEFAULT_PROMPT.contains("check_for_updates"));
     assert!(BUILTIN_DEFAULT_PROMPT.contains("{% block introduction %}"));
+  }
+
+  #[test]
+  fn switcher_lists_builtins_and_visible_user_presets() {
+    let mut presets = HashMap::new();
+    presets.insert(
+      "visible".to_string(),
+      AgentPresetConfig {
+        command: Some("visible-agent".to_string()),
+        ..Default::default()
+      },
+    );
+    presets.insert(
+      "hidden".to_string(),
+      AgentPresetConfig {
+        command: Some("hidden-agent".to_string()),
+        show_in_switcher: false,
+        ..Default::default()
+      },
+    );
+
+    let names = available_agent_presets(&presets).unwrap();
+
+    assert_eq!(names, ["claude", "codex", "opencode", "visible"]);
   }
 
   #[test]

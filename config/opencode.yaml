@@ -1,4 +1,5 @@
 opencode:
   command: opencode
+  show-in-switcher: true
   args:
     - "{{ context_prompt }}"

@@ -21,6 +21,18 @@ pub enum ChatPosition {
   Top,
 }
 
+/// How agent-suggested shell input is handled.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApprovalMode {
+  #[default]
+  AlwaysAsk,
+  AutoApproval,
+}
+
 impl Default for ChatPosition {
   fn default() -> Self {
     Self::Bottom
@@ -81,6 +93,33 @@ pub struct KeyBindingsConfig {
   pub deactivate_overlay: OneOrMoreBindings,
   pub approve: OneOrMoreBindings,
   pub deny: OneOrMoreBindings,
+  #[serde(
+    default = "default_toggle_approval_mode_binding",
+    rename = "toggle-approval-mode"
+  )]
+  pub toggle_approval_mode: OneOrMoreBindings,
+  #[serde(default = "default_switch_agent_binding", rename = "switch-agent")]
+  pub switch_agent: OneOrMoreBindings,
+  #[serde(default = "default_clear_history_binding", rename = "clear-history")]
+  pub clear_history: OneOrMoreBindings,
+  #[serde(default = "default_control_panel_binding", rename = "control-panel")]
+  pub control_panel: OneOrMoreBindings,
+}
+
+fn default_toggle_approval_mode_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(f7))
+}
+
+fn default_switch_agent_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(f8))
+}
+
+fn default_clear_history_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(f9))
+}
+
+fn default_control_panel_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(f10))
 }
 
 impl Default for KeyBindingsConfig {
@@ -90,6 +129,10 @@ impl Default for KeyBindingsConfig {
       deactivate_overlay: OneOrMoreBindings::Single(key!(ctrl - space)),
       approve: OneOrMoreBindings::Single(key!(y)),
       deny: OneOrMoreBindings::Single(key!(n)),
+      toggle_approval_mode: default_toggle_approval_mode_binding(),
+      switch_agent: default_switch_agent_binding(),
+      clear_history: default_clear_history_binding(),
+      control_panel: default_control_panel_binding(),
     }
   }
 }
@@ -317,7 +360,7 @@ impl Default for AgentConfig {
 /// Agent preset configuration.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct AgentPresetConfig {
   #[serde(default)]
@@ -374,6 +417,29 @@ pub struct AgentPresetConfig {
   pub uses_mcp: Option<bool>,
   #[serde(default)]
   pub uses_tool_cli: Option<bool>,
+  /// Whether this preset appears in the in-app agent switcher.
+  #[serde(default = "default_true")]
+  pub show_in_switcher: bool,
+}
+
+fn default_true() -> bool {
+  true
+}
+
+impl Default for AgentPresetConfig {
+  fn default() -> Self {
+    Self {
+      extends: None,
+      command: None,
+      args: Vec::new(),
+      extra_args: Vec::new(),
+      prompt_template: None,
+      env: HashMap::new(),
+      uses_mcp: None,
+      uses_tool_cli: None,
+      show_in_switcher: true,
+    }
+  }
 }
 
 /// Top-level Terminai configuration loaded from
@@ -386,6 +452,9 @@ pub struct AgentPresetConfig {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminaiConfig {
+  /// Startup policy for agent-suggested shell input.
+  #[serde(default, rename = "approval-mode")]
+  pub approval_mode: ApprovalMode,
   /// Default wrapped shell.
   #[serde(default)]
   pub shell: ShellConfig,
@@ -449,6 +518,53 @@ agent:
     assert_eq!(config.agent.preset.as_deref(), Some("claude"));
     // Interface defaults to bottom when not specified
     assert_eq!(config.interface.chat_position, ChatPosition::Bottom);
+  }
+
+  #[test]
+  fn runtime_control_defaults_are_conservative() {
+    let config: TerminaiConfig = serde_yaml::from_str("{}").unwrap();
+
+    assert_eq!(config.approval_mode, ApprovalMode::AlwaysAsk);
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .toggle_approval_mode
+        .matches(key!(f7))
+    );
+    assert!(config.interface.key_bindings.switch_agent.matches(key!(f8)));
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .clear_history
+        .matches(key!(f9))
+    );
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .control_panel
+        .matches(key!(f10))
+    );
+    assert!(AgentPresetConfig::default().show_in_switcher);
+  }
+
+  #[test]
+  fn auto_approval_and_hidden_presets_deserialize() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+approval-mode: auto-approval
+agent-presets:
+  hidden:
+    command: hidden-agent
+    show-in-switcher: false
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(config.approval_mode, ApprovalMode::AutoApproval);
+    assert!(!config.agent_presets["hidden"].show_in_switcher);
   }
 
   #[test]
