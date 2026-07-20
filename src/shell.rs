@@ -421,6 +421,12 @@ pub struct ReplySender {
   tx: UnboundedSender<ShellEvent>,
 }
 
+impl ReplySender {
+  pub(crate) fn new(tx: UnboundedSender<ShellEvent>) -> Self {
+    Self { tx }
+  }
+}
+
 impl crate::vt100::TermReplySender for ReplySender {
   fn reply(&self, reply: compact_str::CompactString) {
     // Send terminal reply back to event loop to write to PTY

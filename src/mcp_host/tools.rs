@@ -95,48 +95,20 @@ impl TerminaiMcpState {
 mod tests {
   use super::*;
   use crate::{
-    privacy::PrivacyFilter, shell::Shell, terminai_config::TerminaiConfig,
+    privacy::PrivacyFilter, shell::ReplySender, terminai_config::TerminaiConfig,
   };
 
   async fn read_configured_terminal(
     config: TerminaiConfig,
     output: &str,
   ) -> String {
-    #[cfg(windows)]
-    let command = ("cmd.exe", vec!["/C".to_string(), format!("echo {output}")]);
-    #[cfg(not(windows))]
-    let command = (
-      "/bin/sh",
-      vec!["-c".to_string(), format!("printf '{output}\\n'; sleep 1")],
-    );
-    let (shell, mut events) =
-      Shell::spawn_command(command.0, &command.1, 24, 120).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-      loop {
-        let screen_text = shell
-          .vt
-          .read()
-          .unwrap()
-          .screen()
-          .all_rows()
-          .flat_map(|row| (0..120).filter_map(move |col| row.get(col)))
-          .map(|cell| cell.contents())
-          .collect::<String>();
-        if screen_text.contains(output) {
-          break;
-        }
-        match events.recv().await {
-          Some(crate::shell::ShellEvent::Output(wakeup)) => wakeup.clear(),
-          Some(_) => (),
-          None => panic!("shell event stream ended before writing output"),
-        }
-      }
-    })
-    .await
-    .expect("shell should write terminal output");
+    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let mut parser =
+      vt100::Parser::new(24, 120, 1000, ReplySender::new(event_tx));
+    parser.process(format!("{output}\r\n").as_bytes());
     let (tx, _suggestion_rx) = mpsc::unbounded_channel();
     let state = TerminaiMcpState::with_privacy_filter(
-      shell.vt.clone(),
+      Arc::new(RwLock::new(parser)),
       tx,
       "test-shell",
       PrivacyFilter::from_config(&config.privacy).unwrap(),
