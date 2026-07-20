@@ -117,9 +117,29 @@ mod tests {
     );
     let (shell, mut events) =
       Shell::spawn_command(command.0, &command.1, 24, 120).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
-      .await
-      .expect("shell should write terminal output");
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+      loop {
+        let screen_text = shell
+          .vt
+          .read()
+          .unwrap()
+          .screen()
+          .all_rows()
+          .flat_map(|row| (0..120).filter_map(move |col| row.get(col)))
+          .map(|cell| cell.contents())
+          .collect::<String>();
+        if screen_text.contains(output) {
+          break;
+        }
+        match events.recv().await {
+          Some(crate::shell::ShellEvent::Output(wakeup)) => wakeup.clear(),
+          Some(_) => (),
+          None => panic!("shell event stream ended before writing output"),
+        }
+      }
+    })
+    .await
+    .expect("shell should write terminal output");
     let (tx, _suggestion_rx) = mpsc::unbounded_channel();
     let state = TerminaiMcpState::with_privacy_filter(
       shell.vt.clone(),
