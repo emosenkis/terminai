@@ -103,13 +103,7 @@ mod tests {
     output: &str,
   ) -> String {
     #[cfg(windows)]
-    let command = (
-      "cmd.exe",
-      vec![
-        "/C".to_string(),
-        format!("echo {output} & timeout /T 1 /NOBREAK >NUL"),
-      ],
-    );
+    let command = ("cmd.exe", vec!["/C".to_string(), format!("echo {output}")]);
     #[cfg(not(windows))]
     let command = (
       "/bin/sh",
