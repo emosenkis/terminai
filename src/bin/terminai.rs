@@ -2500,7 +2500,7 @@ fn render(
         buf,
         modal,
         state.approval_mode,
-        &state.agent_modal_title,
+        &state.active_agent_name,
       );
       ctx.set_screen_cursor(None);
     }
