@@ -3,6 +3,14 @@
 
 interface:
   chat-position: bottom
+  key_bindings:
+    toggle-approval-mode: F7
+    switch-agent: F8
+    clear-history: F9
+    control-panel: F10
+
+# DANGER: auto-approval sends every AI suggestion directly to the shell.
+approval-mode: always-ask
 
 agent:
   preset: codex
@@ -14,6 +22,7 @@ agent-presets:
   # Example: extend a bundled preset.
   # codex-fast:
   #   extends: codex
+  #   show-in-switcher: true
   #   extra-args:
   #     - --model
   #     - gpt-5

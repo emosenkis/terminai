@@ -19,6 +19,14 @@ interface:
     deactivate-overlay: "Ctrl-Space"
     approve: "Y"
     deny: "N"
+    toggle-approval-mode: "F7"
+    switch-agent: "F8"
+    clear-history: "F9"
+    control-panel: "F10"
+
+# DANGER: auto-approval sends every AI suggestion directly to the shell
+# without consulting the command risk classifier.
+approval-mode: always-ask
 
 # Terminal text returned to an AI agent is filtered with Redact's
 # pattern-based recognizers. `default` redacts credentials and strong personal
@@ -50,6 +58,7 @@ agent:
 # - config/opencode.yaml
 # - config/default.jinja
 # Add overrides or new presets here using the same shape.
+# Set show-in-switcher: false on a user preset to hide it from the picker.
 agent-presets: {}
 "#,
 );

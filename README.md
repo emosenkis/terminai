@@ -74,6 +74,11 @@ terminai -- zsh -l
 
 Use the terminal normally and press `Ctrl+Space` when you want the agent. Press `Ctrl+Space` or `Esc` to return to the shell. When an agent queues input, review it and press `y` to approve or `n` to deny; these bindings are configurable.
 
+While the agent overlay is open, press `F10` for Terminai controls. `F7`
+changes command approval mode, `F8` switches agent, and `F9` clears the
+internal shell history available to agents. These overlay-only bindings are
+configurable.
+
 For a terminal-emulator workflow, create a separate profile whose command is `terminai` and keep the emulator's normal shell profile as a fallback.
 
 ## Configuration
@@ -102,10 +107,21 @@ interface:
     deactivate-overlay: Ctrl-Space
     approve: y
     deny: n
+    toggle-approval-mode: F7
+    switch-agent: F8
+    clear-history: F9
+    control-panel: F10
 
+approval-mode: always-ask
 agent:
   preset: codex
 ```
+
+`approval-mode` can be `always-ask` or `auto-approval`. Auto-approval sends
+every agent suggestion directly to the shell without consulting the command
+risk classifier. Terminai marks this mode with `⚠ AUTO-APPROVE`; enabling it
+in-app requires confirmation. In-app mode and agent changes last for the
+current session only.
 
 Switch to another bundled preset by changing `agent.preset`:
 
@@ -127,6 +143,7 @@ agent:
 agent-presets:
   codex-fast:
     extends: codex
+    show-in-switcher: true
     extra-args:
       - --model
       - gpt-5
@@ -162,6 +179,12 @@ Custom templates can extend the bundled prompt and override individual blocks:
 ```
 
 The generated [configuration reference](https://terminai.app/config.html) documents every field, and versioned JSON Schemas are published at `https://terminai.app/schema-v<version>.json`.
+
+The agent picker includes bundled presets and user presets unless a user
+preset sets `show-in-switcher: false`. Switching terminates the current agent
+session after confirmation and launches a fresh one. “Clear AI-readable
+history” removes only Terminai's internal shell scrollback: the current screen
+and terminal emulator's native scrollback remain intact.
 
 ## MCP interface and safety boundary
 

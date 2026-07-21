@@ -28,8 +28,11 @@ pub enum ChatPosition {
 )]
 #[serde(rename_all = "kebab-case")]
 pub enum ApprovalMode {
+  /// Require explicit user approval for every suggested shell input.
   #[default]
   AlwaysAsk,
+  /// Immediately send every AI suggestion to the shell. Dangerous: the
+  /// command risk classifier is not consulted.
   AutoApproval,
 }
 
@@ -93,15 +96,19 @@ pub struct KeyBindingsConfig {
   pub deactivate_overlay: OneOrMoreBindings,
   pub approve: OneOrMoreBindings,
   pub deny: OneOrMoreBindings,
+  /// Toggle command approval mode while the AI overlay is active.
   #[serde(
     default = "default_toggle_approval_mode_binding",
     rename = "toggle-approval-mode"
   )]
   pub toggle_approval_mode: OneOrMoreBindings,
+  /// Open the agent picker while the AI overlay is active.
   #[serde(default = "default_switch_agent_binding", rename = "switch-agent")]
   pub switch_agent: OneOrMoreBindings,
+  /// Clear AI-readable internal history while the AI overlay is active.
   #[serde(default = "default_clear_history_binding", rename = "clear-history")]
   pub clear_history: OneOrMoreBindings,
+  /// Open the Terminai control panel while the AI overlay is active.
   #[serde(default = "default_control_panel_binding", rename = "control-panel")]
   pub control_panel: OneOrMoreBindings,
 }
@@ -452,7 +459,9 @@ impl Default for AgentPresetConfig {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct TerminaiConfig {
-  /// Startup policy for agent-suggested shell input.
+  /// Startup policy for agent-suggested shell input. `auto-approval` is
+  /// dangerous and sends every suggestion without consulting the risk
+  /// classifier.
   #[serde(default, rename = "approval-mode")]
   pub approval_mode: ApprovalMode,
   /// Default wrapped shell.

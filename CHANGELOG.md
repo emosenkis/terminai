@@ -1,3 +1,9 @@
+## Unreleased
+
+- Add session-level always-ask and dangerous auto-approval modes, an overlay
+  control panel, configurable overlay-only management shortcuts, internal
+  history clearing, and confirmed switching between configured AI agents.
+
 ## 0.1.10 - 2026-07-17
 
 - Replace fixed terminal redaction with configurable privacy filters powered by Redact.
