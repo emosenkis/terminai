@@ -39,7 +39,8 @@ use tui::Frame;
 
 use tui::{
   layout::Rect,
-  style::{Color, Style},
+  style::{Color, Modifier, Style},
+  text::{Line, Span},
   widgets::{
     Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
     ScrollbarState, StatefulWidget, Widget,
@@ -75,7 +76,7 @@ use termin::privacy::PrivacyFilter;
 use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
-use termin::terminai_config::{ChatPosition, TerminaiConfig};
+use termin::terminai_config::{ApprovalMode, ChatPosition, TerminaiConfig};
 use termin::ui_approval::{
   ApprovalAction, approval_action_at, approval_content_line_count,
   approval_modal_area, approval_viewport_height, max_approval_scroll,
@@ -86,6 +87,35 @@ use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
 use termin::shell_resolution::{parent_shell, resolve_shell};
 
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SuggestionAction {
+  Ask,
+  AutoApprove,
+}
+
+fn suggestion_action(
+  mode: ApprovalMode,
+  _risk: termin::command::RiskLevel,
+) -> SuggestionAction {
+  match mode {
+    ApprovalMode::AlwaysAsk => SuggestionAction::Ask,
+    ApprovalMode::AutoApproval => SuggestionAction::AutoApprove,
+  }
+}
+
+fn approval_status(mode: ApprovalMode) -> Option<Line<'static>> {
+  (mode == ApprovalMode::AutoApproval).then(|| {
+    Line::from(Span::styled(
+      " ⚠ AUTO-APPROVE ",
+      Style::default()
+        .fg(Color::Yellow)
+        .bg(Color::Black)
+        .add_modifier(Modifier::BOLD),
+    ))
+    .right_aligned()
+  })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RecoveryPhase {
@@ -1362,6 +1392,7 @@ fn run_interactive(
     agent_view: TerminalViewState::new(),
     suggestion_rx,
     pending_command: None,
+    approval_mode: config.approval_mode,
     approval_scroll: 0,
     approval_focus: ApprovalAction::Approve,
     agent_exit_status: None,
@@ -1423,6 +1454,7 @@ struct AppState {
   agent_view: TerminalViewState,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   pending_command: Option<PendingCommand>,
+  approval_mode: ApprovalMode,
   approval_scroll: usize,
   approval_focus: ApprovalAction,
   agent_exit_status: Option<i32>,
@@ -1709,9 +1741,13 @@ impl AppState {
         suggestion.command,
         suggestion.risk_level
       );
+      let action = suggestion_action(self.approval_mode, suggestion.risk_level);
       self.pending_command = Some(suggestion);
       self.approval_scroll = 0;
       self.approval_focus = ApprovalAction::Approve;
+      if action == SuggestionAction::AutoApprove {
+        self.run_approval_action(ApprovalAction::Approve);
+      }
       changed = true;
     }
     changed
@@ -2103,10 +2139,13 @@ fn render(
     // Clear the overlay area to prevent terminal content from showing through
     Clear.render(overlay_area, buf);
     let title = format!(" {} ", state.agent_modal_title);
-    let block = Block::default()
+    let mut block = Block::default()
       .borders(Borders::ALL)
       .title(title)
       .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+    if let Some(status) = approval_status(state.approval_mode) {
+      block = block.title(status);
+    }
     block.render(overlay_area, buf);
 
     if let Some(ref agent) = state.agent_terminal {
@@ -2531,6 +2570,33 @@ mod tests {
   use super::*;
 
   #[test]
+  fn auto_approval_does_not_treat_risk_classification_as_a_boundary() {
+    for risk in [
+      termin::command::RiskLevel::Safe,
+      termin::command::RiskLevel::Caution,
+      termin::command::RiskLevel::Dangerous,
+    ] {
+      assert_eq!(
+        suggestion_action(ApprovalMode::AlwaysAsk, risk),
+        SuggestionAction::Ask
+      );
+      assert_eq!(
+        suggestion_action(ApprovalMode::AutoApproval, risk),
+        SuggestionAction::AutoApprove
+      );
+    }
+  }
+
+  #[test]
+  fn auto_approval_status_is_explicit_and_warn_colored() {
+    assert!(approval_status(ApprovalMode::AlwaysAsk).is_none());
+
+    let status = approval_status(ApprovalMode::AutoApproval).unwrap();
+    assert_eq!(status.spans[0].content, " ⚠ AUTO-APPROVE ");
+    assert_eq!(status.spans[0].style.fg, Some(Color::Yellow));
+  }
+
+  #[test]
   fn startup_terminal_size_uses_default_when_any_dimension_is_zero() {
     assert_eq!(startup_terminal_size(0, 0), (80, 24));
     assert_eq!(startup_terminal_size(0, 24), (80, 24));
@@ -2928,6 +2994,7 @@ mod tests {
       agent_view: TerminalViewState::new(),
       suggestion_rx,
       pending_command: Some(pending),
+      approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
@@ -2989,6 +3056,7 @@ mod tests {
       agent_view: TerminalViewState::new(),
       suggestion_rx,
       pending_command: Some(pending),
+      approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
@@ -3040,6 +3108,7 @@ mod tests {
       agent_view: TerminalViewState::new(),
       suggestion_rx,
       pending_command: Some(pending),
+      approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
@@ -3091,6 +3160,7 @@ mod tests {
       agent_view: TerminalViewState::new(),
       suggestion_rx,
       pending_command: Some(pending),
+      approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
@@ -3141,6 +3211,7 @@ mod tests {
       agent_view: TerminalViewState::new(),
       suggestion_rx,
       pending_command: Some(pending),
+      approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       agent_exit_status: None,
