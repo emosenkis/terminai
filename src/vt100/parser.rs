@@ -74,6 +74,11 @@ impl<Reply: TermReplySender + Clone> Parser<Reply> {
     self.screen.drain_pending_native_scrollback(count)
   }
 
+  /// Discards internal scrollback while preserving the visible screen.
+  pub fn clear_scrollback(&mut self) {
+    self.screen.clear_scrollback();
+  }
+
   /// Returns a reference to a `Screen` object containing the terminal
   /// state.
   #[must_use]
@@ -113,5 +118,40 @@ mod tests {
 
     assert_eq!(parser.screen().size().cols, 80);
     assert_eq!(parser.screen().cell(0, 0).unwrap().contents(), "o");
+  }
+
+  #[test]
+  fn clear_scrollback_preserves_visible_screen() {
+    let mut parser = Parser::new(3, 8, 100, TestReplySender);
+    for i in 0..8 {
+      parser.process(format!("line-{i}\r\n").as_bytes());
+    }
+    let visible_before = parser
+      .screen()
+      .drawing_rows()
+      .map(|row| {
+        let mut text = String::new();
+        row.write_contents(&mut text, 0, row.cols(), false);
+        text
+      })
+      .collect::<Vec<_>>();
+    assert!(parser.screen().total_rows() > 3);
+    assert!(parser.pending_native_scrollback_len() > 0);
+
+    parser.clear_scrollback();
+
+    let visible_after = parser
+      .screen()
+      .drawing_rows()
+      .map(|row| {
+        let mut text = String::new();
+        row.write_contents(&mut text, 0, row.cols(), false);
+        text
+      })
+      .collect::<Vec<_>>();
+    assert_eq!(visible_after, visible_before);
+    assert_eq!(parser.screen().total_rows(), 3);
+    assert_eq!(parser.screen().scrollback(), 0);
+    assert_eq!(parser.pending_native_scrollback_len(), 0);
   }
 }

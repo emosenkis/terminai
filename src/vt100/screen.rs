@@ -202,6 +202,11 @@ impl<Reply: TermReplySender> Screen<Reply> {
     self.grid_mut().drain_pending_native_scrollback(count)
   }
 
+  pub fn clear_scrollback(&mut self) {
+    self.grid.clear_scrollback();
+    self.alternate_grid.clear_scrollback();
+  }
+
   pub fn set_scrollback(&mut self, rows: usize) {
     self.grid_mut().set_scrollback(rows);
   }

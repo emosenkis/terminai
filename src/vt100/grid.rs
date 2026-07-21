@@ -313,6 +313,13 @@ impl Grid {
     self.pending_native_scrollback.drain(0..count).collect()
   }
 
+  pub fn clear_scrollback(&mut self) {
+    let scrollback_rows = self.row0();
+    self.rows.drain(..scrollback_rows);
+    self.scrollback_offset = 0;
+    self.pending_native_scrollback.clear();
+  }
+
   pub fn set_scrollback(&mut self, rows: usize) {
     self.scrollback_offset = rows.min(self.row0());
   }
