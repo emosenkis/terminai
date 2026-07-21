@@ -1,4 +1,4 @@
-## Unreleased
+## 0.1.11 - 2026-07-21
 
 - Add session-level always-ask and dangerous auto-approval modes, an overlay
   control panel, configurable overlay-only management shortcuts, internal
