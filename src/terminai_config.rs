@@ -39,7 +39,7 @@ impl Default for ChatPosition {
   }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum OneOrMoreBindings {
   Single(KeyCombination),
@@ -246,7 +246,7 @@ impl From<&str> for AgentArg {
 /// Agent configuration.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct AgentConfig {
   #[serde(default)]

@@ -59,7 +59,8 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 
 // Import only what we need from the crate
 use termin::agent_launcher::{
-  AgentLaunchContext, AgentLaunchPlan, build_launch_plan,
+  AgentLaunchContext, AgentLaunchPlan, available_agent_presets,
+  build_launch_plan,
 };
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
@@ -76,11 +77,16 @@ use termin::privacy::PrivacyFilter;
 use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
-use termin::terminai_config::{ApprovalMode, ChatPosition, TerminaiConfig};
+use termin::terminai_config::{
+  AgentConfig, ApprovalMode, ChatPosition, TerminaiConfig,
+};
 use termin::ui_approval::{
   ApprovalAction, approval_action_at, approval_content_line_count,
   approval_modal_area, approval_viewport_height, max_approval_scroll,
   render_shell_input_approval_with_state,
+};
+use termin::ui_controls::{
+  ControlModal, ControlPanelItem, render_control_modal,
 };
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
@@ -115,6 +121,44 @@ fn approval_status(mode: ApprovalMode) -> Option<Line<'static>> {
     ))
     .right_aligned()
   })
+}
+
+fn startup_agent_name(config: &TerminaiConfig) -> String {
+  config
+    .agent
+    .preset
+    .clone()
+    .or_else(|| config.agent.command.clone())
+    .unwrap_or_else(|| "codex".to_string())
+}
+
+fn switcher_agents(config: &TerminaiConfig) -> Result<Vec<String>> {
+  let mut agents = available_agent_presets(&config.agent_presets)?;
+  let startup = startup_agent_name(config);
+  if !agents.contains(&startup) {
+    agents.push(startup);
+    agents.sort();
+  }
+  Ok(agents)
+}
+
+fn agent_config_for_choice(
+  config: &TerminaiConfig,
+  choice: &str,
+) -> AgentConfig {
+  if startup_agent_name(config) == choice {
+    return config.agent.clone();
+  }
+  AgentConfig {
+    preset: Some(choice.to_string()),
+    kind: None,
+    command: None,
+    args: Vec::new(),
+    extra_args: Vec::new(),
+    prompt_template: None,
+    uses_mcp: None,
+    uses_tool_cli: None,
+  }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1388,6 +1432,8 @@ fn run_interactive(
     agent_terminal: None,
     mcp_server,
     agent_launch_plan,
+    active_agent_name: startup_agent_name(&config),
+    active_agent_config: config.agent.clone(),
     agent_event_rx,
     agent_view: TerminalViewState::new(),
     suggestion_rx,
@@ -1395,6 +1441,7 @@ fn run_interactive(
     approval_mode: config.approval_mode,
     approval_scroll: 0,
     approval_focus: ApprovalAction::Approve,
+    control_modal: None,
     agent_exit_status: None,
     agent_modal_title: "AI Terminal".to_string(),
     ai_visible: false,
@@ -1450,6 +1497,8 @@ struct AppState {
   agent_terminal: Option<AgentTerminal>,
   mcp_server: Option<McpServerHandle>,
   agent_launch_plan: Option<AgentLaunchPlan>,
+  active_agent_name: String,
+  active_agent_config: AgentConfig,
   agent_event_rx: SharedAgentReceiver,
   agent_view: TerminalViewState,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
@@ -1457,6 +1506,7 @@ struct AppState {
   approval_mode: ApprovalMode,
   approval_scroll: usize,
   approval_focus: ApprovalAction,
+  control_modal: Option<ControlModal>,
   agent_exit_status: Option<i32>,
   agent_modal_title: String,
   ai_visible: bool,
@@ -1746,11 +1796,188 @@ impl AppState {
       self.approval_scroll = 0;
       self.approval_focus = ApprovalAction::Approve;
       if action == SuggestionAction::AutoApprove {
+        self.control_modal = None;
         self.run_approval_action(ApprovalAction::Approve);
       }
       changed = true;
     }
     changed
+  }
+
+  fn request_approval_mode_toggle(&mut self) {
+    if self.approval_mode == ApprovalMode::AutoApproval {
+      self.approval_mode = ApprovalMode::AlwaysAsk;
+      self.control_modal = None;
+    } else {
+      self.control_modal = Some(ControlModal::confirm_auto_approval());
+    }
+  }
+
+  fn open_agent_picker(&mut self) {
+    match switcher_agents(&self.config) {
+      Ok(agents) => {
+        let selected = agents
+          .iter()
+          .position(|name| name == &self.active_agent_name)
+          .unwrap_or(0);
+        let mut modal = ControlModal::agent_picker(agents);
+        for _ in 0..selected {
+          modal.next();
+        }
+        self.control_modal = Some(modal);
+      }
+      Err(err) => {
+        self.config_error =
+          Some(format!("Failed to list configured AI agents: {err}"))
+      }
+    }
+  }
+
+  fn clear_internal_history(&mut self) -> Result<()> {
+    let mut vt =
+      self.shell.vt.write().map_err(|_| {
+        anyhow::anyhow!("shell terminal state lock is poisoned")
+      })?;
+    vt.clear_scrollback();
+    self.scrollback_tracker.init_from_screen(vt.screen());
+    Ok(())
+  }
+
+  fn build_runtime_agent_plan(
+    &self,
+    agent: &AgentConfig,
+  ) -> Result<AgentLaunchPlan> {
+    let cwd = self
+      .shell_cwd
+      .clone()
+      .or_else(|| std::env::current_dir().ok())
+      .unwrap_or_else(|| PathBuf::from("."));
+    let existing = self.agent_launch_plan.as_ref().map(|plan| &plan.metadata);
+    let mcp_url = self
+      .mcp_server
+      .as_ref()
+      .map(|server| server.url.clone())
+      .or_else(|| existing.map(|metadata| metadata.mcp_url.clone()))
+      .ok_or_else(|| anyhow::anyhow!("Terminai MCP server is unavailable"))?;
+    let mcp_auth_token = self
+      .mcp_server
+      .as_ref()
+      .map(|server| server.auth_token.clone())
+      .or_else(|| existing.map(|metadata| metadata.mcp_auth_token.clone()))
+      .ok_or_else(|| {
+        anyhow::anyhow!("Terminai MCP credentials are unavailable")
+      })?;
+    let mcp_port = self
+      .mcp_server
+      .as_ref()
+      .map(|server| server.port.to_string())
+      .or_else(|| existing.map(|metadata| metadata.terminai_mcp_port.clone()))
+      .ok_or_else(|| anyhow::anyhow!("Terminai MCP port is unavailable"))?;
+    let binary = existing
+      .map(|metadata| metadata.terminai_binary_path.clone())
+      .unwrap_or_else(terminai_binary_path);
+    let context =
+      AgentLaunchContext::new(cwd, mcp_url, mcp_auth_token, binary, mcp_port);
+    let mut plan =
+      build_launch_plan(agent, &self.config.agent_presets, &context)?;
+    normalize_agent_launch_plan_env(&mut plan);
+    if !agent_command_available(&plan) {
+      anyhow::bail!(
+        "Configured AI CLI '{}' was not found in PATH",
+        plan.command
+      );
+    }
+    Ok(plan)
+  }
+
+  fn switch_agent(&mut self, name: &str, rows: u16, cols: u16) -> Result<()> {
+    let config = agent_config_for_choice(&self.config, name);
+    let plan = self.build_runtime_agent_plan(&config)?;
+
+    *self.agent_event_rx.lock().unwrap() = None;
+    if let Some(mut agent) = self.agent_terminal.take()
+      && let Err(err) = agent.terminate()
+    {
+      log::warn!("Failed to terminate previous AI CLI: {err}");
+    }
+    self.pending_command = None;
+    self.active_agent_name = name.to_string();
+    self.active_agent_config = config;
+    self.agent_launch_plan = Some(plan);
+    self.agent_exit_status = None;
+    self.launch_agent(rows, cols);
+    Ok(())
+  }
+
+  fn handle_control_modal_key(
+    &mut self,
+    code: KeyCode,
+    rows: u16,
+    cols: u16,
+  ) -> bool {
+    let Some(modal) = self.control_modal.clone() else {
+      return false;
+    };
+    match code {
+      KeyCode::Esc => self.control_modal = None,
+      KeyCode::Up | KeyCode::Left | KeyCode::BackTab => {
+        self.control_modal.as_mut().unwrap().previous();
+      }
+      KeyCode::Down | KeyCode::Right | KeyCode::Tab => {
+        self.control_modal.as_mut().unwrap().next();
+      }
+      KeyCode::Enter => match modal {
+        ControlModal::Panel { .. } => match modal.panel_item().unwrap() {
+          ControlPanelItem::ApprovalMode => self.request_approval_mode_toggle(),
+          ControlPanelItem::Agent => self.open_agent_picker(),
+          ControlPanelItem::ClearHistory => {
+            self.control_modal = Some(ControlModal::confirm_clear_history())
+          }
+        },
+        ControlModal::AgentPicker { .. } => {
+          let name = modal.selected_agent().unwrap_or_default().to_string();
+          let config = agent_config_for_choice(&self.config, &name);
+          match self.build_runtime_agent_plan(&config) {
+            Ok(_) => {
+              self.control_modal =
+                Some(ControlModal::confirm_agent_switch(name));
+            }
+            Err(err) => self
+              .control_modal
+              .as_mut()
+              .unwrap()
+              .set_error(err.to_string()),
+          }
+        }
+        ControlModal::ConfirmAutoApproval { .. } => {
+          self.control_modal = None;
+          if modal.is_confirmed() {
+            self.approval_mode = ApprovalMode::AutoApproval;
+            if self.pending_command.is_some() {
+              self.run_approval_action(ApprovalAction::Approve);
+            }
+          }
+        }
+        ControlModal::ConfirmClearHistory { .. } => {
+          self.control_modal = None;
+          if modal.is_confirmed()
+            && let Err(err) = self.clear_internal_history()
+          {
+            self.config_error = Some(format!("Failed to clear history: {err}"));
+          }
+        }
+        ControlModal::ConfirmAgentSwitch { .. } => {
+          self.control_modal = None;
+          if let Some(name) = modal.confirmed_agent()
+            && let Err(err) = self.switch_agent(name, rows, cols)
+          {
+            self.config_error = Some(format!("Failed to switch agent: {err}"));
+          }
+        }
+      },
+      _ => {}
+    }
+    true
   }
 
   fn update_shell_cwd(&mut self, cwd: PathBuf) {
@@ -1762,7 +1989,13 @@ impl AppState {
     self.shell_cwd = Some(cwd.clone());
 
     if let Some(plan) = self.agent_launch_plan.as_ref() {
-      match rebuild_agent_launch_plan_for_cwd(plan, &self.config, cwd.clone()) {
+      let mut runtime_config = self.config.clone();
+      runtime_config.agent = self.active_agent_config.clone();
+      match rebuild_agent_launch_plan_for_cwd(
+        plan,
+        &runtime_config,
+        cwd.clone(),
+      ) {
         Ok(plan) => self.agent_launch_plan = Some(plan),
         Err(err) => {
           log::error!("Failed to rebuild AI launch plan for cwd change: {err}");
@@ -1828,8 +2061,13 @@ impl AppState {
       .map(|metadata| metadata.terminai_binary_path.clone())
       .unwrap_or_else(terminai_binary_path);
 
+    let active_was_startup = self.active_agent_config == self.config.agent;
     self.chat_position = config.interface.chat_position;
     self.config = config;
+    if active_was_startup {
+      self.active_agent_config = self.config.agent.clone();
+      self.active_agent_name = startup_agent_name(&self.config);
+    }
 
     if let Some(mcp_state) = &self.mcp_state {
       mcp_state.update_cwd(cwd.clone());
@@ -1853,11 +2091,25 @@ impl AppState {
       terminai_binary_path,
       terminai_mcp_port,
     );
-    match build_launch_plan(
-      &self.config.agent,
+    let active_plan = build_launch_plan(
+      &self.active_agent_config,
       &self.config.agent_presets,
       &launch_context,
-    ) {
+    );
+    let plan = active_plan.or_else(|err| {
+      log::warn!(
+        "Active agent '{}' is no longer configured: {err}; falling back to startup agent",
+        self.active_agent_name
+      );
+      self.active_agent_config = self.config.agent.clone();
+      self.active_agent_name = startup_agent_name(&self.config);
+      build_launch_plan(
+        &self.active_agent_config,
+        &self.config.agent_presets,
+        &launch_context,
+      )
+    });
+    match plan {
       Ok(mut plan) => {
         normalize_agent_launch_plan_env(&mut plan);
         self.agent_launch_plan = Some(plan);
@@ -1959,6 +2211,10 @@ impl AppState {
     terminal_area: Rect,
   ) -> Control<AppEvent> {
     use crossterm::event::MouseEventKind;
+
+    if self.control_modal.is_some() {
+      return Control::Changed;
+    }
 
     let overlay_area = self.overlay_area(terminal_area);
     let inner_area = self.overlay_inner_area(terminal_area);
@@ -2237,6 +2493,17 @@ fn render(
       );
       ctx.set_screen_cursor(None);
     }
+
+    if let Some(modal) = &state.control_modal {
+      render_control_modal(
+        area,
+        buf,
+        modal,
+        state.approval_mode,
+        &state.agent_modal_title,
+      );
+      ctx.set_screen_cursor(None);
+    }
   }
 
   Ok(())
@@ -2318,6 +2585,40 @@ fn event(
           state.shell.send_key(key)?;
         }
         break 'm Control::Continue;
+      }
+
+      if let Some(key_combo) = key_combo
+        && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+      {
+        let bindings = &state.config.interface.key_bindings;
+        if bindings.control_panel.matches(key_combo) {
+          state.control_modal = if state.control_modal.is_some() {
+            None
+          } else {
+            Some(ControlModal::panel())
+          };
+          break 'm Control::Changed;
+        }
+        if bindings.toggle_approval_mode.matches(key_combo) {
+          state.request_approval_mode_toggle();
+          break 'm Control::Changed;
+        }
+        if bindings.switch_agent.matches(key_combo) {
+          state.open_agent_picker();
+          break 'm Control::Changed;
+        }
+        if bindings.clear_history.matches(key_combo) {
+          state.control_modal = Some(ControlModal::confirm_clear_history());
+          break 'm Control::Changed;
+        }
+      }
+
+      if state.control_modal.is_some()
+        && matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
+      {
+        let (cols, rows) = crossterm::terminal::size()?;
+        state.handle_control_modal_key(*code, rows, cols);
+        break 'm Control::Changed;
       }
 
       if state.agent_exit_status.is_some()
@@ -2466,7 +2767,9 @@ fn event(
       if !state.ai_visible {
         // Send pasted text to shell, with bracketed paste if the shell wants it
         state.shell.send_paste(text)?;
-      } else if let Some(agent) = &mut state.agent_terminal {
+      } else if state.control_modal.is_none()
+        && let Some(agent) = &mut state.agent_terminal
+      {
         agent.shell_mut().send_paste(text)?;
       }
       Control::Continue
@@ -2594,6 +2897,51 @@ mod tests {
     let status = approval_status(ApprovalMode::AutoApproval).unwrap();
     assert_eq!(status.spans[0].content, " ⚠ AUTO-APPROVE ");
     assert_eq!(status.spans[0].style.fg, Some(Color::Yellow));
+  }
+
+  #[test]
+  fn switcher_includes_builtins_visible_presets_and_distinct_startup_agent() {
+    let mut config = TerminaiConfig::default();
+    config.agent = termin::terminai_config::AgentConfig {
+      preset: None,
+      kind: Some(termin::terminai_config::AgentKind::Custom),
+      command: Some("private-agent".into()),
+      args: Vec::new(),
+      extra_args: Vec::new(),
+      prompt_template: None,
+      uses_mcp: None,
+      uses_tool_cli: None,
+    };
+    config.agent_presets.insert(
+      "visible".into(),
+      termin::terminai_config::AgentPresetConfig {
+        command: Some("visible-agent".into()),
+        ..Default::default()
+      },
+    );
+    config.agent_presets.insert(
+      "hidden".into(),
+      termin::terminai_config::AgentPresetConfig {
+        command: Some("hidden-agent".into()),
+        show_in_switcher: false,
+        ..Default::default()
+      },
+    );
+
+    let agents = switcher_agents(&config).unwrap();
+
+    assert_eq!(
+      agents,
+      ["claude", "codex", "opencode", "private-agent", "visible"]
+    );
+    assert_eq!(
+      agent_config_for_choice(&config, "private-agent"),
+      config.agent
+    );
+    assert_eq!(
+      agent_config_for_choice(&config, "claude").preset.as_deref(),
+      Some("claude")
+    );
   }
 
   #[test]
@@ -2990,6 +3338,8 @@ mod tests {
       agent_terminal: None,
       mcp_server: None,
       agent_launch_plan: None,
+      active_agent_name: "codex".into(),
+      active_agent_config: AgentConfig::codex(),
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
@@ -2997,6 +3347,7 @@ mod tests {
       approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
+      control_modal: None,
       agent_exit_status: None,
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
@@ -3052,6 +3403,8 @@ mod tests {
       agent_terminal: None,
       mcp_server: None,
       agent_launch_plan: None,
+      active_agent_name: "codex".into(),
+      active_agent_config: AgentConfig::codex(),
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
@@ -3059,6 +3412,7 @@ mod tests {
       approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
+      control_modal: None,
       agent_exit_status: None,
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
@@ -3104,6 +3458,8 @@ mod tests {
       agent_terminal: None,
       mcp_server: None,
       agent_launch_plan: None,
+      active_agent_name: "codex".into(),
+      active_agent_config: AgentConfig::codex(),
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
@@ -3111,6 +3467,7 @@ mod tests {
       approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
+      control_modal: None,
       agent_exit_status: None,
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
@@ -3156,6 +3513,8 @@ mod tests {
       agent_terminal: None,
       mcp_server: None,
       agent_launch_plan: None,
+      active_agent_name: "codex".into(),
+      active_agent_config: AgentConfig::codex(),
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
@@ -3163,6 +3522,7 @@ mod tests {
       approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
+      control_modal: None,
       agent_exit_status: None,
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
@@ -3207,6 +3567,8 @@ mod tests {
       agent_terminal: None,
       mcp_server: None,
       agent_launch_plan: None,
+      active_agent_name: "codex".into(),
+      active_agent_config: AgentConfig::codex(),
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
@@ -3214,6 +3576,7 @@ mod tests {
       approval_mode: ApprovalMode::AlwaysAsk,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
+      control_modal: None,
       agent_exit_status: None,
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,

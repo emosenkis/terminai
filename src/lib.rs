@@ -8,6 +8,7 @@ pub mod encode_term;
 pub mod key;
 pub mod mouse;
 pub mod ui_approval;
+pub mod ui_controls;
 pub mod vt100;
 
 // Terminai: AI assistant modules

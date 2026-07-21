@@ -56,6 +56,7 @@ pub struct Shell {
   pub writer: Box<dyn Write + Send>,
   pub master: Option<Box<dyn portable_pty::MasterPty + Send>>,
   pub _pid: u32,
+  killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -167,6 +168,7 @@ impl Shell {
     // Spawn command
     let mut child = pair.slave.spawn_command(command)?;
     let pid = child.process_id().unwrap_or(0);
+    let killer = child.clone_killer();
 
     log::info!("Command spawned with PID: {}", pid);
 
@@ -240,6 +242,7 @@ impl Shell {
         writer,
         master: Some(pair.master),
         _pid: pid,
+        killer,
       },
       event_rx,
     ))
@@ -250,6 +253,11 @@ impl Shell {
     let encoded = encode_key(&key, KeyCodeEncodeModes::default())?;
     self.writer.write_all(encoded.as_bytes())?;
     self.writer.flush()?;
+    Ok(())
+  }
+
+  pub fn terminate(&mut self) -> Result<()> {
+    self.killer.kill()?;
     Ok(())
   }
 

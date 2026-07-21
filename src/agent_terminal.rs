@@ -26,4 +26,8 @@ impl AgentTerminal {
   pub fn shell_mut(&mut self) -> &mut Shell {
     &mut self.shell
   }
+
+  pub fn terminate(&mut self) -> Result<()> {
+    self.shell.terminate()
+  }
 }
