@@ -1,3 +1,8 @@
+## 0.1.12 - 2026-07-22
+
+- Keep the AI overlay open when auto-approval sends input, while preserving
+  the existing close-on-explicit-approval behavior.
+
 ## 0.1.11 - 2026-07-21
 
 - Add session-level always-ask and dangerous auto-approval modes, an overlay
