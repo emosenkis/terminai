@@ -1598,11 +1598,11 @@ impl AppState {
         .matches(key_combo)
       {
         log::info!("Command approved by user with key: {:?}", key_combo);
-        self.run_approval_action(ApprovalAction::Approve);
+        self.run_approval_action(ApprovalAction::Approve, true);
         return Outcome::Changed;
       } else if self.config.interface.key_bindings.deny.matches(key_combo) {
         log::info!("Command rejected by user with key: {:?}", key_combo);
-        self.run_approval_action(ApprovalAction::Deny);
+        self.run_approval_action(ApprovalAction::Deny, true);
         return Outcome::Changed;
       }
 
@@ -1713,10 +1713,14 @@ impl AppState {
   }
 
   fn activate_focused_approval(&mut self) {
-    self.run_approval_action(self.approval_focus);
+    self.run_approval_action(self.approval_focus, true);
   }
 
-  fn run_approval_action(&mut self, action: ApprovalAction) {
+  fn run_approval_action(
+    &mut self,
+    action: ApprovalAction,
+    close_after_approve: bool,
+  ) {
     match action {
       ApprovalAction::Approve => {
         if let Some(cmd) = self.pending_command.take() {
@@ -1724,7 +1728,7 @@ impl AppState {
           if let Err(e) = self.shell.send_command(&cmd.command) {
             log::error!("Failed to send command to shell: {:?}", e);
           }
-          if let Err(err) = self.hide_ai_modal() {
+          if close_after_approve && let Err(err) = self.hide_ai_modal() {
             log::error!("Failed to hide AI modal after approval: {err:?}");
           }
         }
@@ -1797,7 +1801,7 @@ impl AppState {
       self.approval_focus = ApprovalAction::Approve;
       if action == SuggestionAction::AutoApprove {
         self.control_modal = None;
-        self.run_approval_action(ApprovalAction::Approve);
+        self.run_approval_action(ApprovalAction::Approve, false);
       }
       changed = true;
     }
@@ -1954,7 +1958,7 @@ impl AppState {
           if modal.is_confirmed() {
             self.approval_mode = ApprovalMode::AutoApproval;
             if self.pending_command.is_some() {
-              self.run_approval_action(ApprovalAction::Approve);
+              self.run_approval_action(ApprovalAction::Approve, false);
             }
           }
         }
@@ -2227,7 +2231,7 @@ impl AppState {
       && let Some(action) =
         approval_action_at(terminal_area, mouse.column, mouse.row)
     {
-      self.run_approval_action(action);
+      self.run_approval_action(action, true);
       return Control::Changed;
     }
 
@@ -3489,9 +3493,8 @@ mod tests {
   }
 
   #[test]
-  fn approving_suggestion_closes_ai_modal() {
+  fn auto_approval_keeps_modal_open_but_explicit_approval_closes_it() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
-    drop(suggestion_tx);
 
     let (shell, _shell_rx) = Shell::spawn_command(
       "sh",
@@ -3505,6 +3508,7 @@ mod tests {
       Some("Inspect worktree".to_string()),
       termin::command::RiskLevel::Safe,
     );
+    suggestion_tx.send(pending).unwrap();
 
     let mut state = AppState {
       shell_cwd: None,
@@ -3518,8 +3522,8 @@ mod tests {
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
-      pending_command: Some(pending),
-      approval_mode: ApprovalMode::AlwaysAsk,
+      pending_command: None,
+      approval_mode: ApprovalMode::AutoApproval,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -3536,9 +3540,18 @@ mod tests {
       recovery: None,
     };
 
-    state.run_approval_action(ApprovalAction::Approve);
+    state.process_agent_suggestions();
 
     assert!(state.pending_command.is_none());
+    assert!(state.ai_visible);
+
+    state.pending_command = Some(PendingCommand::new(
+      "git status".to_string(),
+      Some("Inspect worktree".to_string()),
+      termin::command::RiskLevel::Safe,
+    ));
+    state.run_approval_action(ApprovalAction::Approve, true);
+
     assert!(!state.ai_visible);
   }
 
