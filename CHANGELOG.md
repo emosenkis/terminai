@@ -1,3 +1,13 @@
+## 0.1.13 - 2026-07-24
+
+- Add configurable AI terminal height, top/bottom/fullscreen positions, and
+  resize/overlay/move guest display modes.
+- Consolidate layout controls into Layout Mode and Terminai Controls, with
+  dedicated shortcuts for settings, layout mode, and fullscreen.
+- Replace the AI terminal's full border with a directional separator and make
+  fullscreen borderless.
+- Preserve the correct guest rows when moving it above or below the AI terminal.
+
 ## 0.1.12 - 2026-07-22
 
 - Keep the AI overlay open when auto-approval sends input, while preserving

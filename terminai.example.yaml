@@ -3,11 +3,16 @@
 
 interface:
   chat-position: bottom
+  chat-height-percent: 50
+  guest-display: resize
   key_bindings:
-    toggle-approval-mode: F7
-    switch-agent: F8
-    clear-history: F9
+    activate-overlay: Ctrl-Space
+    deactivate-overlay: Ctrl-Space
+    approve: y
+    deny: n
+    layout-mode: F9
     control-panel: F10
+    toggle-fullscreen: F11
 
 # DANGER: auto-approval sends every AI suggestion directly to the shell.
 approval-mode: always-ask

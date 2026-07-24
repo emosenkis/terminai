@@ -1,0 +1,423 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminaiConfig",
+  "description": "Top-level Terminai configuration loaded from\n`$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to\n`~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset. On\nWindows it is `%APPDATA%\\\\terminai\\\\terminai.yaml`.\n\nDefault configuration can be installed with `terminai init-config`",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "description": "External CLI agent to run in the AI terminal.",
+      "$ref": "#/$defs/AgentConfig",
+      "default": {
+        "args": [],
+        "command": null,
+        "extra-args": [],
+        "kind": "codex",
+        "preset": "codex",
+        "prompt-template": null,
+        "uses-mcp": null,
+        "uses-tool-cli": null
+      }
+    },
+    "agent-presets": {
+      "description": "User-defined CLI agent presets. Built-in presets include codex and claude.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/AgentPresetConfig"
+      },
+      "default": {}
+    },
+    "approval-mode": {
+      "description": "Startup policy for agent-suggested shell input. `auto-approval` is\ndangerous and sends every suggestion without consulting the risk\nclassifier.",
+      "$ref": "#/$defs/ApprovalMode",
+      "default": "always-ask"
+    },
+    "interface": {
+      "description": "Interface configuration",
+      "$ref": "#/$defs/InterfaceConfig",
+      "default": {
+        "chat-height-percent": 50,
+        "chat-position": "bottom",
+        "guest-display": "resize",
+        "key_bindings": {
+          "activate-overlay": "Ctrl-Space",
+          "approve": "y",
+          "control-panel": "F10",
+          "deactivate-overlay": "Ctrl-Space",
+          "deny": "n",
+          "layout-mode": "F9",
+          "toggle-fullscreen": "F11"
+        }
+      }
+    },
+    "privacy": {
+      "description": "Privacy filtering applied to terminal text returned through MCP.",
+      "$ref": "#/$defs/PrivacyConfig",
+      "default": {
+        "patterns": [
+          "default"
+        ],
+        "strategy": "replace"
+      }
+    },
+    "shell": {
+      "description": "Default wrapped shell.",
+      "$ref": "#/$defs/ShellConfig",
+      "default": {
+        "args": [],
+        "command": null
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AgentArg": {
+      "description": "A command-line argument rendered for an agent process.",
+      "anyOf": [
+        {
+          "description": "A static string or Minijinja template that produces one argument.",
+          "type": "string"
+        },
+        {
+          "description": "A Minijinja expression that produces an array of strings.",
+          "type": "object",
+          "properties": {
+            "expr": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "expr"
+          ]
+        }
+      ]
+    },
+    "AgentConfig": {
+      "description": "Agent configuration.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "CLI arguments passed to the agent.\n\nEach argument can be a string rendered as a Minijinja template or an\nobject containing `expr`, whose Minijinja expression must return an array\nof strings. Available variables:\n\nGeneral:\n- `{{ cwd }}`: the working directory where the agent starts.\n- `{{ context_prompt }}`: the rendered Terminai context prompt for the\n  resolved agent config.\n- `{{ uses_mcp }}`: whether the resolved agent config enables\n  the Terminai MCP server.\n- `{{ uses_tool_cli }}`: whether the resolved agent config enables\n  Terminai CLI tool instructions.\n\nMCP:\n- `{{ mcp_url }}`: the Terminai MCP server URL.\n- `{{ mcp_command }}`: the command to launch MCP.\n- `{{ mcp_port }}`: the local port used by the Terminai MCP server.\n\nThe MCP bearer token is available to the agent as the\n`TERMINAI_MCP_AUTH_TOKEN` environment variable.\n\nTool CLI:\n- `{{ tool_command }}`: the command to interact with Terminai-provided\n  tools.\n\nAvailable filters:\n- `{{ value|toml }}`: render `value` as a TOML string.\n- `{{ value|json }}`: render `value` as a JSON string.\n\nFor zero or multiple arguments, use an expression object such as\n`expr: '[\"--mcp\", mcp_url] if uses_mcp else []'`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "extra-args": {
+          "description": "Additional CLI arguments appended after `args`. Supports the same\nMinijinja template variables, filters, and expressions documented on\n`args`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "preset": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "prompt-template": {
+          "description": "Prompt template to render for this agent. Defaults to `default.jinja`,\nwhich is loaded from the Terminai XDG config directory when present and\notherwise falls back to the bundled template. Other names are loaded from\nthe same directory. `builtin/default.jinja` always names the bundled\ntemplate and can be extended by a user-provided default.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "uses-mcp": {
+          "description": "Whether this agent uses the Terminai MCP server. Defaults to false for\ncustom agents and inherits from the selected preset when unset.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "uses-tool-cli": {
+          "description": "Whether this agent uses the Terminai CLI tools. Defaults to true for\ncustom agents and inherits from the selected preset when unset.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentKind": {
+      "type": "string",
+      "enum": [
+        "claude",
+        "codex",
+        "custom"
+      ]
+    },
+    "AgentPresetConfig": {
+      "description": "Agent preset configuration.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "description": "CLI arguments passed to the agent.\n\nEach argument can be a string rendered as a Minijinja template or an\nobject containing `expr`, whose Minijinja expression must return an array\nof strings. Available variables:\n\nGeneral:\n- `{{ cwd }}`: the working directory where the agent starts.\n- `{{ context_prompt }}`: the rendered Terminai context prompt for the\n  resolved agent config.\n- `{{ uses_mcp }}`: whether the resolved agent config enables\n  the Terminai MCP server.\n- `{{ uses_tool_cli }}`: whether the resolved agent config enables\n  Terminai CLI tool instructions.\n\nMCP:\n- `{{ mcp_url }}`: the Terminai MCP server URL.\n- `{{ mcp_command }}`: the command to launch MCP.\n- `{{ mcp_port }}`: the local port used by the Terminai MCP server.\n\nThe MCP bearer token is available to the agent as the\n`TERMINAI_MCP_AUTH_TOKEN` environment variable.\n\nTool CLI:\n- `{{ tool_command }}`: the command to interact with Terminai-provided\n  tools.\n\nAvailable filters:\n- `{{ value|toml }}`: render `value` as a TOML string.\n- `{{ value|json }}`: render `value` as a JSON string.\n\nFor zero or multiple arguments, use an expression object such as\n`expr: '[\"--mcp\", mcp_url] if uses_mcp else []'`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "extends": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "extra-args": {
+          "description": "Additional CLI arguments appended after `args`. Supports the same\nMinijinja template variables, filters, and expressions documented on\n`args`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AgentArg"
+          }
+        },
+        "prompt-template": {
+          "description": "Prompt template inherited by agents using this preset. Uses the same XDG\nlookup and `default.jinja` shadowing behavior as the agent setting.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "show-in-switcher": {
+          "description": "Whether this preset appears in the in-app agent switcher.",
+          "type": "boolean",
+          "default": true
+        },
+        "uses-mcp": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "uses-tool-cli": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApprovalMode": {
+      "description": "How agent-suggested shell input is handled.",
+      "oneOf": [
+        {
+          "description": "Require explicit user approval for every suggested shell input.",
+          "type": "string",
+          "const": "always-ask"
+        },
+        {
+          "description": "Immediately send every AI suggestion to the shell. Dangerous: the\ncommand risk classifier is not consulted.",
+          "type": "string",
+          "const": "auto-approval"
+        }
+      ]
+    },
+    "ChatPosition": {
+      "description": "Position of the AI chat overlay",
+      "type": "string",
+      "enum": [
+        "bottom",
+        "top",
+        "fullscreen"
+      ]
+    },
+    "GuestDisplayMode": {
+      "description": "How the guest terminal is displayed while the AI terminal is open.",
+      "type": "string",
+      "enum": [
+        "resize",
+        "overlay",
+        "move"
+      ]
+    },
+    "InterfaceConfig": {
+      "description": "Interface configuration",
+      "type": "object",
+      "properties": {
+        "chat-height-percent": {
+          "description": "Height of a top or bottom AI terminal as a percentage (20-80).",
+          "type": "integer",
+          "format": "uint8",
+          "default": 50,
+          "maximum": 255,
+          "minimum": 0
+        },
+        "chat-position": {
+          "description": "Position of the AI chat overlay (default: bottom)",
+          "$ref": "#/$defs/ChatPosition",
+          "default": "bottom"
+        },
+        "guest-display": {
+          "description": "How the guest terminal uses the space behind/beside the AI terminal.",
+          "$ref": "#/$defs/GuestDisplayMode",
+          "default": "resize"
+        },
+        "key_bindings": {
+          "description": "Key bindings\n\nThe syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).",
+          "$ref": "#/$defs/KeyBindingsConfig",
+          "default": {
+            "activate-overlay": "Ctrl-Space",
+            "approve": "y",
+            "control-panel": "F10",
+            "deactivate-overlay": "Ctrl-Space",
+            "deny": "n",
+            "layout-mode": "F9",
+            "toggle-fullscreen": "F11"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "KeyBindingsConfig": {
+      "type": "object",
+      "properties": {
+        "activate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "approve": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "control-panel": {
+          "description": "Open the Terminai control panel while the AI overlay is active.",
+          "$ref": "#/$defs/OneOrMoreBindings",
+          "default": "F10"
+        },
+        "deactivate-overlay": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "deny": {
+          "$ref": "#/$defs/OneOrMoreBindings"
+        },
+        "layout-mode": {
+          "description": "Enter layout mode while the AI overlay is active.",
+          "$ref": "#/$defs/OneOrMoreBindings",
+          "default": "F9"
+        },
+        "toggle-fullscreen": {
+          "description": "Toggle the AI terminal between fullscreen and its last split position.",
+          "$ref": "#/$defs/OneOrMoreBindings",
+          "default": "F11"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "activate-overlay",
+        "deactivate-overlay",
+        "approve",
+        "deny"
+      ]
+    },
+    "OneOrMoreBindings": {
+      "oneOf": [
+        {
+          "description": "A single key combination such as Ctrl-Space",
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "PrivacyConfig": {
+      "description": "Pattern-based privacy filtering for terminal text returned to agents.\n\n`patterns` accepts a Redact entity name (for example `email-address`), a\ncategory (`credentials`, `financial`, `identity`, `medical`, `crypto`, or\n`gitleaks`),\nor `default`. Prefix a value with `-` to remove an earlier selection.",
+      "type": "object",
+      "properties": {
+        "patterns": {
+          "type": "array",
+          "default": [
+            "default"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "strategy": {
+          "$ref": "#/$defs/PrivacyStrategy",
+          "default": "replace"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PrivacyStrategy": {
+      "description": "How matching terminal data is anonymized before being sent to an agent.",
+      "type": "string",
+      "enum": [
+        "replace",
+        "mask",
+        "hash",
+        "encrypt",
+        "redact"
+      ]
+    },
+    "ShellConfig": {
+      "description": "Default shell for the wrapped terminal. This is a shell selector, not a\nshell-script launcher; use `terminai -- <command> [args...]` for commands.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

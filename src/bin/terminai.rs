@@ -78,7 +78,7 @@ use termin::scrollback::{
   ScrollbackTracker, drain_pending_native_scrollback_snapshot,
 };
 use termin::terminai_config::{
-  AgentConfig, ApprovalMode, ChatPosition, TerminaiConfig,
+  AgentConfig, ApprovalMode, ChatPosition, GuestDisplayMode, TerminaiConfig,
 };
 use termin::ui_approval::{
   ApprovalAction, approval_action_at, approval_content_line_count,
@@ -86,7 +86,7 @@ use termin::ui_approval::{
   render_shell_input_approval_with_state,
 };
 use termin::ui_controls::{
-  ControlModal, ControlPanelItem, render_control_modal,
+  ControlModal, ControlPanelItem, LayoutPanelItem, render_control_modal,
 };
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
@@ -121,6 +121,14 @@ fn approval_status(mode: ApprovalMode) -> Option<Line<'static>> {
     ))
     .right_aligned()
   })
+}
+
+fn overlay_title(position: ChatPosition, agent: &str) -> Option<String> {
+  match position {
+    ChatPosition::Top => Some(format!(" ↑ {agent} ")),
+    ChatPosition::Bottom => Some(format!(" ↓ {agent} ")),
+    ChatPosition::Fullscreen => None,
+  }
 }
 
 fn startup_agent_name(config: &TerminaiConfig) -> String {
@@ -332,15 +340,18 @@ fn install_panic_recovery(recovery: Arc<RecoveryContext>) {
   }));
 }
 
-fn overlay_height_for_rows(rows: u16) -> u16 {
-  (rows / 2).max(10)
+fn overlay_height_for_rows(rows: u16, percent: u8) -> u16 {
+  ((u32::from(rows) * u32::from(percent.clamp(20, 80)) / 100) as u16)
+    .max(1)
+    .min(rows)
 }
 
-fn agent_pty_size(rows: u16, cols: u16) -> (u16, u16) {
-  (
-    overlay_height_for_rows(rows).saturating_sub(2).max(1),
-    cols.saturating_sub(2).max(1),
-  )
+fn move_row_offset(position: ChatPosition, overlay_height: u16) -> u16 {
+  if position == ChatPosition::Bottom {
+    overlay_height
+  } else {
+    0
+  }
 }
 
 fn render_terminal_history<R: termin::vt100::TermReplySender>(
@@ -1047,7 +1058,6 @@ fn spawn_agent_from_plan(
   rows: u16,
   cols: u16,
 ) -> Result<(AgentTerminal, UnboundedReceiver<ShellEvent>)> {
-  let (agent_rows, agent_cols) = agent_pty_size(rows, cols);
   let options = ShellSpawnOptions {
     cwd: Some(plan.cwd.clone()),
     env: plan.env.clone(),
@@ -1056,8 +1066,8 @@ fn spawn_agent_from_plan(
   AgentTerminal::spawn(
     &plan.command,
     &plan.args,
-    agent_rows,
-    agent_cols,
+    rows.max(1),
+    cols.max(1),
     options,
   )
 }
@@ -1446,6 +1456,12 @@ fn run_interactive(
     agent_modal_title: "AI Terminal".to_string(),
     ai_visible: false,
     chat_position,
+    split_chat_position: match chat_position {
+      ChatPosition::Fullscreen => ChatPosition::Bottom,
+      position => position,
+    },
+    chat_height_percent: config.interface.chat_height_percent.clamp(20, 80),
+    guest_display: config.interface.guest_display,
     scrollback_tracker,
     config,
     config_error,
@@ -1512,6 +1528,9 @@ struct AppState {
   ai_visible: bool,
   /// Position of AI chat overlay (top or bottom)
   chat_position: ChatPosition,
+  split_chat_position: ChatPosition,
+  chat_height_percent: u8,
+  guest_display: GuestDisplayMode,
   /// Scrollback tracker for detecting and handling scrolled content
   scrollback_tracker: ScrollbackTracker,
   /// Terminai configuration
@@ -1614,7 +1633,7 @@ impl AppState {
   }
 
   /// Show the AI modal and enable mouse tracking
-  fn show_ai_modal(&mut self) -> std::io::Result<()> {
+  fn show_ai_modal(&mut self) -> Result<()> {
     if !self.ai_visible {
       if self.agent_terminal.is_none()
         && self.agent_exit_status.is_none()
@@ -1633,14 +1652,18 @@ impl AppState {
 
       self.ai_visible = true;
       self.agent_view.follow_tail = true;
+      let (cols, rows) = crossterm::terminal::size()?;
+      self.resize_layout(rows, cols)?;
     }
     Ok(())
   }
 
   /// Hide the AI modal and disable mouse tracking only if guest doesn't have it enabled
-  fn hide_ai_modal(&mut self) -> std::io::Result<()> {
+  fn hide_ai_modal(&mut self) -> Result<()> {
     if self.ai_visible {
       self.ai_visible = false;
+      let (cols, rows) = crossterm::terminal::size()?;
+      self.shell.resize(rows, cols)?;
 
       // Check CURRENT guest mouse state (may have changed while modal was shown)
       let guest_has_mouse = if let Ok(parser) = self.shell.vt.read() {
@@ -1669,7 +1692,7 @@ impl AppState {
     Ok(())
   }
 
-  fn deactivate_ai_overlay(&mut self) -> std::io::Result<()> {
+  fn deactivate_ai_overlay(&mut self) -> Result<()> {
     self.hide_ai_modal()
   }
 
@@ -1743,13 +1766,19 @@ impl AppState {
 
   /// Calculate the overlay height based on terminal area
   fn overlay_height(&self, area: Rect) -> u16 {
-    overlay_height_for_rows(area.height).min(area.height)
+    if self.chat_position == ChatPosition::Fullscreen {
+      area.height
+    } else {
+      overlay_height_for_rows(area.height, self.chat_height_percent)
+    }
   }
 
-  /// Calculate the row offset for the terminal when overlay is visible at bottom
   fn terminal_row_offset(&self, area: Rect) -> u16 {
-    if self.ai_visible && self.chat_position == ChatPosition::Bottom {
-      self.overlay_height(area)
+    if self.ai_visible
+      && self.guest_display == GuestDisplayMode::Move
+      && self.chat_position != ChatPosition::Fullscreen
+    {
+      move_row_offset(self.chat_position, self.overlay_height(area))
     } else {
       0
     }
@@ -1761,6 +1790,7 @@ impl AppState {
     let overlay_y = match self.chat_position {
       ChatPosition::Bottom => area.y + area.height - overlay_height,
       ChatPosition::Top => area.y,
+      ChatPosition::Fullscreen => area.y,
     };
     Rect {
       x: area.x,
@@ -1772,11 +1802,101 @@ impl AppState {
 
   fn overlay_inner_area(&self, area: Rect) -> Rect {
     let overlay = self.overlay_area(area);
-    Rect {
-      x: overlay.x.saturating_add(1),
-      y: overlay.y.saturating_add(1),
-      width: overlay.width.saturating_sub(2),
-      height: overlay.height.saturating_sub(2),
+    match self.chat_position {
+      ChatPosition::Fullscreen => overlay,
+      ChatPosition::Top => Rect {
+        height: overlay.height.saturating_sub(1),
+        ..overlay
+      },
+      ChatPosition::Bottom => Rect {
+        y: overlay.y.saturating_add(1),
+        height: overlay.height.saturating_sub(1),
+        ..overlay
+      },
+    }
+  }
+
+  fn guest_area(&self, area: Rect) -> Rect {
+    if !self.ai_visible || self.guest_display == GuestDisplayMode::Overlay {
+      return area;
+    }
+    let overlay_height = self.overlay_height(area);
+    match self.chat_position {
+      ChatPosition::Top => Rect {
+        y: area.y.saturating_add(overlay_height),
+        height: area.height.saturating_sub(overlay_height),
+        ..area
+      },
+      ChatPosition::Bottom => Rect {
+        height: area.height.saturating_sub(overlay_height),
+        ..area
+      },
+      ChatPosition::Fullscreen => Rect { height: 0, ..area },
+    }
+  }
+
+  fn resize_layout(&mut self, rows: u16, cols: u16) -> Result<()> {
+    let area = Rect::new(0, 0, cols, rows);
+    if !(self.ai_visible && self.chat_position == ChatPosition::Fullscreen) {
+      let guest_rows =
+        if self.ai_visible && self.guest_display == GuestDisplayMode::Resize {
+          self.guest_area(area).height.max(1)
+        } else {
+          rows.max(1)
+        };
+      self.shell.resize(guest_rows, cols.max(1))?;
+    }
+
+    let inner = self.overlay_inner_area(area);
+    if let Some(agent) = &mut self.agent_terminal {
+      agent
+        .shell_mut()
+        .resize(inner.height.max(1), inner.width.max(1))?;
+    }
+    Ok(())
+  }
+
+  fn toggle_fullscreen(&mut self, rows: u16, cols: u16) {
+    self.chat_position = if self.chat_position == ChatPosition::Fullscreen {
+      self.split_chat_position
+    } else {
+      self.split_chat_position = self.chat_position;
+      ChatPosition::Fullscreen
+    };
+    if let Err(err) = self.resize_layout(rows, cols) {
+      log::error!("Failed to resize terminal layout: {err}");
+    }
+  }
+
+  fn adjust_chat_height(&mut self, delta: i8, rows: u16, cols: u16) {
+    self.chat_height_percent =
+      (self.chat_height_percent as i16 + i16::from(delta)).clamp(20, 80) as u8;
+    if let Err(err) = self.resize_layout(rows, cols) {
+      log::error!("Failed to resize terminal layout: {err}");
+    }
+  }
+
+  fn toggle_split_position(&mut self, rows: u16, cols: u16) {
+    self.split_chat_position = match self.split_chat_position {
+      ChatPosition::Top => ChatPosition::Bottom,
+      _ => ChatPosition::Top,
+    };
+    if self.chat_position != ChatPosition::Fullscreen {
+      self.chat_position = self.split_chat_position;
+    }
+    if let Err(err) = self.resize_layout(rows, cols) {
+      log::error!("Failed to resize terminal layout: {err}");
+    }
+  }
+
+  fn cycle_guest_display(&mut self, rows: u16, cols: u16) {
+    self.guest_display = match self.guest_display {
+      GuestDisplayMode::Resize => GuestDisplayMode::Overlay,
+      GuestDisplayMode::Overlay => GuestDisplayMode::Move,
+      GuestDisplayMode::Move => GuestDisplayMode::Resize,
+    };
+    if let Err(err) = self.resize_layout(rows, cols) {
+      log::error!("Failed to resize terminal layout: {err}");
     }
   }
 
@@ -1924,12 +2044,37 @@ impl AppState {
     };
     match code {
       KeyCode::Esc => self.control_modal = None,
-      KeyCode::Up | KeyCode::Left | KeyCode::BackTab => {
+      KeyCode::Char('-') if matches!(modal, ControlModal::Layout { .. }) => {
+        self.adjust_chat_height(-5, rows, cols)
+      }
+      KeyCode::Char('+') | KeyCode::Char('=')
+        if matches!(modal, ControlModal::Layout { .. }) =>
+      {
+        self.adjust_chat_height(5, rows, cols)
+      }
+      KeyCode::Char('p') if matches!(modal, ControlModal::Layout { .. }) => {
+        self.toggle_split_position(rows, cols)
+      }
+      KeyCode::Char('g') if matches!(modal, ControlModal::Layout { .. }) => {
+        self.cycle_guest_display(rows, cols)
+      }
+      KeyCode::Char('f') if matches!(modal, ControlModal::Layout { .. }) => {
+        self.toggle_fullscreen(rows, cols)
+      }
+      KeyCode::Up | KeyCode::BackTab => {
         self.control_modal.as_mut().unwrap().previous();
       }
-      KeyCode::Down | KeyCode::Right | KeyCode::Tab => {
+      KeyCode::Down | KeyCode::Tab => {
         self.control_modal.as_mut().unwrap().next();
       }
+      KeyCode::Left if matches!(modal, ControlModal::Layout { .. }) => {
+        self.change_layout_item(modal.layout_item().unwrap(), false, rows, cols)
+      }
+      KeyCode::Right if matches!(modal, ControlModal::Layout { .. }) => {
+        self.change_layout_item(modal.layout_item().unwrap(), true, rows, cols)
+      }
+      KeyCode::Left => self.control_modal.as_mut().unwrap().previous(),
+      KeyCode::Right => self.control_modal.as_mut().unwrap().next(),
       KeyCode::Enter => match modal {
         ControlModal::Panel { .. } => match modal.panel_item().unwrap() {
           ControlPanelItem::ApprovalMode => self.request_approval_mode_toggle(),
@@ -1937,7 +2082,19 @@ impl AppState {
           ControlPanelItem::ClearHistory => {
             self.control_modal = Some(ControlModal::confirm_clear_history())
           }
+          ControlPanelItem::Fullscreen => {
+            self.toggle_fullscreen(rows, cols);
+          }
+          ControlPanelItem::Layout => {
+            self.control_modal = Some(ControlModal::layout())
+          }
         },
+        ControlModal::Layout { .. } => self.change_layout_item(
+          modal.layout_item().unwrap(),
+          true,
+          rows,
+          cols,
+        ),
         ControlModal::AgentPicker { .. } => {
           let name = modal.selected_agent().unwrap_or_default().to_string();
           let config = agent_config_for_choice(&self.config, &name);
@@ -1982,6 +2139,23 @@ impl AppState {
       _ => {}
     }
     true
+  }
+
+  fn change_layout_item(
+    &mut self,
+    item: LayoutPanelItem,
+    increase: bool,
+    rows: u16,
+    cols: u16,
+  ) {
+    match item {
+      LayoutPanelItem::Height => {
+        self.adjust_chat_height(if increase { 5 } else { -5 }, rows, cols)
+      }
+      LayoutPanelItem::Position => self.toggle_split_position(rows, cols),
+      LayoutPanelItem::GuestDisplay => self.cycle_guest_display(rows, cols),
+      LayoutPanelItem::Fullscreen => self.toggle_fullscreen(rows, cols),
+    }
   }
 
   fn update_shell_cwd(&mut self, cwd: PathBuf) {
@@ -2067,6 +2241,13 @@ impl AppState {
 
     let active_was_startup = self.active_agent_config == self.config.agent;
     self.chat_position = config.interface.chat_position;
+    self.split_chat_position = match self.chat_position {
+      ChatPosition::Fullscreen => ChatPosition::Bottom,
+      position => position,
+    };
+    self.chat_height_percent =
+      config.interface.chat_height_percent.clamp(20, 80);
+    self.guest_display = config.interface.guest_display;
     self.config = config;
     if active_was_startup {
       self.active_agent_config = self.config.agent.clone();
@@ -2188,7 +2369,8 @@ impl AppState {
       return;
     }
 
-    match spawn_agent_from_plan(&plan, rows, cols) {
+    let inner = self.overlay_inner_area(Rect::new(0, 0, cols, rows));
+    match spawn_agent_from_plan(&plan, inner.height, inner.width) {
       Ok((agent, rx)) => {
         log::info!("AI CLI terminal started: {}", plan.command);
         self.agent_terminal = Some(agent);
@@ -2364,14 +2546,15 @@ fn render(
 
   let buf = frame.buffer_mut();
 
-  // Calculate row offset for terminal viewport using helper
+  let guest_area = state.guest_area(area);
   let row_offset = state.terminal_row_offset(area);
 
-  // Render current shell terminal (always visible as background)
-  if let Ok(vt) = state.shell.vt.read() {
+  if guest_area.height > 0
+    && let Ok(vt) = state.shell.vt.read()
+  {
     let screen = vt.screen();
     let widget = TerminalWidget::with_offset(screen, row_offset);
-    widget.render(area, buf);
+    widget.render(guest_area, buf);
     log::trace!("Shell terminal rendered with row_offset={}", row_offset);
 
     // Set cursor position if AI not visible and cursor should be shown
@@ -2398,15 +2581,29 @@ fn render(
 
     // Clear the overlay area to prevent terminal content from showing through
     Clear.render(overlay_area, buf);
-    let title = format!(" {} ", state.agent_modal_title);
-    let mut block = Block::default()
-      .borders(Borders::ALL)
-      .title(title)
-      .style(Style::default().fg(Color::Cyan).bg(Color::Black));
-    if let Some(status) = approval_status(state.approval_mode) {
-      block = block.title(status);
+    if state.chat_position != ChatPosition::Fullscreen {
+      let title =
+        overlay_title(state.chat_position, &state.agent_modal_title).unwrap();
+      let mut block = Block::default()
+        .borders(if state.chat_position == ChatPosition::Top {
+          Borders::BOTTOM
+        } else {
+          Borders::TOP
+        })
+        .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+      if state.chat_position == ChatPosition::Top {
+        block = block.title_bottom(title);
+        if let Some(status) = approval_status(state.approval_mode) {
+          block = block.title_bottom(status);
+        }
+      } else {
+        block = block.title(title);
+        if let Some(status) = approval_status(state.approval_mode) {
+          block = block.title(status);
+        }
+      }
+      block.render(overlay_area, buf);
     }
-    block.render(overlay_area, buf);
 
     if let Some(ref agent) = state.agent_terminal {
       if let Ok(vt) = agent.shell().vt.read() {
@@ -2427,7 +2624,7 @@ fn render(
             .position(state.agent_view.row_offset)
             .viewport_content_length(inner_area.height as usize);
           Scrollbar::new(ScrollbarOrientation::VerticalRight).render(
-            overlay_area,
+            inner_area,
             buf,
             &mut scrollbar_state,
           );
@@ -2486,6 +2683,18 @@ fn render(
       ctx.set_screen_cursor(None);
     }
 
+    if state.chat_position == ChatPosition::Fullscreen
+      && let Some(status) = approval_status(state.approval_mode)
+    {
+      Paragraph::new(status).render(
+        Rect {
+          height: 1,
+          ..overlay_area
+        },
+        buf,
+      );
+    }
+
     state.clamp_approval_scroll(area);
     if let Some(pending) = &state.pending_command {
       render_shell_input_approval_with_state(
@@ -2505,6 +2714,9 @@ fn render(
         modal,
         state.approval_mode,
         &state.active_agent_name,
+        state.chat_position,
+        state.chat_height_percent,
+        state.guest_display,
       );
       ctx.set_screen_cursor(None);
     }
@@ -2603,16 +2815,19 @@ fn event(
           };
           break 'm Control::Changed;
         }
-        if bindings.toggle_approval_mode.matches(key_combo) {
-          state.request_approval_mode_toggle();
+        if bindings.layout_mode.matches(key_combo) {
+          state.control_modal =
+            if matches!(state.control_modal, Some(ControlModal::Layout { .. }))
+            {
+              None
+            } else {
+              Some(ControlModal::layout())
+            };
           break 'm Control::Changed;
         }
-        if bindings.switch_agent.matches(key_combo) {
-          state.open_agent_picker();
-          break 'm Control::Changed;
-        }
-        if bindings.clear_history.matches(key_combo) {
-          state.control_modal = Some(ControlModal::confirm_clear_history());
+        if bindings.toggle_fullscreen.matches(key_combo) {
+          let (cols, rows) = crossterm::terminal::size()?;
+          state.toggle_fullscreen(rows, cols);
           break 'm Control::Changed;
         }
       }
@@ -2736,12 +2951,7 @@ fn event(
     }
     AppEvent::Crossterm(Event::Resize(cols, rows)) => {
       log::info!("Terminal resize event: {}x{}", cols, rows);
-      state.shell.resize(*rows, *cols)?;
-
-      if let Some(agent) = &mut state.agent_terminal {
-        let (agent_rows, agent_cols) = agent_pty_size(*rows, *cols);
-        agent.shell_mut().resize(agent_rows, agent_cols)?;
-      }
+      state.resize_layout(*rows, *cols)?;
 
       // Re-synchronize scrollback tracker with VT100's new state after resize.
       // Resize can cause total_rows to change (lines wrap/unwrap), so the tracker
@@ -2904,6 +3114,19 @@ mod tests {
   }
 
   #[test]
+  fn overlay_title_points_toward_ai_and_fullscreen_has_no_border_title() {
+    assert_eq!(
+      overlay_title(ChatPosition::Top, "codex").as_deref(),
+      Some(" ↑ codex ")
+    );
+    assert_eq!(
+      overlay_title(ChatPosition::Bottom, "codex").as_deref(),
+      Some(" ↓ codex ")
+    );
+    assert_eq!(overlay_title(ChatPosition::Fullscreen, "codex"), None);
+  }
+
+  #[test]
   fn switcher_includes_builtins_visible_presets_and_distinct_startup_agent() {
     let mut config = TerminaiConfig::default();
     config.agent = termin::terminai_config::AgentConfig {
@@ -2957,9 +3180,17 @@ mod tests {
   }
 
   #[test]
-  fn agent_pty_size_matches_inner_overlay_area() {
-    assert_eq!(agent_pty_size(40, 120), (18, 118));
-    assert_eq!(agent_pty_size(8, 1), (8, 1));
+  fn overlay_height_uses_clamped_percentage() {
+    assert_eq!(overlay_height_for_rows(40, 50), 20);
+    assert_eq!(overlay_height_for_rows(40, 10), 8);
+    assert_eq!(overlay_height_for_rows(40, 90), 32);
+  }
+
+  #[test]
+  fn move_offset_depends_on_ai_position() {
+    assert_eq!(move_row_offset(ChatPosition::Top, 20), 0);
+    assert_eq!(move_row_offset(ChatPosition::Bottom, 20), 20);
+    assert_eq!(move_row_offset(ChatPosition::Fullscreen, 20), 0);
   }
 
   #[test]
@@ -3356,6 +3587,9 @@ mod tests {
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
+      split_chat_position: ChatPosition::Bottom,
+      chat_height_percent: 50,
+      guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
       config_error: None,
@@ -3421,6 +3655,9 @@ mod tests {
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
+      split_chat_position: ChatPosition::Bottom,
+      chat_height_percent: 50,
+      guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
       config_error: None,
@@ -3476,6 +3713,9 @@ mod tests {
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
+      split_chat_position: ChatPosition::Bottom,
+      chat_height_percent: 50,
+      guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
       config_error: None,
@@ -3531,6 +3771,9 @@ mod tests {
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
+      split_chat_position: ChatPosition::Bottom,
+      chat_height_percent: 50,
+      guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
       config_error: None,
@@ -3594,6 +3837,9 @@ mod tests {
       agent_modal_title: "AI Terminal".to_string(),
       ai_visible: true,
       chat_position: ChatPosition::Bottom,
+      split_chat_position: ChatPosition::Bottom,
+      chat_height_percent: 50,
+      guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
       config_error: None,

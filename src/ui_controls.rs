@@ -1,4 +1,4 @@
-use crate::terminai_config::ApprovalMode;
+use crate::terminai_config::{ApprovalMode, ChatPosition, GuestDisplayMode};
 use tui::{
   buffer::Buffer,
   layout::Rect,
@@ -12,11 +12,24 @@ pub enum ControlPanelItem {
   ApprovalMode,
   Agent,
   ClearHistory,
+  Fullscreen,
+  Layout,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayoutPanelItem {
+  Height,
+  Position,
+  GuestDisplay,
+  Fullscreen,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlModal {
   Panel {
+    selected: usize,
+  },
+  Layout {
     selected: usize,
   },
   AgentPicker {
@@ -49,6 +62,10 @@ impl ControlModal {
     }
   }
 
+  pub fn layout() -> Self {
+    Self::Layout { selected: 0 }
+  }
+
   pub fn confirm_auto_approval() -> Self {
     Self::ConfirmAutoApproval { confirm: false }
   }
@@ -66,7 +83,8 @@ impl ControlModal {
 
   fn item_count(&self) -> usize {
     match self {
-      Self::Panel { .. } => 3,
+      Self::Panel { .. } => 5,
+      Self::Layout { .. } => 4,
       Self::AgentPicker { agents, .. } => agents.len(),
       Self::ConfirmAutoApproval { .. }
       | Self::ConfirmClearHistory { .. }
@@ -76,9 +94,9 @@ impl ControlModal {
 
   pub fn selected(&self) -> usize {
     match self {
-      Self::Panel { selected } | Self::AgentPicker { selected, .. } => {
-        *selected
-      }
+      Self::Panel { selected }
+      | Self::Layout { selected }
+      | Self::AgentPicker { selected, .. } => *selected,
       Self::ConfirmAutoApproval { confirm }
       | Self::ConfirmClearHistory { confirm }
       | Self::ConfirmAgentSwitch { confirm, .. } => usize::from(!*confirm),
@@ -91,7 +109,9 @@ impl ControlModal {
       return;
     }
     match self {
-      Self::Panel { selected } | Self::AgentPicker { selected, .. } => {
+      Self::Panel { selected }
+      | Self::Layout { selected }
+      | Self::AgentPicker { selected, .. } => {
         *selected = (*selected + 1) % count
       }
       Self::ConfirmAutoApproval { confirm }
@@ -106,7 +126,9 @@ impl ControlModal {
       return;
     }
     match self {
-      Self::Panel { selected } | Self::AgentPicker { selected, .. } => {
+      Self::Panel { selected }
+      | Self::Layout { selected }
+      | Self::AgentPicker { selected, .. } => {
         *selected = selected.checked_sub(1).unwrap_or(count - 1)
       }
       Self::ConfirmAutoApproval { confirm }
@@ -131,7 +153,21 @@ impl ControlModal {
     Some(match selected {
       0 => ControlPanelItem::ApprovalMode,
       1 => ControlPanelItem::Agent,
-      _ => ControlPanelItem::ClearHistory,
+      2 => ControlPanelItem::ClearHistory,
+      3 => ControlPanelItem::Fullscreen,
+      _ => ControlPanelItem::Layout,
+    })
+  }
+
+  pub fn layout_item(&self) -> Option<LayoutPanelItem> {
+    let Self::Layout { selected } = self else {
+      return None;
+    };
+    Some(match selected {
+      0 => LayoutPanelItem::Height,
+      1 => LayoutPanelItem::Position,
+      2 => LayoutPanelItem::GuestDisplay,
+      _ => LayoutPanelItem::Fullscreen,
     })
   }
 
@@ -193,6 +229,9 @@ pub fn render_control_modal(
   modal: &ControlModal,
   approval_mode: ApprovalMode,
   active_agent: &str,
+  chat_position: ChatPosition,
+  chat_height_percent: u8,
+  guest_display: GuestDisplayMode,
 ) {
   let (title, mut lines, height) = match modal {
     ControlModal::Panel { selected } => {
@@ -209,12 +248,52 @@ pub fn render_control_modal(
             "Clear AI-readable history".to_string(),
             *selected == 2,
           ),
+          selected_line(
+            format!(
+              "Fullscreen: {}",
+              if chat_position == ChatPosition::Fullscreen {
+                "on"
+              } else {
+                "off"
+              }
+            ),
+            *selected == 3,
+          ),
+          selected_line("Layout…".to_string(), *selected == 4),
           Line::from(""),
           Line::from("↑/↓ select  Enter open  Esc close"),
         ],
-        9,
+        11,
       )
     }
+    ControlModal::Layout { selected } => (
+      " Layout Mode ",
+      vec![
+        selected_line(
+          format!("AI height: {chat_height_percent}%  (-/+)"),
+          *selected == 0,
+        ),
+        selected_line(
+          format!("Position: {chat_position:?}  (p)"),
+          *selected == 1,
+        ),
+        selected_line(format!("Guest: {guest_display:?}  (g)"), *selected == 2),
+        selected_line(
+          format!(
+            "Fullscreen: {}  (f)",
+            if chat_position == ChatPosition::Fullscreen {
+              "on"
+            } else {
+              "off"
+            }
+          ),
+          *selected == 3,
+        ),
+        Line::from(""),
+        Line::from("↑/↓ select  ←/→ change  Esc done"),
+      ],
+      10,
+    ),
     ControlModal::AgentPicker {
       agents,
       selected,
@@ -318,9 +397,13 @@ mod tests {
   fn panel_and_picker_selection_wrap() {
     let mut panel = ControlModal::panel();
     panel.previous();
-    assert_eq!(panel.selected(), 2);
+    assert_eq!(panel.selected(), 4);
     panel.next();
     assert_eq!(panel.selected(), 0);
+
+    let mut layout = ControlModal::layout();
+    layout.previous();
+    assert_eq!(layout.layout_item(), Some(LayoutPanelItem::Fullscreen));
 
     let mut picker = ControlModal::agent_picker(vec!["a".into(), "b".into()]);
     picker.previous();
@@ -347,6 +430,9 @@ mod tests {
       &ControlModal::panel(),
       ApprovalMode::AutoApproval,
       "codex",
+      ChatPosition::Bottom,
+      50,
+      GuestDisplayMode::Resize,
     );
 
     let rendered = buffer
@@ -359,5 +445,7 @@ mod tests {
     assert!(rendered.contains("AUTO-APPROVAL (DANGEROUS)"));
     assert!(rendered.contains("codex"));
     assert!(rendered.contains("Clear AI-readable history"));
+    assert!(rendered.contains("Fullscreen: off"));
+    assert!(rendered.contains("Layout"));
   }
 }

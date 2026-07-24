@@ -14,15 +14,16 @@ pub const DEFAULT_TERMINAI_YAML: &str = concat!(
 
 interface:
   chat-position: bottom
+  chat-height-percent: 50
+  guest-display: resize
   key_bindings:
     activate-overlay: "Ctrl-Space"
     deactivate-overlay: "Ctrl-Space"
     approve: "Y"
     deny: "N"
-    toggle-approval-mode: "F7"
-    switch-agent: "F8"
-    clear-history: "F9"
+    layout-mode: "F9"
     control-panel: "F10"
+    toggle-fullscreen: "F11"
 
 # DANGER: auto-approval sends every AI suggestion directly to the shell
 # without consulting the command risk classifier.

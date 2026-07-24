@@ -74,10 +74,11 @@ terminai -- zsh -l
 
 Use the terminal normally and press `Ctrl+Space` when you want the agent. Press `Ctrl+Space` or `Esc` to return to the shell. When an agent queues input, review it and press `y` to approve or `n` to deny; these bindings are configurable.
 
-While the agent overlay is open, press `F10` for Terminai controls. `F7`
-changes command approval mode, `F8` switches agent, and `F9` clears the
-internal shell history available to agents. These overlay-only bindings are
-configurable.
+While the agent overlay is open, press `F10` for Terminai Controls, `F11` to
+toggle fullscreen, or `F9` for Layout Mode. In Layout Mode, `+`/`-` changes
+AI height, `p` toggles top/bottom, `g` cycles the guest display, and `f`
+toggles fullscreen. Approval mode, agent switching, history clearing, and all
+layout settings are also available through the menus.
 
 For a terminal-emulator workflow, create a separate profile whose command is `terminai` and keep the emulator's normal shell profile as a fallback.
 
@@ -102,15 +103,16 @@ The default agent is Codex. A minimal explicit configuration is:
 ```yaml
 interface:
   chat-position: bottom
+  chat-height-percent: 50
+  guest-display: resize
   key_bindings:
     activate-overlay: Ctrl-Space
     deactivate-overlay: Ctrl-Space
     approve: y
     deny: n
-    toggle-approval-mode: F7
-    switch-agent: F8
-    clear-history: F9
+    layout-mode: F9
     control-panel: F10
+    toggle-fullscreen: F11
 
 approval-mode: always-ask
 agent:
@@ -122,6 +124,12 @@ every agent suggestion directly to the shell without consulting the command
 risk classifier. Terminai marks this mode with `⚠ AUTO-APPROVE`; enabling it
 in-app requires confirmation. In-app mode and agent changes last for the
 current session only.
+
+`chat-position` accepts `top`, `bottom`, or `fullscreen`.
+`chat-height-percent` controls split layouts and is clamped to 20–80%.
+`guest-display` accepts `resize` (reflow the guest into the remaining space),
+`overlay` (draw AI over the unchanged guest), or `move` (shift/crop the
+unchanged guest away from AI). Runtime layout changes last for the session.
 
 Switch to another bundled preset by changing `agent.preset`:
 

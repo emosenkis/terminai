@@ -8,7 +8,7 @@ Terminai exposes three AI layouts:
 - `fullscreen` occupies the entire terminal, has no border, and hides the guest.
 
 Non-fullscreen layouts draw only the edge adjoining the guest. That separator
-contains `→ agent` when AI is above the guest and `← agent` when AI is below it,
+contains `↑ agent` when AI is above the guest and `↓ agent` when AI is below it,
 plus right-aligned status such as `⚠ AUTO-APPROVE`.
 
 The guest display mode defaults to `resize`:

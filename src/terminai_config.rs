@@ -19,6 +19,20 @@ use std::borrow::Cow;
 pub enum ChatPosition {
   Bottom,
   Top,
+  Fullscreen,
+}
+
+/// How the guest terminal is displayed while the AI terminal is open.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum GuestDisplayMode {
+  #[default]
+  Resize,
+  Overlay,
+  Move,
 }
 
 /// How agent-suggested shell input is handled.
@@ -96,37 +110,30 @@ pub struct KeyBindingsConfig {
   pub deactivate_overlay: OneOrMoreBindings,
   pub approve: OneOrMoreBindings,
   pub deny: OneOrMoreBindings,
-  /// Toggle command approval mode while the AI overlay is active.
-  #[serde(
-    default = "default_toggle_approval_mode_binding",
-    rename = "toggle-approval-mode"
-  )]
-  pub toggle_approval_mode: OneOrMoreBindings,
-  /// Open the agent picker while the AI overlay is active.
-  #[serde(default = "default_switch_agent_binding", rename = "switch-agent")]
-  pub switch_agent: OneOrMoreBindings,
-  /// Clear AI-readable internal history while the AI overlay is active.
-  #[serde(default = "default_clear_history_binding", rename = "clear-history")]
-  pub clear_history: OneOrMoreBindings,
+  /// Enter layout mode while the AI overlay is active.
+  #[serde(default = "default_layout_mode_binding", rename = "layout-mode")]
+  pub layout_mode: OneOrMoreBindings,
   /// Open the Terminai control panel while the AI overlay is active.
   #[serde(default = "default_control_panel_binding", rename = "control-panel")]
   pub control_panel: OneOrMoreBindings,
+  /// Toggle the AI terminal between fullscreen and its last split position.
+  #[serde(
+    default = "default_toggle_fullscreen_binding",
+    rename = "toggle-fullscreen"
+  )]
+  pub toggle_fullscreen: OneOrMoreBindings,
 }
 
-fn default_toggle_approval_mode_binding() -> OneOrMoreBindings {
-  OneOrMoreBindings::Single(key!(f7))
-}
-
-fn default_switch_agent_binding() -> OneOrMoreBindings {
-  OneOrMoreBindings::Single(key!(f8))
-}
-
-fn default_clear_history_binding() -> OneOrMoreBindings {
+fn default_layout_mode_binding() -> OneOrMoreBindings {
   OneOrMoreBindings::Single(key!(f9))
 }
 
 fn default_control_panel_binding() -> OneOrMoreBindings {
   OneOrMoreBindings::Single(key!(f10))
+}
+
+fn default_toggle_fullscreen_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(f11))
 }
 
 impl Default for KeyBindingsConfig {
@@ -136,10 +143,9 @@ impl Default for KeyBindingsConfig {
       deactivate_overlay: OneOrMoreBindings::Single(key!(ctrl - space)),
       approve: OneOrMoreBindings::Single(key!(y)),
       deny: OneOrMoreBindings::Single(key!(n)),
-      toggle_approval_mode: default_toggle_approval_mode_binding(),
-      switch_agent: default_switch_agent_binding(),
-      clear_history: default_clear_history_binding(),
+      layout_mode: default_layout_mode_binding(),
       control_panel: default_control_panel_binding(),
+      toggle_fullscreen: default_toggle_fullscreen_binding(),
     }
   }
 }
@@ -147,16 +153,40 @@ impl Default for KeyBindingsConfig {
 /// Interface configuration
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InterfaceConfig {
   /// Position of the AI chat overlay (default: bottom)
   #[serde(default, rename = "chat-position")]
   pub chat_position: ChatPosition,
+  /// Height of a top or bottom AI terminal as a percentage (20-80).
+  #[serde(
+    default = "default_chat_height_percent",
+    rename = "chat-height-percent"
+  )]
+  pub chat_height_percent: u8,
+  /// How the guest terminal uses the space behind/beside the AI terminal.
+  #[serde(default, rename = "guest-display")]
+  pub guest_display: GuestDisplayMode,
   /// Key bindings
   ///
   /// The syntax for key combinations is defined by [crokey](https://github.com/Canop/crokey).
   #[serde(default)]
   pub key_bindings: KeyBindingsConfig,
+}
+
+fn default_chat_height_percent() -> u8 {
+  50
+}
+
+impl Default for InterfaceConfig {
+  fn default() -> Self {
+    Self {
+      chat_position: ChatPosition::default(),
+      chat_height_percent: default_chat_height_percent(),
+      guest_display: GuestDisplayMode::default(),
+      key_bindings: KeyBindingsConfig::default(),
+    }
+  }
 }
 
 /// Default shell for the wrapped terminal. This is a shell selector, not a
@@ -534,21 +564,7 @@ agent:
     let config: TerminaiConfig = serde_yaml::from_str("{}").unwrap();
 
     assert_eq!(config.approval_mode, ApprovalMode::AlwaysAsk);
-    assert!(
-      config
-        .interface
-        .key_bindings
-        .toggle_approval_mode
-        .matches(key!(f7))
-    );
-    assert!(config.interface.key_bindings.switch_agent.matches(key!(f8)));
-    assert!(
-      config
-        .interface
-        .key_bindings
-        .clear_history
-        .matches(key!(f9))
-    );
+    assert!(config.interface.key_bindings.layout_mode.matches(key!(f9)));
     assert!(
       config
         .interface
@@ -556,7 +572,33 @@ agent:
         .control_panel
         .matches(key!(f10))
     );
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .toggle_fullscreen
+        .matches(key!(f11))
+    );
+    assert_eq!(config.interface.chat_height_percent, 50);
+    assert_eq!(config.interface.guest_display, GuestDisplayMode::Resize);
     assert!(AgentPresetConfig::default().show_in_switcher);
+  }
+
+  #[test]
+  fn ai_layout_deserializes() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+interface:
+  chat-position: fullscreen
+  chat-height-percent: 65
+  guest-display: move
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(config.interface.chat_position, ChatPosition::Fullscreen);
+    assert_eq!(config.interface.chat_height_percent, 65);
+    assert_eq!(config.interface.guest_display, GuestDisplayMode::Move);
   }
 
   #[test]
