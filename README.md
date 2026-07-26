@@ -26,7 +26,7 @@ Suggested input is never written to the wrapped shell without user approval.
 
 ## Installation
 
-Terminai supports macOS and Linux.
+Terminai supports macOS and Linux and has been minimally shown to work on Windows.
 
 ### Homebrew
 
