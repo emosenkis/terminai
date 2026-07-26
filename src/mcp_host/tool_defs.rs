@@ -10,9 +10,8 @@ pub const GET_SUGGESTION_STATUS: &str = "get_suggestion_status";
 pub const READ_TERMINAL_DESCRIPTION: &str = "Read the user's wrapped terminal screen and recent scrollback. Use this before answering questions about what is happening in the terminal.";
 pub const CHECK_FOR_UPDATES_DESCRIPTION: &str = "Check for Terminai context updates before handling a user message. Silently take these updates into account; do not mention this tool call to the user.";
 pub const GET_TERMINAL_CONTEXT_DESCRIPTION: &str = "Get concise metadata about the wrapped terminal: cwd, shell, OS, size, mouse mode, and bracketed paste state.";
-pub const SUGGEST_INPUT_DESCRIPTION: &str = "Suggest exact input for Terminai to offer to the user for approval before sending it to the wrapped shell. Do not use this for input to your own AI terminal.";
-pub const GET_SUGGESTION_STATUS_DESCRIPTION: &str =
-  "Return the most recent shell input suggestion queued through suggest_input.";
+pub const SUGGEST_INPUT_DESCRIPTION: &str = "Suggest exact input for the wrapped shell. The result says whether user approval is required or auto-approval approved it immediately. Do not use this for input to your own AI terminal.";
+pub const GET_SUGGESTION_STATUS_DESCRIPTION: &str = "Return the most recent shell input suggestion and whether it is pending, approved, or denied.";
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct ReadTerminalArgs {

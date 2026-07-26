@@ -938,6 +938,7 @@ async fn prepare_agent(
         shell_identity,
         privacy_filter,
       );
+      mcp_state.set_approval_mode(config.approval_mode);
       let mcp_auth_token = match generate_mcp_auth_token() {
         Ok(token) => token,
         Err(err) => {
@@ -1747,6 +1748,9 @@ impl AppState {
     match action {
       ApprovalAction::Approve => {
         if let Some(cmd) = self.pending_command.take() {
+          if let Some(mcp_state) = &self.mcp_state {
+            mcp_state.set_suggestion_status("approved");
+          }
           log::info!("Executing approved command: {}", cmd.command);
           if let Err(e) = self.shell.send_command(&cmd.command) {
             log::error!("Failed to send command to shell: {:?}", e);
@@ -1758,6 +1762,9 @@ impl AppState {
       }
       ApprovalAction::Deny => {
         self.pending_command = None;
+        if let Some(mcp_state) = &self.mcp_state {
+          mcp_state.set_suggestion_status("denied");
+        }
       }
     }
     self.approval_scroll = 0;
@@ -1931,6 +1938,9 @@ impl AppState {
   fn request_approval_mode_toggle(&mut self) {
     if self.approval_mode == ApprovalMode::AutoApproval {
       self.approval_mode = ApprovalMode::AlwaysAsk;
+      if let Some(mcp_state) = &self.mcp_state {
+        mcp_state.set_approval_mode(self.approval_mode);
+      }
       self.control_modal = None;
     } else {
       self.control_modal = Some(ControlModal::confirm_auto_approval());
@@ -2114,6 +2124,9 @@ impl AppState {
           self.control_modal = None;
           if modal.is_confirmed() {
             self.approval_mode = ApprovalMode::AutoApproval;
+            if let Some(mcp_state) = &self.mcp_state {
+              mcp_state.set_approval_mode(self.approval_mode);
+            }
             if self.pending_command.is_some() {
               self.run_approval_action(ApprovalAction::Approve, false);
             }

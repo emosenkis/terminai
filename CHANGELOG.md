@@ -1,3 +1,9 @@
+## 0.1.14 - 2026-07-27
+
+- Report whether suggested shell input needs user approval or was
+  auto-approved, and keep MCP suggestion status synchronized with approval
+  decisions.
+
 ## 0.1.13 - 2026-07-24
 
 - Add configurable AI terminal height, top/bottom/fullscreen positions, and

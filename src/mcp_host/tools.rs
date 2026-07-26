@@ -8,14 +8,22 @@ use rmcp::{
   tool, tool_handler, tool_router,
 };
 use serde_json::json;
-use tokio::sync::{Mutex as AsyncMutex, mpsc};
+use tokio::sync::mpsc;
 
 use crate::agent_tools::PendingCommand;
 use crate::command::SafetyValidator;
 pub use crate::mcp_host::tool_defs::{ReadTerminalArgs, SuggestInputArgs};
 use crate::privacy::PrivacyFilter;
 use crate::shell::ReplySender;
+use crate::terminai_config::ApprovalMode;
 use crate::vt100;
+
+#[derive(Clone)]
+struct SuggestionRecord {
+  command: PendingCommand,
+  status: &'static str,
+  approval_mode: &'static str,
+}
 
 #[derive(Clone)]
 pub struct TerminaiMcpState {
@@ -23,7 +31,8 @@ pub struct TerminaiMcpState {
   suggestions: mpsc::UnboundedSender<PendingCommand>,
   privacy_filter: Arc<PrivacyFilter>,
   safety_validator: Arc<SafetyValidator>,
-  last_suggestion: Arc<AsyncMutex<Option<PendingCommand>>>,
+  last_suggestion: Arc<Mutex<Option<SuggestionRecord>>>,
+  approval_mode: Arc<Mutex<ApprovalMode>>,
   cwd: Arc<RwLock<PathBuf>>,
   pending_cwd_change: Arc<Mutex<Option<PathBuf>>>,
   shell_identity: Arc<str>,
@@ -55,7 +64,8 @@ impl TerminaiMcpState {
       suggestions,
       privacy_filter: Arc::new(privacy_filter),
       safety_validator: Arc::new(SafetyValidator::new()),
-      last_suggestion: Arc::new(AsyncMutex::new(None)),
+      last_suggestion: Arc::new(Mutex::new(None)),
+      approval_mode: Arc::new(Mutex::new(ApprovalMode::AlwaysAsk)),
       cwd: Arc::new(RwLock::new(
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
       )),
@@ -74,6 +84,20 @@ impl TerminaiMcpState {
     }
     if let Ok(mut pending) = self.pending_cwd_change.lock() {
       *pending = Some(cwd);
+    }
+  }
+
+  pub fn set_approval_mode(&self, mode: ApprovalMode) {
+    if let Ok(mut approval_mode) = self.approval_mode.lock() {
+      *approval_mode = mode;
+    }
+  }
+
+  pub fn set_suggestion_status(&self, status: &'static str) {
+    if let Ok(mut last_suggestion) = self.last_suggestion.lock()
+      && let Some(last) = last_suggestion.as_mut()
+    {
+      last.status = status;
     }
   }
 
@@ -153,6 +177,38 @@ mod tests {
     assert!(!text.contains("123-45-6789"));
     assert!(text.contains("[US_SSN]"));
     assert!(text.contains(bitcoin));
+  }
+
+  #[tokio::test]
+  async fn auto_approval_is_explicit_in_suggestion_results() {
+    let (event_tx, _event_rx) = mpsc::unbounded_channel();
+    let parser = vt100::Parser::new(24, 120, 1000, ReplySender::new(event_tx));
+    let (tx, _suggestion_rx) = mpsc::unbounded_channel();
+    let state =
+      TerminaiMcpState::new(Arc::new(RwLock::new(parser)), tx, "test-shell");
+    state.set_approval_mode(ApprovalMode::AutoApproval);
+
+    let result = state
+      .suggest_input(Parameters(SuggestInputArgs {
+        input: "git status\r".into(),
+        explanation: None,
+      }))
+      .await
+      .unwrap()
+      .structured_content
+      .unwrap();
+
+    assert_eq!(result["status"], "approved");
+    assert_eq!(result["approval_required"], false);
+    assert_eq!(
+      state
+        .get_suggestion_status()
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap()["status"],
+      "approved"
+    );
   }
 }
 
@@ -314,7 +370,7 @@ impl TerminaiMcpState {
   }
 
   #[tool(
-    description = "Suggest exact input for Terminai to offer to the user for approval before sending it to the wrapped shell. Do not use this for input to your own AI terminal."
+    description = "Suggest exact input for the wrapped shell. The result says whether user approval is required or auto-approval approved it immediately. Do not use this for input to your own AI terminal."
   )]
   pub async fn suggest_input(
     &self,
@@ -327,9 +383,25 @@ impl TerminaiMcpState {
       risk_level,
     );
 
+    let approval_mode = *self.approval_mode.lock().map_err(Self::lock_error)?;
+    let approval_required = approval_mode == ApprovalMode::AlwaysAsk;
+    let approval_mode = if approval_required {
+      "always-ask"
+    } else {
+      "auto-approval"
+    };
+    let status = if approval_required {
+      "pending"
+    } else {
+      "approved"
+    };
     {
-      let mut last = self.last_suggestion.lock().await;
-      *last = Some(pending.clone());
+      let mut last = self.last_suggestion.lock().map_err(Self::lock_error)?;
+      *last = Some(SuggestionRecord {
+        command: pending.clone(),
+        status,
+        approval_mode,
+      });
     }
 
     self.suggestions.send(pending).map_err(|err| {
@@ -340,12 +412,22 @@ impl TerminaiMcpState {
     })?;
 
     Ok(Self::tool_result(
-      format!(
-        "Queued shell input suggestion for user approval: {}",
-        args.input
-      ),
+      if approval_required {
+        format!(
+          "Queued shell input suggestion for user approval: {}",
+          args.input
+        )
+      } else {
+        format!(
+          "Approved shell input suggestion automatically: {}",
+          args.input
+        )
+      },
       json!({
         "queued": true,
+        "status": status,
+        "approval_required": approval_required,
+        "approval_mode": approval_mode,
         "input": args.input,
         "explanation": args.explanation,
         "risk_level": format!("{:?}", risk_level)
@@ -354,18 +436,25 @@ impl TerminaiMcpState {
   }
 
   #[tool(
-    description = "Return the most recent shell input suggestion queued through suggest_input."
+    description = "Return the most recent shell input suggestion and whether it is pending, approved, or denied."
   )]
   pub async fn get_suggestion_status(
     &self,
   ) -> Result<CallToolResult, ErrorData> {
-    let suggestion = self.last_suggestion.lock().await.clone();
+    let suggestion = self
+      .last_suggestion
+      .lock()
+      .map_err(Self::lock_error)?
+      .clone();
     let data = match suggestion {
-      Some(pending) => json!({
+      Some(record) => json!({
         "has_suggestion": true,
-        "input": pending.command,
-        "explanation": pending.explanation,
-        "risk_level": format!("{:?}", pending.risk_level)
+        "status": record.status,
+        "approval_required": record.status == "pending",
+        "approval_mode": record.approval_mode,
+        "input": record.command.command,
+        "explanation": record.command.explanation,
+        "risk_level": format!("{:?}", record.command.risk_level)
       }),
       None => json!({ "has_suggestion": false }),
     };
