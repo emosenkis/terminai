@@ -1,3 +1,7 @@
+## 0.1.15 - 2026-07-27
+
+- Add support for iTerm2 OSC 1337 escape sequences, including pass-through to host terminal, CWD tracking (`CurrentDir`), and scrollback clearing (`ClearScrollback`).
+
 ## 0.1.14 - 2026-07-27
 
 - Report whether suggested shell input needs user approval or was
