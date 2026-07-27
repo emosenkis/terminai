@@ -132,6 +132,59 @@ fn test_vt100_forwards_current_working_directory_osc() {
 }
 
 #[test]
+fn test_vt100_forwards_iterm2_osc1337() {
+  let host_escapes = Arc::new(Mutex::new(Vec::new()));
+  let mut parser = vt100::Parser::new(
+    24,
+    80,
+    1000,
+    HostEscapeReplySender {
+      host_escapes: host_escapes.clone(),
+    },
+  );
+
+  parser.process(b"\x1b]1337;CurrentDir=/tmp/project\x07");
+  parser.process(b"\x1b]1337;SetUserVar=key=value\x07");
+
+  assert_eq!(
+    host_escapes.lock().unwrap().as_slice(),
+    [
+      "\x1b]1337;CurrentDir=/tmp/project\x07",
+      "\x1b]1337;SetUserVar=key=value\x07"
+    ]
+  );
+}
+
+#[test]
+fn test_vt100_iterm2_osc1337_clear_scrollback() {
+  let host_escapes = Arc::new(Mutex::new(Vec::new()));
+  let mut parser = vt100::Parser::new(
+    10,
+    80,
+    1000,
+    HostEscapeReplySender {
+      host_escapes: host_escapes.clone(),
+    },
+  );
+
+  for i in 0..15 {
+    parser.process(format!("Line {}\r\n", i).as_bytes());
+  }
+
+  assert!(parser.screen().grid().scrollback_len() > 0);
+
+  parser.process(b"\x1b]1337;ClearScrollback\x07");
+
+  assert_eq!(parser.screen().grid().scrollback_len(), 0);
+  assert!(
+    host_escapes
+      .lock()
+      .unwrap()
+      .contains(&"\x1b]1337;ClearScrollback\x07".to_string())
+  );
+}
+
+#[test]
 fn test_vt100_basic_text() {
   let mut parser = vt100::Parser::new(24, 80, 1000, TestReplySender);
 

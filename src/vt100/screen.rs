@@ -829,7 +829,13 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
       OperatingSystemCommand::SystemNotification(_) => {
         skip!("SystemNotification")
       }
-      OperatingSystemCommand::ITermProprietary(_) => skip!("ITermProprietary"),
+      OperatingSystemCommand::ITermProprietary(ref seq) => {
+        if matches!(seq, termwiz::escape::osc::ITermProprietary::ClearScrollback) {
+          self.clear_scrollback();
+        }
+        let sequence = format!("\x1b]{cmd}\x07");
+        self.reply_sender.host_escape(sequence.to_compact_string());
+      }
       OperatingSystemCommand::FinalTermSemanticPrompt(p) => {
         skip!("FinalTermSemanticPrompt {:?}", p)
       }
@@ -851,12 +857,17 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
       OperatingSystemCommand::ConEmuProgress(_progress) => {
         skip!("ConEmuProgress")
       }
-      OperatingSystemCommand::Unspecified(data) => {
-        let strings: Vec<_> = data
-          .into_iter()
-          .map(|bytes| String::from_utf8_lossy(bytes.as_slice()).to_string())
-          .collect();
-        skip!("OSC: Unspecified {:?}", strings);
+      OperatingSystemCommand::Unspecified(ref data) => {
+        if data.first().map(|b| b.as_slice()) == Some(b"1337") {
+          let sequence = format!("\x1b]{cmd}\x07");
+          self.reply_sender.host_escape(sequence.to_compact_string());
+        } else {
+          let strings: Vec<_> = data
+            .iter()
+            .map(|bytes| String::from_utf8_lossy(bytes.as_slice()).to_string())
+            .collect();
+          skip!("OSC: Unspecified {:?}", strings);
+        }
       }
     }
   }

@@ -1283,28 +1283,62 @@ fn percent_decode_path(input: &str) -> String {
   String::from_utf8_lossy(&output).into_owned()
 }
 
-fn cwd_from_osc7_escape(escape: &str) -> Option<PathBuf> {
-  let cwd = escape.strip_prefix("\x1b]7;")?;
-  let cwd = cwd.trim_end_matches('\x07');
-  let cwd = cwd.strip_suffix("\x1b\\").unwrap_or(cwd);
-
-  let path = if let Some(uri) = cwd.strip_prefix("file://") {
-    let path_start = uri.find('/').unwrap_or(uri.len());
-    &uri[path_start..]
+fn cwd_from_osc_escape(escape: &str) -> Option<PathBuf> {
+  let (raw_path, is_uri) = if let Some(cwd) = escape.strip_prefix("\x1b]7;") {
+    let cwd = cwd.trim_end_matches('\x07');
+    let cwd = cwd.strip_suffix("\x1b\\").unwrap_or(cwd);
+    (cwd, true)
+  } else if let Some(body) = escape.strip_prefix("\x1b]1337;") {
+    let body = body.trim_end_matches('\x07');
+    let body = body.strip_suffix("\x1b\\").unwrap_or(body);
+    let current_dir_part = body.split(';').find_map(|p| p.strip_prefix("CurrentDir="))?;
+    (current_dir_part, current_dir_part.starts_with("file://"))
   } else {
-    cwd
+    return None;
   };
 
-  let path = percent_decode_path(path);
+  let path_str = if is_uri {
+    if let Some(uri) = raw_path.strip_prefix("file://") {
+      let path_start = uri.find('/').unwrap_or(uri.len());
+      &uri[path_start..]
+    } else {
+      raw_path
+    }
+  } else {
+    raw_path
+  };
+
+  let decoded_path = percent_decode_path(path_str);
+
+  let expanded_path = if decoded_path == "~"
+    || decoded_path.starts_with("~/")
+    || decoded_path.starts_with("~\\")
+  {
+    let home = std::env::var_os("HOME")
+      .or_else(|| std::env::var_os("USERPROFILE"))
+      .map(PathBuf::from);
+    if let Some(home) = home {
+      if decoded_path == "~" {
+        home.to_string_lossy().into_owned()
+      } else {
+        home.join(&decoded_path[2..]).to_string_lossy().into_owned()
+      }
+    } else {
+      decoded_path
+    }
+  } else {
+    decoded_path
+  };
+
   // file:///C:/... has an extra URI slash before the drive. cmd's $P uses
   // backslashes, so normalize both forms before handing the path to the host.
-  let path = if path.as_bytes().get(0) == Some(&b'/')
-    && path.as_bytes().get(2) == Some(&b':')
-    && path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+  let path = if expanded_path.as_bytes().get(0) == Some(&b'/')
+    && expanded_path.as_bytes().get(2) == Some(&b':')
+    && expanded_path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
   {
-    path[1..].replace('\\', "/")
+    expanded_path[1..].replace('\\', "/")
   } else {
-    path.replace('\\', "/")
+    expanded_path.replace('\\', "/")
   };
 
   if path.is_empty() {
@@ -1312,6 +1346,10 @@ fn cwd_from_osc7_escape(escape: &str) -> Option<PathBuf> {
   } else {
     Some(PathBuf::from(path))
   }
+}
+
+fn cwd_from_osc7_escape(escape: &str) -> Option<PathBuf> {
+  cwd_from_osc_escape(escape)
 }
 
 fn rebuild_agent_launch_plan_for_cwd(
@@ -3221,6 +3259,34 @@ mod tests {
       cwd_from_osc7_escape("\x1b]7;file:///C:\\Users\\A%20B\x07"),
       Some(PathBuf::from("C:/Users/A B"))
     );
+  }
+
+  #[test]
+  fn cwd_from_osc_escape_handles_iterm2_1337() {
+    assert_eq!(
+      cwd_from_osc_escape("\x1b]1337;CurrentDir=/tmp/project%20one\x07"),
+      Some(PathBuf::from("/tmp/project one"))
+    );
+    assert_eq!(
+      cwd_from_osc_escape("\x1b]1337;CurrentDir=/tmp/project\x1b\\"),
+      Some(PathBuf::from("/tmp/project"))
+    );
+    assert_eq!(
+      cwd_from_osc_escape("\x1b]1337;CurrentDir=file:///tmp/project\x07"),
+      Some(PathBuf::from("/tmp/project"))
+    );
+    assert_eq!(cwd_from_osc_escape("\x1b]1337;SetUserVar=foo=bar\x07"), None);
+    assert_eq!(
+      cwd_from_osc_escape("\x1b]1337;CurrentDir=C:\\Users\\Test\x07"),
+      Some(PathBuf::from("C:/Users/Test"))
+    );
+
+    if let Ok(home) = std::env::var("HOME") {
+      assert_eq!(
+        cwd_from_osc_escape("\x1b]1337;CurrentDir=~/my_dir\x07"),
+        Some(PathBuf::from(home).join("my_dir"))
+      );
+    }
   }
 
   #[test]
