@@ -830,7 +830,10 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
         skip!("SystemNotification")
       }
       OperatingSystemCommand::ITermProprietary(ref seq) => {
-        if matches!(seq, termwiz::escape::osc::ITermProprietary::ClearScrollback) {
+        if matches!(
+          seq,
+          termwiz::escape::osc::ITermProprietary::ClearScrollback
+        ) {
           self.clear_scrollback();
         }
         let sequence = format!("\x1b]{cmd}\x07");

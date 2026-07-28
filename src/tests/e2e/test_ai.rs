@@ -206,10 +206,10 @@ fn test_command_approval_modal_is_centered() {
   let outer = Rect::new(10, 4, 100, 40);
   let area = approval_modal_area(outer);
 
-  assert_eq!(area.width, 80);
-  assert_eq!(area.height, 12);
-  assert_eq!(area.x, 20);
-  assert_eq!(area.y, 18);
+  assert_eq!(area.width, 96);
+  assert_eq!(area.height, 38);
+  assert_eq!(area.x, 12);
+  assert_eq!(area.y, 5);
 }
 
 #[test]
@@ -229,16 +229,16 @@ fn test_command_approval_renders_whitespace_escapes_as_whitespace() {
     .unwrap();
 
   let buffer = harness.buffer_as_string();
-  assert!(buffer.contains("printf one"));
-  assert!(buffer.contains("two"));
-  assert!(buffer.contains("  tab"));
+  assert!(buffer.contains("printf one<Enter>"));
+  assert!(buffer.contains("two<Enter>"));
+  assert!(buffer.contains("<Tab>tab"));
   assert!(!buffer.contains("\\n"));
   assert!(!buffer.contains("\\r"));
   assert!(!buffer.contains("\\t"));
 }
 
 #[test]
-fn test_command_approval_renders_non_whitespace_escapes_escaped() {
+fn test_command_approval_renders_control_input_as_shortcut_keys() {
   let mut harness = TestHarness::new();
   let pending = PendingCommand::new(
     "cancel \\u0003 and esc \u{1b}".to_string(),
@@ -254,7 +254,15 @@ fn test_command_approval_renders_non_whitespace_escapes_escaped() {
     .unwrap();
 
   let buffer = harness.buffer_as_string();
-  assert!(buffer.contains("cancel \\u0003 and esc \\u001b"));
+  assert!(buffer.contains("cancel <C-c> and esc <Esc>"));
+  let (x, y) =
+    find_buffer_text(harness.buffer(), "<C-c>").expect("control key rendered");
+  let cell = harness
+    .buffer()
+    .cell(tui::layout::Position { x, y })
+    .expect("control key cell");
+  assert_eq!(cell.fg, Color::Cyan);
+  assert!(cell.modifier.contains(tui::style::Modifier::BOLD));
 }
 
 fn find_buffer_text(

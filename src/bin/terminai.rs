@@ -1291,7 +1291,9 @@ fn cwd_from_osc_escape(escape: &str) -> Option<PathBuf> {
   } else if let Some(body) = escape.strip_prefix("\x1b]1337;") {
     let body = body.trim_end_matches('\x07');
     let body = body.strip_suffix("\x1b\\").unwrap_or(body);
-    let current_dir_part = body.split(';').find_map(|p| p.strip_prefix("CurrentDir="))?;
+    let current_dir_part = body
+      .split(';')
+      .find_map(|p| p.strip_prefix("CurrentDir="))?;
     (current_dir_part, current_dir_part.starts_with("file://"))
   } else {
     return None;
@@ -1334,7 +1336,10 @@ fn cwd_from_osc_escape(escape: &str) -> Option<PathBuf> {
   // backslashes, so normalize both forms before handing the path to the host.
   let path = if expanded_path.as_bytes().get(0) == Some(&b'/')
     && expanded_path.as_bytes().get(2) == Some(&b':')
-    && expanded_path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+    && expanded_path
+      .as_bytes()
+      .get(1)
+      .is_some_and(u8::is_ascii_alphabetic)
   {
     expanded_path[1..].replace('\\', "/")
   } else {
@@ -3275,7 +3280,10 @@ mod tests {
       cwd_from_osc_escape("\x1b]1337;CurrentDir=file:///tmp/project\x07"),
       Some(PathBuf::from("/tmp/project"))
     );
-    assert_eq!(cwd_from_osc_escape("\x1b]1337;SetUserVar=foo=bar\x07"), None);
+    assert_eq!(
+      cwd_from_osc_escape("\x1b]1337;SetUserVar=foo=bar\x07"),
+      None
+    );
     assert_eq!(
       cwd_from_osc_escape("\x1b]1337;CurrentDir=C:\\Users\\Test\x07"),
       Some(PathBuf::from("C:/Users/Test"))
@@ -3746,11 +3754,11 @@ mod tests {
       recovery: None,
     };
 
-    state.scroll_approval(100, Rect::new(0, 0, 80, 24));
-    assert_eq!(state.approval_scroll, 6);
+    state.scroll_approval(100, Rect::new(0, 0, 80, 12));
+    assert_eq!(state.approval_scroll, 8);
 
-    state.scroll_approval(-2, Rect::new(0, 0, 80, 24));
-    assert_eq!(state.approval_scroll, 4);
+    state.scroll_approval(-2, Rect::new(0, 0, 80, 12));
+    assert_eq!(state.approval_scroll, 6);
   }
 
   #[test]

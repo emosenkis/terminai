@@ -1,3 +1,11 @@
+## 0.1.16 - 2026-07-28
+
+- Expand shell-input approval dialogs to the available screen size to reduce
+  wrapping and scrolling.
+- Display control characters as distinct keyboard-style labels such as
+  `<C-c>`, `<Esc>`, `<Enter>`, and `<Tab>`.
+- Fix formatting violations that prevented the Windows workflow from running.
+
 ## 0.1.15 - 2026-07-27
 
 - Add support for iTerm2 OSC 1337 escape sequences, including pass-through to host terminal, CWD tracking (`CurrentDir`), and scrollback clearing (`ClearScrollback`).

@@ -2,7 +2,7 @@ use crate::agent_tools::PendingCommand;
 use tui::{
   buffer::Buffer,
   layout::{Margin, Rect},
-  style::{Color, Style},
+  style::{Color, Modifier, Style},
   text::{Line, Span},
   widgets::{
     Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation,
@@ -10,10 +10,8 @@ use tui::{
   },
 };
 
-const MODAL_MAX_WIDTH: u16 = 80;
-const MODAL_HEIGHT: u16 = 12;
-const TAB_DISPLAY: &str = "  ";
 const SUGGESTED_INPUT_BG: Color = Color::Indexed(237);
+const CONTROL_INPUT_FG: Color = Color::Cyan;
 const BUTTON_BG: Color = Color::Indexed(238);
 const BUTTON_FOCUSED_BG: Color = Color::Indexed(220);
 const APPROVE_LABEL: &str = " Approve (Y) ";
@@ -32,8 +30,8 @@ pub struct ApprovalButtonAreas {
 }
 
 pub fn approval_modal_area(area: Rect) -> Rect {
-  let width = area.width.saturating_sub(4).min(MODAL_MAX_WIDTH).max(1);
-  let height = area.height.saturating_sub(2).min(MODAL_HEIGHT).max(1);
+  let width = area.width.saturating_sub(4).max(1);
+  let height = area.height.saturating_sub(2).max(1);
 
   Rect {
     x: area.x + area.width.saturating_sub(width) / 2,
@@ -237,15 +235,42 @@ fn point_in_rect(x: u16, y: u16, area: Rect) -> bool {
 
 fn suggested_input_lines(input: &str) -> Vec<Line<'static>> {
   let command = format_shell_input_for_display(input);
-  command
-    .split('\n')
-    .map(|line| {
-      Line::from(vec![Span::styled(
-        line.to_string(),
-        Style::default().bg(SUGGESTED_INPUT_BG),
-      )])
-    })
-    .collect()
+  command.split('\n').map(styled_input_line).collect()
+}
+
+fn styled_input_line(line: &str) -> Line<'static> {
+  let base = Style::default().bg(SUGGESTED_INPUT_BG);
+  let control = base.fg(CONTROL_INPUT_FG).add_modifier(Modifier::BOLD);
+  let mut spans = Vec::new();
+  let mut rest = line;
+
+  while let Some(start) = rest.find('<') {
+    let (plain, tail) = rest.split_at(start);
+    spans.push(Span::styled(plain.to_string(), base));
+    if let Some(end) = tail.find('>') {
+      let (token, after) = tail.split_at(end + 1);
+      spans.push(Span::styled(
+        token.to_string(),
+        if is_control_token(token) {
+          control
+        } else {
+          base
+        },
+      ));
+      rest = after;
+    } else {
+      rest = tail;
+      break;
+    }
+  }
+  spans.push(Span::styled(rest.to_string(), base));
+  Line::from(spans)
+}
+
+fn is_control_token(token: &str) -> bool {
+  matches!(token, "<Nul>" | "<Enter>" | "<Tab>" | "<BS>" | "<Esc>")
+    || (token.starts_with("<C-") && token.chars().count() == 5)
+    || (token.starts_with("<U+") && token.ends_with('>'))
 }
 
 pub fn format_shell_input_for_display(input: &str) -> String {
@@ -272,15 +297,19 @@ fn append_backslash_escape<I>(
   match chars.peek().copied() {
     Some('n') => {
       chars.next();
-      output.push('\n');
+      output.push_str("<Enter>\n");
     }
     Some('r') => {
       chars.next();
-      output.push('\n');
+      output.push_str("<Enter>\n");
     }
     Some('t') => {
       chars.next();
-      output.push_str(TAB_DISPLAY);
+      output.push_str("<Tab>");
+    }
+    Some('b') => {
+      chars.next();
+      output.push_str("<BS>");
     }
     Some('u') => {
       chars.next();
@@ -320,8 +349,7 @@ fn append_unicode_escape<I>(
     .ok()
     .and_then(char::from_u32)
   {
-    Some('\n') | Some('\r') => output.push('\n'),
-    Some('\t') => output.push_str(TAB_DISPLAY),
+    Some(ch) if ch.is_control() => append_control_key(ch, output),
     _ => {
       output.push_str("\\u");
       output.push_str(&digits);
@@ -330,13 +358,31 @@ fn append_unicode_escape<I>(
 }
 
 fn append_char_for_display(ch: char, output: &mut String) {
+  if ch.is_control() {
+    append_control_key(ch, output);
+  } else {
+    output.push(ch);
+  }
+}
+
+fn append_control_key(ch: char, output: &mut String) {
+  output.push_str(&control_key_name(ch));
+  if matches!(ch, '\r' | '\n') {
+    output.push('\n');
+  }
+}
+
+fn control_key_name(ch: char) -> String {
   match ch {
-    '\n' | '\r' => output.push('\n'),
-    '\t' => output.push_str(TAB_DISPLAY),
-    ch if ch.is_control() => {
-      output.push_str(&format!("\\u{:04x}", ch as u32));
+    '\0' => "<Nul>".into(),
+    '\r' | '\n' => "<Enter>".into(),
+    '\t' => "<Tab>".into(),
+    '\u{8}' | '\u{7f}' => "<BS>".into(),
+    '\u{1b}' => "<Esc>".into(),
+    '\u{1}'..='\u{1a}' => {
+      format!("<C-{}>", (b'a' + ch as u8 - 1) as char)
     }
-    ch => output.push(ch),
+    _ => format!("<U+{:04X}>", ch as u32),
   }
 }
 
@@ -348,25 +394,25 @@ mod tests {
   fn formats_literal_whitespace_escapes_as_whitespace() {
     assert_eq!(
       format_shell_input_for_display("printf a\\nb\\r\\tc"),
-      "printf a\nb\n  c"
+      "printf a<Enter>\nb<Enter>\n<Tab>c"
     );
   }
 
   #[test]
-  fn formats_control_characters_as_escaped_unicode() {
+  fn formats_control_characters_as_shortcut_keys() {
     assert_eq!(
       format_shell_input_for_display("cancel \u{3} and esc \u{1b}"),
-      "cancel \\u0003 and esc \\u001b"
+      "cancel <C-c> and esc <Esc>"
     );
   }
 
   #[test]
-  fn preserves_literal_non_whitespace_unicode_escapes() {
+  fn formats_control_unicode_escapes_as_shortcut_keys() {
     assert_eq!(
       format_shell_input_for_display(
         "cancel \\u0003 and esc \\u001b char \\u0061"
       ),
-      "cancel \\u0003 and esc \\u001b char \\u0061"
+      "cancel <C-c> and esc <Esc> char \\u0061"
     );
   }
 }
