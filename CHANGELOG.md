@@ -1,3 +1,9 @@
+## 0.1.17 - 2026-07-28
+
+- Add a wrapped, scrollable changelog to Terminai Controls.
+- Show release notes automatically after upgrades, with an opt-out
+  `changelog: false` setting.
+
 ## 0.1.16 - 2026-07-28
 
 - Expand shell-input approval dialogs to the available screen size to reduce

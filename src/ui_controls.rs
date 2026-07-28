@@ -12,6 +12,7 @@ pub enum ControlPanelItem {
   ApprovalMode,
   Agent,
   ClearHistory,
+  Changelog,
   Fullscreen,
   Layout,
 }
@@ -47,6 +48,9 @@ pub enum ControlModal {
     agent: String,
     confirm: bool,
   },
+  Changelog {
+    scroll: u16,
+  },
 }
 
 impl ControlModal {
@@ -81,14 +85,19 @@ impl ControlModal {
     }
   }
 
+  pub fn changelog() -> Self {
+    Self::Changelog { scroll: 0 }
+  }
+
   fn item_count(&self) -> usize {
     match self {
-      Self::Panel { .. } => 5,
+      Self::Panel { .. } => 6,
       Self::Layout { .. } => 4,
       Self::AgentPicker { agents, .. } => agents.len(),
       Self::ConfirmAutoApproval { .. }
       | Self::ConfirmClearHistory { .. }
       | Self::ConfirmAgentSwitch { .. } => 2,
+      Self::Changelog { .. } => 0,
     }
   }
 
@@ -100,6 +109,7 @@ impl ControlModal {
       Self::ConfirmAutoApproval { confirm }
       | Self::ConfirmClearHistory { confirm }
       | Self::ConfirmAgentSwitch { confirm, .. } => usize::from(!*confirm),
+      Self::Changelog { scroll } => *scroll as usize,
     }
   }
 
@@ -117,6 +127,7 @@ impl ControlModal {
       Self::ConfirmAutoApproval { confirm }
       | Self::ConfirmClearHistory { confirm }
       | Self::ConfirmAgentSwitch { confirm, .. } => *confirm = !*confirm,
+      Self::Changelog { .. } => {}
     }
   }
 
@@ -134,6 +145,7 @@ impl ControlModal {
       Self::ConfirmAutoApproval { confirm }
       | Self::ConfirmClearHistory { confirm }
       | Self::ConfirmAgentSwitch { confirm, .. } => *confirm = !*confirm,
+      Self::Changelog { .. } => {}
     }
   }
 
@@ -154,7 +166,8 @@ impl ControlModal {
       0 => ControlPanelItem::ApprovalMode,
       1 => ControlPanelItem::Agent,
       2 => ControlPanelItem::ClearHistory,
-      3 => ControlPanelItem::Fullscreen,
+      3 => ControlPanelItem::Changelog,
+      4 => ControlPanelItem::Fullscreen,
       _ => ControlPanelItem::Layout,
     })
   }
@@ -196,6 +209,17 @@ impl ControlModal {
       *error = Some(message);
     }
   }
+
+  pub fn scroll_changelog(&mut self, delta: i16, max: u16) {
+    if let Self::Changelog { scroll } = self {
+      *scroll = if delta.is_negative() {
+        scroll.saturating_sub(delta.unsigned_abs())
+      } else {
+        scroll.saturating_add(delta as u16)
+      }
+      .min(max);
+    }
+  }
 }
 
 fn modal_area(area: Rect, height: u16) -> Rect {
@@ -233,6 +257,10 @@ pub fn render_control_modal(
   chat_height_percent: u8,
   guest_display: GuestDisplayMode,
 ) {
+  if let ControlModal::Changelog { scroll } = modal {
+    return render_changelog(area, buf, *scroll);
+  }
+
   let (title, mut lines, height) = match modal {
     ControlModal::Panel { selected } => {
       let mode = match approval_mode {
@@ -248,6 +276,7 @@ pub fn render_control_modal(
             "Clear AI-readable history".to_string(),
             *selected == 2,
           ),
+          selected_line("Changelog".to_string(), *selected == 3),
           selected_line(
             format!(
               "Fullscreen: {}",
@@ -257,9 +286,9 @@ pub fn render_control_modal(
                 "off"
               }
             ),
-            *selected == 3,
+            *selected == 4,
           ),
-          selected_line("Layout…".to_string(), *selected == 4),
+          selected_line("Layout…".to_string(), *selected == 5),
           Line::from(""),
           Line::from("↑/↓ select  Enter open  Esc close"),
         ],
@@ -350,6 +379,7 @@ pub fn render_control_modal(
       ],
       8,
     ),
+    ControlModal::Changelog { .. } => unreachable!(),
   };
 
   let modal_area = modal_area(area, height);
@@ -363,6 +393,42 @@ pub fn render_control_modal(
   Paragraph::new(std::mem::take(&mut lines))
     .style(Style::default().bg(Color::Black))
     .render(inner, buf);
+}
+
+fn render_changelog(area: Rect, buf: &mut Buffer, scroll: u16) {
+  let modal_area = changelog_area(area);
+  let block = Block::default()
+    .borders(Borders::ALL)
+    .title(" Changelog — ↑/↓ scroll, Esc close ")
+    .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+  let inner = block.inner(modal_area);
+  Clear.render(modal_area, buf);
+  block.render(modal_area, buf);
+  Paragraph::new(include_str!("../CHANGELOG.md"))
+    .style(Style::default().fg(Color::White).bg(Color::Black))
+    .wrap(tui::widgets::Wrap { trim: false })
+    .scroll((scroll, 0))
+    .render(inner, buf);
+}
+
+fn changelog_area(area: Rect) -> Rect {
+  let width = area.width.min(100);
+  let height = 40.min(area.height.saturating_mul(80) / 100).max(1);
+  Rect::new(
+    area.x + area.width.saturating_sub(width) / 2,
+    area.y + area.height.saturating_sub(height) / 2,
+    width,
+    height,
+  )
+}
+
+pub fn changelog_max_scroll(area: Rect) -> u16 {
+  let inner = changelog_area(area).inner(tui::layout::Margin::new(1, 1));
+  Paragraph::new(include_str!("../CHANGELOG.md"))
+    .wrap(tui::widgets::Wrap { trim: false })
+    .line_count(inner.width)
+    .saturating_sub(inner.height as usize)
+    .min(u16::MAX as usize) as u16
 }
 
 fn confirmation_line(confirm: bool) -> Line<'static> {
@@ -397,7 +463,7 @@ mod tests {
   fn panel_and_picker_selection_wrap() {
     let mut panel = ControlModal::panel();
     panel.previous();
-    assert_eq!(panel.selected(), 4);
+    assert_eq!(panel.selected(), 5);
     panel.next();
     assert_eq!(panel.selected(), 0);
 
@@ -445,6 +511,7 @@ mod tests {
     assert!(rendered.contains("AUTO-APPROVAL (DANGEROUS)"));
     assert!(rendered.contains("codex"));
     assert!(rendered.contains("Clear AI-readable history"));
+    assert!(rendered.contains("Changelog"));
     assert!(rendered.contains("Fullscreen: off"));
     assert!(rendered.contains("Layout"));
   }

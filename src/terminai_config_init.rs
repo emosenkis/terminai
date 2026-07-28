@@ -12,6 +12,9 @@ pub const DEFAULT_TERMINAI_YAML: &str = concat!(
 # This file lives in the Terminai config directory. Edit it to choose the
 # AI terminal agent, overlay behavior, and custom agent presets.
 
+# Show release notes once after each upgrade.
+changelog: true
+
 interface:
   chat-position: bottom
   chat-height-percent: 50

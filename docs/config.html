@@ -1590,6 +1590,40 @@ command risk classifier is not consulted.</p>
         </div>
     </div>
 </div>
+<div class="accordion" id="accordionchangelog">
+    <div class="card">
+        <div class="card-header" id="headingchangelog">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#changelog"
+                        aria-expanded="" aria-controls="changelog" onclick="setAnchor('#changelog')"><span class="property-name">changelog</span></button>
+            </h2>
+        </div>
+
+        <div id="changelog"
+             class="collapse property-definition-div" aria-labelledby="headingchangelog"
+             data-parent="#accordionchangelog">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#changelog" onclick="anchorLink('changelog')">changelog</a></div><span class="badge badge-dark value-type">Type: boolean</span> <span class="badge badge-success default-value">Default: true</span><br/>
+<span class="description"><p>Automatically show the changelog once after an upgrade.</p>
+</span>
+
+
+
+
+
+
+            </div>
+        </div>
+    </div>
+</div>
 <div class="accordion" id="accordioninterface">
     <div class="card">
         <div class="card-header" id="headinginterface">
@@ -1611,7 +1645,7 @@ command risk classifier is not consulted.</p>
                 d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
             />
         </svg>
-    <a href="#interface" onclick="anchorLink('interface')">interface</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"chat-position": "bottom", "key_bindings": {"activate-overlay": "Ctrl-Space", "approve": "y", "clear-history": "F9", "control-panel": "F10", "deactivate-overlay": "Ctrl-Space", "deny": "n", "switch-agent": "F8", "toggle-approval-mode": "F7"}}</span><br/>
+    <a href="#interface" onclick="anchorLink('interface')">interface</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"chat-height-percent": 50, "chat-position": "bottom", "guest-display": "resize", "key_bindings": {"activate-overlay": "Ctrl-Space", "approve": "y", "control-panel": "F10", "deactivate-overlay": "Ctrl-Space", "deny": "n", "layout-mode": "F9", "toggle-fullscreen": "F11"}}</span><br/>
 <span class="description"><p>Interface configuration</p>
 </span>
 
@@ -1622,6 +1656,47 @@ command risk classifier is not consulted.</p>
 
 
 
+<div class="accordion" id="accordioninterface_chat-height-percent">
+    <div class="card">
+        <div class="card-header" id="headinginterface_chat-height-percent">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_chat-height-percent"
+                        aria-expanded="" aria-controls="interface_chat-height-percent" onclick="setAnchor('#interface_chat-height-percent')"><span class="property-name">chat-height-percent</span></button>
+            </h2>
+        </div>
+
+        <div id="interface_chat-height-percent"
+             class="collapse property-definition-div" aria-labelledby="headinginterface_chat-height-percent"
+             data-parent="#accordioninterface_chat-height-percent">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#interface" onclick="anchorLink('interface')">interface</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#interface_chat-height-percent" onclick="anchorLink('interface_chat-height-percent')">chat-height-percent</a></div><span class="badge badge-dark value-type">Type: integer</span><span class="badge badge-info value-type">Format: uint8</span> <span class="badge badge-success default-value">Default: 50</span><br/>
+<span class="description"><p>Height of a top or bottom AI terminal as a percentage (20-80).</p>
+</span>
+
+
+
+        <p><span class="badge badge-light restriction numeric-restriction" id="interface_chat-height-percent_number">Value must be greater or equal to <code>0</code> and lesser or equal to <code>255</code></span></p>
+
+
+            </div>
+        </div>
+    </div>
+</div>
 <div class="accordion" id="accordioninterface_chat-position">
     <div class="card">
         <div class="card-header" id="headinginterface_chat-position">
@@ -1656,7 +1731,53 @@ command risk classifier is not consulted.</p>
 
     <div class="enum-value" id="interface_chat-position_enum">
             <h4>Must be one of:</h4>
-            <ul class="list-group"><li class="list-group-item enum-item">"bottom"</li><li class="list-group-item enum-item">"top"</li></ul>
+            <ul class="list-group"><li class="list-group-item enum-item">"bottom"</li><li class="list-group-item enum-item">"top"</li><li class="list-group-item enum-item">"fullscreen"</li></ul>
+            </div>
+
+
+
+
+
+
+            </div>
+        </div>
+    </div>
+</div>
+<div class="accordion" id="accordioninterface_guest-display">
+    <div class="card">
+        <div class="card-header" id="headinginterface_guest-display">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_guest-display"
+                        aria-expanded="" aria-controls="interface_guest-display" onclick="setAnchor('#interface_guest-display')"><span class="property-name">guest-display</span></button>
+            </h2>
+        </div>
+
+        <div id="interface_guest-display"
+             class="collapse property-definition-div" aria-labelledby="headinginterface_guest-display"
+             data-parent="#accordioninterface_guest-display">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#interface" onclick="anchorLink('interface')">interface</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#interface_guest-display" onclick="anchorLink('interface_guest-display')">guest-display</a></div><span class="badge badge-dark value-type">Type: enum (of string)</span> <span class="badge badge-success default-value">Default: "resize"</span><br/>
+<span class="description"><p>How the guest terminal uses the space behind/beside the AI terminal.</p>
+</span>
+
+    <div class="enum-value" id="interface_guest-display_enum">
+            <h4>Must be one of:</h4>
+            <ul class="list-group"><li class="list-group-item enum-item">"resize"</li><li class="list-group-item enum-item">"overlay"</li><li class="list-group-item enum-item">"move"</li></ul>
             </div>
 
 
@@ -1696,7 +1817,7 @@ command risk classifier is not consulted.</p>
                 d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
             />
         </svg>
-    <a href="#interface_key_bindings" onclick="anchorLink('interface_key_bindings')">key_bindings</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"activate-overlay": "Ctrl-Space", "approve": "y", "clear-history": "F9", "control-panel": "F10", "deactivate-overlay": "Ctrl-Space", "deny": "n", "switch-agent": "F8", "toggle-approval-mode": "F7"}</span><br/>
+    <a href="#interface_key_bindings" onclick="anchorLink('interface_key_bindings')">key_bindings</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"activate-overlay": "Ctrl-Space", "approve": "y", "control-panel": "F10", "deactivate-overlay": "Ctrl-Space", "deny": "n", "layout-mode": "F9", "toggle-fullscreen": "F11"}</span><br/>
 <span class="description"><p>Key bindings</p>
 
 <p>The syntax for key combinations is defined by <a href="https://github.com/Canop/crokey">crokey</a>.</p>
@@ -1959,220 +2080,6 @@ command risk classifier is not consulted.</p>
         </svg>
     <a href="#interface_key_bindings_approve" onclick="anchorLink('interface_key_bindings_approve')">approve</a></div><span class="badge badge-dark value-type">Type: object</span><br/>
 <a href="#interface_key_bindings_activate-overlay" onclick="anchorLink('interface_key_bindings_activate-overlay')" class="ref-link">Same definition as activate-overlay</a>
-            </div>
-        </div>
-    </div>
-</div>
-<div class="accordion" id="accordioninterface_key_bindings_clear-history">
-    <div class="card">
-        <div class="card-header" id="headinginterface_key_bindings_clear-history">
-            <h2 class="mb-0">
-                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_key_bindings_clear-history"
-                        aria-expanded="" aria-controls="interface_key_bindings_clear-history" onclick="setAnchor('#interface_key_bindings_clear-history')"><span class="property-name">clear-history</span></button>
-            </h2>
-        </div>
-
-        <div id="interface_key_bindings_clear-history"
-             class="collapse property-definition-div" aria-labelledby="headinginterface_key_bindings_clear-history"
-             data-parent="#accordioninterface_key_bindings_clear-history">
-            <div class="card-body pl-5">
-
-    <div class="breadcrumbs">root
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface" onclick="anchorLink('interface')">interface</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings" onclick="anchorLink('interface_key_bindings')">key_bindings</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_clear-history" onclick="anchorLink('interface_key_bindings_clear-history')">clear-history</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: "F9"</span><br/>
-<span class="description"><p>Clear AI-readable internal history while the AI overlay is active.</p>
-</span>
-
-    <div class="one-of-value" id="interface_key_bindings_activate-overlay_oneOf"><h2 class="handle">
-  <label>One of</label>
-</h2><ul class="nav nav-tabs" id="tabsinterface_key_bindings_activate-overlay_oneOf_oneOf" role="tablist"><li class="nav-item">
-            <a class="nav-link active oneOf-option"
-               id="interface_key_bindings_activate-overlay_oneOf_i0" data-toggle="tab" href="#tab-pane_interface_key_bindings_activate-overlay_oneOf_i0" role="tab"
-               onclick="setAnchor('#interface_key_bindings_activate-overlay_oneOf_i0')"
-            >Option 1</a>
-        </li><li class="nav-item">
-            <a class="nav-link oneOf-option"
-               id="interface_key_bindings_activate-overlay_oneOf_i1" data-toggle="tab" href="#tab-pane_interface_key_bindings_activate-overlay_oneOf_i1" role="tab"
-               onclick="setAnchor('#interface_key_bindings_activate-overlay_oneOf_i1')"
-            >Option 2</a>
-        </li></ul>
-<div class="tab-content card"><div class="tab-pane fade card-body active show"
-             id="tab-pane_interface_key_bindings_activate-overlay_oneOf_i0" role="tabpanel">
-
-
-    <div class="breadcrumbs">root
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface" onclick="anchorLink('interface')">interface</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings" onclick="anchorLink('interface_key_bindings')">key_bindings</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay" onclick="anchorLink('interface_key_bindings_activate-overlay')">activate-overlay</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf')">oneOf</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf_i0" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i0')">item 0</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
-<span class="description"><p>A single key combination such as Ctrl-Space</p>
-</span>
-
-
-
-
-
-
-        </div><div class="tab-pane fade card-body "
-             id="tab-pane_interface_key_bindings_activate-overlay_oneOf_i1" role="tabpanel">
-
-
-    <div class="breadcrumbs">root
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface" onclick="anchorLink('interface')">interface</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings" onclick="anchorLink('interface_key_bindings')">key_bindings</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay" onclick="anchorLink('interface_key_bindings_activate-overlay')">activate-overlay</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf')">oneOf</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf_i1" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i1')">item 1</a></div><span class="badge badge-dark value-type">Type: array of string</span><br/>
-
-
-
-
-
-
-         <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
-    <div class="card">
-        <div class="card-body items-definition" id="interface_key_bindings_activate-overlay_oneOf_i1_items">
-
-
-    <div class="breadcrumbs">root
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface" onclick="anchorLink('interface')">interface</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings" onclick="anchorLink('interface_key_bindings')">key_bindings</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay" onclick="anchorLink('interface_key_bindings_activate-overlay')">activate-overlay</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf')">oneOf</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf_i1" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i1')">item 1</a>
-        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-            <path
-                fill-rule="evenodd"
-                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
-            />
-        </svg>
-    <a href="#interface_key_bindings_activate-overlay_oneOf_i1_items" onclick="anchorLink('interface_key_bindings_activate-overlay_oneOf_i1_items')">item 1 items</a></div><span class="badge badge-dark value-type">Type: string</span><br/>
-
-
-
-
-
-
-
-        </div>
-    </div>
-        </div></div></div>
-
-
-
-
-
-
             </div>
         </div>
     </div>
@@ -2473,18 +2380,18 @@ command risk classifier is not consulted.</p>
         </div>
     </div>
 </div>
-<div class="accordion" id="accordioninterface_key_bindings_switch-agent">
+<div class="accordion" id="accordioninterface_key_bindings_layout-mode">
     <div class="card">
-        <div class="card-header" id="headinginterface_key_bindings_switch-agent">
+        <div class="card-header" id="headinginterface_key_bindings_layout-mode">
             <h2 class="mb-0">
-                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_key_bindings_switch-agent"
-                        aria-expanded="" aria-controls="interface_key_bindings_switch-agent" onclick="setAnchor('#interface_key_bindings_switch-agent')"><span class="property-name">switch-agent</span></button>
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_key_bindings_layout-mode"
+                        aria-expanded="" aria-controls="interface_key_bindings_layout-mode" onclick="setAnchor('#interface_key_bindings_layout-mode')"><span class="property-name">layout-mode</span></button>
             </h2>
         </div>
 
-        <div id="interface_key_bindings_switch-agent"
-             class="collapse property-definition-div" aria-labelledby="headinginterface_key_bindings_switch-agent"
-             data-parent="#accordioninterface_key_bindings_switch-agent">
+        <div id="interface_key_bindings_layout-mode"
+             class="collapse property-definition-div" aria-labelledby="headinginterface_key_bindings_layout-mode"
+             data-parent="#accordioninterface_key_bindings_layout-mode">
             <div class="card-body pl-5">
 
     <div class="breadcrumbs">root
@@ -2508,8 +2415,8 @@ command risk classifier is not consulted.</p>
                 d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
             />
         </svg>
-    <a href="#interface_key_bindings_switch-agent" onclick="anchorLink('interface_key_bindings_switch-agent')">switch-agent</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: "F8"</span><br/>
-<span class="description"><p>Open the agent picker while the AI overlay is active.</p>
+    <a href="#interface_key_bindings_layout-mode" onclick="anchorLink('interface_key_bindings_layout-mode')">layout-mode</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: "F9"</span><br/>
+<span class="description"><p>Enter layout mode while the AI overlay is active.</p>
 </span>
 
     <div class="one-of-value" id="interface_key_bindings_activate-overlay_oneOf"><h2 class="handle">
@@ -2687,18 +2594,18 @@ command risk classifier is not consulted.</p>
         </div>
     </div>
 </div>
-<div class="accordion" id="accordioninterface_key_bindings_toggle-approval-mode">
+<div class="accordion" id="accordioninterface_key_bindings_toggle-fullscreen">
     <div class="card">
-        <div class="card-header" id="headinginterface_key_bindings_toggle-approval-mode">
+        <div class="card-header" id="headinginterface_key_bindings_toggle-fullscreen">
             <h2 class="mb-0">
-                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_key_bindings_toggle-approval-mode"
-                        aria-expanded="" aria-controls="interface_key_bindings_toggle-approval-mode" onclick="setAnchor('#interface_key_bindings_toggle-approval-mode')"><span class="property-name">toggle-approval-mode</span></button>
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_key_bindings_toggle-fullscreen"
+                        aria-expanded="" aria-controls="interface_key_bindings_toggle-fullscreen" onclick="setAnchor('#interface_key_bindings_toggle-fullscreen')"><span class="property-name">toggle-fullscreen</span></button>
             </h2>
         </div>
 
-        <div id="interface_key_bindings_toggle-approval-mode"
-             class="collapse property-definition-div" aria-labelledby="headinginterface_key_bindings_toggle-approval-mode"
-             data-parent="#accordioninterface_key_bindings_toggle-approval-mode">
+        <div id="interface_key_bindings_toggle-fullscreen"
+             class="collapse property-definition-div" aria-labelledby="headinginterface_key_bindings_toggle-fullscreen"
+             data-parent="#accordioninterface_key_bindings_toggle-fullscreen">
             <div class="card-body pl-5">
 
     <div class="breadcrumbs">root
@@ -2722,8 +2629,8 @@ command risk classifier is not consulted.</p>
                 d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
             />
         </svg>
-    <a href="#interface_key_bindings_toggle-approval-mode" onclick="anchorLink('interface_key_bindings_toggle-approval-mode')">toggle-approval-mode</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: "F7"</span><br/>
-<span class="description"><p>Toggle command approval mode while the AI overlay is active.</p>
+    <a href="#interface_key_bindings_toggle-fullscreen" onclick="anchorLink('interface_key_bindings_toggle-fullscreen')">toggle-fullscreen</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: "F11"</span><br/>
+<span class="description"><p>Toggle the AI terminal between fullscreen and its last split position.</p>
 </span>
 
     <div class="one-of-value" id="interface_key_bindings_activate-overlay_oneOf"><h2 class="handle">
@@ -3219,6 +3126,6 @@ command risk classifier is not consulted.</p>
 </div>
 
     <footer>
-        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-21 at 20:28:22 +0300</p>
+        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-28 at 19:45:23 +0300</p>
     </footer></body>
 </html>

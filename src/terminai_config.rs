@@ -487,8 +487,11 @@ impl Default for AgentPresetConfig {
 /// Default configuration can be installed with `terminai init-config`
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TerminaiConfig {
+  /// Automatically show the changelog once after an upgrade.
+  #[serde(default = "default_changelog")]
+  pub changelog: bool,
   /// Startup policy for agent-suggested shell input. `auto-approval` is
   /// dangerous and sends every suggestion without consulting the risk
   /// classifier.
@@ -509,6 +512,24 @@ pub struct TerminaiConfig {
   /// User-defined CLI agent presets. Built-in presets include codex and claude.
   #[serde(default, rename = "agent-presets")]
   pub agent_presets: HashMap<String, AgentPresetConfig>,
+}
+
+fn default_changelog() -> bool {
+  true
+}
+
+impl Default for TerminaiConfig {
+  fn default() -> Self {
+    Self {
+      changelog: true,
+      approval_mode: ApprovalMode::default(),
+      shell: ShellConfig::default(),
+      interface: InterfaceConfig::default(),
+      privacy: PrivacyConfig::default(),
+      agent: AgentConfig::default(),
+      agent_presets: HashMap::new(),
+    }
+  }
 }
 
 impl TerminaiConfig {
@@ -564,6 +585,7 @@ agent:
     let config: TerminaiConfig = serde_yaml::from_str("{}").unwrap();
 
     assert_eq!(config.approval_mode, ApprovalMode::AlwaysAsk);
+    assert!(config.changelog);
     assert!(config.interface.key_bindings.layout_mode.matches(key!(f9)));
     assert!(
       config
@@ -582,6 +604,13 @@ agent:
     assert_eq!(config.interface.chat_height_percent, 50);
     assert_eq!(config.interface.guest_display, GuestDisplayMode::Resize);
     assert!(AgentPresetConfig::default().show_in_switcher);
+  }
+
+  #[test]
+  fn changelog_auto_popup_can_be_disabled() {
+    let config: TerminaiConfig =
+      serde_yaml::from_str("changelog: false").unwrap();
+    assert!(!config.changelog);
   }
 
   #[test]

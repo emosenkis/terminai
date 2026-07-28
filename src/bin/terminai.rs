@@ -27,6 +27,7 @@ use rmcp::{
 };
 use std::collections::VecDeque;
 use std::ffi::OsString;
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
@@ -86,13 +87,60 @@ use termin::ui_approval::{
   render_shell_input_approval_with_state,
 };
 use termin::ui_controls::{
-  ControlModal, ControlPanelItem, LayoutPanelItem, render_control_modal,
+  ControlModal, ControlPanelItem, LayoutPanelItem, changelog_max_scroll,
+  render_control_modal,
 };
 
 use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
 use termin::shell_resolution::{parent_shell, resolve_shell};
 
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
+const CHANGELOG_ACK_FILE: &str = "changelog-version";
+
+fn version_is_newer(current: &str, acknowledged: Option<&str>) -> bool {
+  fn parts(version: &str) -> Option<Vec<u64>> {
+    version
+      .trim()
+      .trim_start_matches('v')
+      .split('.')
+      .map(str::parse)
+      .collect::<Result<_, _>>()
+      .ok()
+  }
+
+  let Some(current) = parts(current) else {
+    return false;
+  };
+  let Some(acknowledged) = acknowledged.and_then(parts) else {
+    return true;
+  };
+  for index in 0..current.len().max(acknowledged.len()) {
+    let current_part = current.get(index).copied().unwrap_or(0);
+    let acknowledged_part = acknowledged.get(index).copied().unwrap_or(0);
+    if current_part != acknowledged_part {
+      return current_part > acknowledged_part;
+    }
+  }
+  false
+}
+
+fn changelog_ack_path() -> Result<PathBuf> {
+  Ok(termin::paths::cache_dir()?.join(CHANGELOG_ACK_FILE))
+}
+
+fn changelog_is_unacknowledged() -> bool {
+  let acknowledged = changelog_ack_path()
+    .ok()
+    .and_then(|path| fs::read_to_string(path).ok());
+  version_is_newer(env!("CARGO_PKG_VERSION"), acknowledged.as_deref())
+}
+
+fn acknowledge_changelog() -> Result<()> {
+  let path = changelog_ack_path()?;
+  fs::create_dir_all(path.parent().context("invalid changelog cache path")?)?;
+  fs::write(path, env!("CARGO_PKG_VERSION"))?;
+  Ok(())
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SuggestionAction {
@@ -1698,6 +1746,9 @@ impl AppState {
       self.agent_view.follow_tail = true;
       let (cols, rows) = crossterm::terminal::size()?;
       self.resize_layout(rows, cols)?;
+      if self.config.changelog && changelog_is_unacknowledged() {
+        self.control_modal = Some(ControlModal::changelog());
+      }
     }
     Ok(())
   }
@@ -1737,7 +1788,17 @@ impl AppState {
   }
 
   fn deactivate_ai_overlay(&mut self) -> Result<()> {
+    self.close_control_modal();
     self.hide_ai_modal()
+  }
+
+  fn close_control_modal(&mut self) {
+    if matches!(self.control_modal, Some(ControlModal::Changelog { .. }))
+      && let Err(err) = acknowledge_changelog()
+    {
+      log::warn!("Failed to acknowledge changelog: {err}");
+    }
+    self.control_modal = None;
   }
 
   fn max_approval_scroll(&self, area: Rect) -> usize {
@@ -1960,6 +2021,9 @@ impl AppState {
   fn process_agent_suggestions(&mut self) -> bool {
     let mut changed = false;
     while let Ok(suggestion) = self.suggestion_rx.try_recv() {
+      if matches!(self.control_modal, Some(ControlModal::Changelog { .. })) {
+        self.close_control_modal();
+      }
       log::info!(
         "AI CLI suggested shell input: {} (risk: {:?})",
         suggestion.command,
@@ -1970,7 +2034,7 @@ impl AppState {
       self.approval_scroll = 0;
       self.approval_focus = ApprovalAction::Approve;
       if action == SuggestionAction::AutoApprove {
-        self.control_modal = None;
+        self.close_control_modal();
         self.run_approval_action(ApprovalAction::Approve, false);
       }
       changed = true;
@@ -2096,7 +2160,31 @@ impl AppState {
       return false;
     };
     match code {
-      KeyCode::Esc => self.control_modal = None,
+      KeyCode::Esc => self.close_control_modal(),
+      KeyCode::Up if matches!(modal, ControlModal::Changelog { .. }) => {
+        self.control_modal.as_mut().unwrap().scroll_changelog(
+          -1,
+          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+        );
+      }
+      KeyCode::Down if matches!(modal, ControlModal::Changelog { .. }) => {
+        self.control_modal.as_mut().unwrap().scroll_changelog(
+          1,
+          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+        );
+      }
+      KeyCode::PageUp if matches!(modal, ControlModal::Changelog { .. }) => {
+        self.control_modal.as_mut().unwrap().scroll_changelog(
+          -20,
+          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+        );
+      }
+      KeyCode::PageDown if matches!(modal, ControlModal::Changelog { .. }) => {
+        self.control_modal.as_mut().unwrap().scroll_changelog(
+          20,
+          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+        );
+      }
       KeyCode::Char('-') if matches!(modal, ControlModal::Layout { .. }) => {
         self.adjust_chat_height(-5, rows, cols)
       }
@@ -2134,6 +2222,9 @@ impl AppState {
           ControlPanelItem::Agent => self.open_agent_picker(),
           ControlPanelItem::ClearHistory => {
             self.control_modal = Some(ControlModal::confirm_clear_history())
+          }
+          ControlPanelItem::Changelog => {
+            self.control_modal = Some(ControlModal::changelog())
           }
           ControlPanelItem::Fullscreen => {
             self.toggle_fullscreen(rows, cols);
@@ -2191,6 +2282,7 @@ impl AppState {
             self.config_error = Some(format!("Failed to switch agent: {err}"));
           }
         }
+        ControlModal::Changelog { .. } => {}
       },
       _ => {}
     }
@@ -2455,6 +2547,18 @@ impl AppState {
     use crossterm::event::MouseEventKind;
 
     if self.control_modal.is_some() {
+      let delta = match mouse.kind {
+        MouseEventKind::ScrollUp => -3,
+        MouseEventKind::ScrollDown => 3,
+        _ => 0,
+      };
+      if delta != 0 {
+        self
+          .control_modal
+          .as_mut()
+          .unwrap()
+          .scroll_changelog(delta, changelog_max_scroll(terminal_area));
+      }
       return Control::Changed;
     }
 
@@ -2864,21 +2968,20 @@ fn event(
       {
         let bindings = &state.config.interface.key_bindings;
         if bindings.control_panel.matches(key_combo) {
-          state.control_modal = if state.control_modal.is_some() {
-            None
+          if state.control_modal.is_some() {
+            state.close_control_modal();
           } else {
-            Some(ControlModal::panel())
-          };
+            state.control_modal = Some(ControlModal::panel());
+          }
           break 'm Control::Changed;
         }
         if bindings.layout_mode.matches(key_combo) {
-          state.control_modal =
-            if matches!(state.control_modal, Some(ControlModal::Layout { .. }))
-            {
-              None
-            } else {
-              Some(ControlModal::layout())
-            };
+          if matches!(state.control_modal, Some(ControlModal::Layout { .. })) {
+            state.close_control_modal();
+          } else {
+            state.close_control_modal();
+            state.control_modal = Some(ControlModal::layout());
+          }
           break 'm Control::Changed;
         }
         if bindings.toggle_fullscreen.matches(key_combo) {
@@ -4025,5 +4128,13 @@ mod tests {
     assert!(matches!(events.pop_front(), Some(ShellEvent::Output(_))));
     assert!(matches!(events.pop_front(), Some(ShellEvent::Exited(0))));
     assert!(events.is_empty());
+  }
+
+  #[test]
+  fn changelog_only_reopens_for_newer_versions() {
+    assert!(version_is_newer("0.1.17", None));
+    assert!(version_is_newer("0.1.17", Some("0.1.16")));
+    assert!(!version_is_newer("0.1.17", Some("0.1.17")));
+    assert!(!version_is_newer("0.1.17", Some("0.2.0")));
   }
 }
