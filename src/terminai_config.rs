@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
+use clap::ValueEnum;
 use crokey::KeyCombination;
 use crokey::key;
 #[cfg(feature = "schema")]
@@ -14,7 +15,9 @@ use std::borrow::Cow;
 /// Position of the AI chat overlay
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(
+  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, ValueEnum,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatPosition {
   Bottom,
@@ -25,7 +28,7 @@ pub enum ChatPosition {
 /// How the guest terminal is displayed while the AI terminal is open.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(
-  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default,
+  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, ValueEnum,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum GuestDisplayMode {
@@ -38,7 +41,7 @@ pub enum GuestDisplayMode {
 /// How agent-suggested shell input is handled.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(
-  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default,
+  Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, ValueEnum,
 )]
 #[serde(rename_all = "kebab-case")]
 pub enum ApprovalMode {

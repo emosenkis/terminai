@@ -131,6 +131,13 @@ current session only.
 `overlay` (draw AI over the unchanged guest), or `move` (shift/crop the
 unchanged guest away from AI). Runtime layout changes last for the session.
 
+The same session settings can override `terminai.yaml` at startup:
+
+```sh
+terminai --approval-mode always-ask --agent claude \
+  --chat-position top --chat-height-percent 60 --guest-display move
+```
+
 Switch to another bundled preset by changing `agent.preset`:
 
 ```yaml

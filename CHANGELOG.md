@@ -1,3 +1,8 @@
+## 0.1.18 - 2026-07-28
+
+- Add session-only CLI overrides for approval mode, active agent, AI terminal
+  position and height, and guest display mode.
+
 ## 0.1.17 - 2026-07-28
 
 - Add a wrapped, scrollable changelog to Terminai Controls.

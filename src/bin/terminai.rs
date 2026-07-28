@@ -444,9 +444,55 @@ struct Args {
   #[command(subcommand)]
   subcommand: Option<CliCommand>,
 
+  #[command(flatten)]
+  overrides: RuntimeOverrides,
+
   /// Command to run (if not specified, resolves a supported shell)
   #[arg(last = true)]
   command: Vec<String>,
+}
+
+#[derive(clap::Args, Clone, Debug, Default)]
+struct RuntimeOverrides {
+  /// Override the configured command approval mode for this session.
+  #[arg(long)]
+  approval_mode: Option<ApprovalMode>,
+
+  /// Override the configured active agent preset for this session.
+  #[arg(long)]
+  agent: Option<String>,
+
+  /// Override the configured AI terminal position for this session.
+  #[arg(long)]
+  chat_position: Option<ChatPosition>,
+
+  /// Override the configured AI terminal height percentage for this session.
+  #[arg(long, value_parser = clap::value_parser!(u8).range(20..=80))]
+  chat_height_percent: Option<u8>,
+
+  /// Override the configured guest terminal display mode for this session.
+  #[arg(long)]
+  guest_display: Option<GuestDisplayMode>,
+}
+
+impl RuntimeOverrides {
+  fn apply(&self, config: &mut TerminaiConfig) {
+    if let Some(mode) = self.approval_mode {
+      config.approval_mode = mode;
+    }
+    if let Some(agent) = &self.agent {
+      config.agent = agent_config_for_choice(config, agent);
+    }
+    if let Some(position) = self.chat_position {
+      config.interface.chat_position = position;
+    }
+    if let Some(percent) = self.chat_height_percent {
+      config.interface.chat_height_percent = percent;
+    }
+    if let Some(display) = self.guest_display {
+      config.interface.guest_display = display;
+    }
+  }
 }
 
 #[derive(Subcommand, Debug)]
@@ -871,6 +917,7 @@ fn startup_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
 /// Helper to initialize shell and prepare AI integration asynchronously
 async fn initialize_app_components(
   command: Vec<String>,
+  overrides: &RuntimeOverrides,
 ) -> Result<(
   Shell,
   UnboundedReceiver<ShellEvent>,
@@ -925,7 +972,8 @@ async fn initialize_app_components(
     config,
     chat_position,
     config_error,
-  ) = prepare_agent(&shell, suggestion_tx, &resolved_shell.identity).await;
+  ) = prepare_agent(&shell, suggestion_tx, &resolved_shell.identity, overrides)
+    .await;
 
   Ok((
     shell,
@@ -946,6 +994,7 @@ async fn prepare_agent(
   shell: &Shell,
   suggestion_tx: mpsc::UnboundedSender<PendingCommand>,
   shell_identity: &str,
+  overrides: &RuntimeOverrides,
 ) -> (
   UnboundedReceiver<ShellEvent>,
   Option<McpServerHandle>,
@@ -959,7 +1008,8 @@ async fn prepare_agent(
   drop(fallback_tx);
 
   match TerminaiConfig::load() {
-    Ok(config) => {
+    Ok(mut config) => {
+      overrides.apply(&mut config);
       log::info!("Configuration loaded successfully");
       log::debug!("Loaded config: {:?}", config);
       let chat_position = config.interface.chat_position;
@@ -1438,8 +1488,9 @@ fn main() -> Result<()> {
   let recovery = Arc::new(RecoveryContext::new(&args.command));
   install_panic_recovery(Arc::clone(&recovery));
   let command = args.command;
+  let overrides = args.overrides;
   match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    run_interactive(command, Arc::clone(&recovery))
+    run_interactive(command, overrides, Arc::clone(&recovery))
   })) {
     Ok(Ok(())) => Ok(()),
     Ok(Err(error)) => recovery.recover(&format!("with an error: {error:#}")),
@@ -1449,6 +1500,7 @@ fn main() -> Result<()> {
 
 fn run_interactive(
   command: Vec<String>,
+  overrides: RuntimeOverrides,
   recovery: Arc<RecoveryContext>,
 ) -> Result<()> {
   // Setup logging to file with rotation
@@ -1483,7 +1535,7 @@ fn run_interactive(
     config,
     chat_position,
     config_error,
-  ) = tokio_rt.block_on(initialize_app_components(command))?;
+  ) = tokio_rt.block_on(initialize_app_components(command, &overrides))?;
   log::info!(
     "Shell and AI components initialized, agent_deferred=true, chat_position={:?}",
     chat_position
@@ -1556,6 +1608,7 @@ fn run_interactive(
     guest_display: config.interface.guest_display,
     scrollback_tracker,
     config,
+    overrides,
     config_error,
     key_combiner,
     shell_output_pending: false,
@@ -1627,6 +1680,8 @@ struct AppState {
   scrollback_tracker: ScrollbackTracker,
   /// Terminai configuration
   config: TerminaiConfig,
+  /// Session-only command-line overrides.
+  overrides: RuntimeOverrides,
   /// Configuration error message (if config failed to load)
   config_error: Option<String>,
   /// Crokey combiner for processing keyboard events
@@ -2347,7 +2402,7 @@ impl AppState {
         None
       };
 
-    let config = match TerminaiConfig::load() {
+    let mut config = match TerminaiConfig::load() {
       Ok(config) => config,
       Err(err) => {
         let message = format!("Failed to reload terminai.yaml: {err:#}");
@@ -2356,6 +2411,7 @@ impl AppState {
         return;
       }
     };
+    self.overrides.apply(&mut config);
 
     let cwd = self
       .shell_cwd
@@ -3591,6 +3647,37 @@ mod tests {
   }
 
   #[test]
+  fn cli_runtime_settings_override_config() {
+    let args = Args::try_parse_from([
+      "terminai",
+      "--approval-mode",
+      "auto-approval",
+      "--agent",
+      "claude",
+      "--chat-position",
+      "top",
+      "--chat-height-percent",
+      "65",
+      "--guest-display",
+      "move",
+    ])
+    .unwrap();
+    let mut config = TerminaiConfig::default();
+
+    args.overrides.apply(&mut config);
+
+    assert_eq!(config.approval_mode, ApprovalMode::AutoApproval);
+    assert_eq!(config.agent.preset.as_deref(), Some("claude"));
+    assert_eq!(config.interface.chat_position, ChatPosition::Top);
+    assert_eq!(config.interface.chat_height_percent, 65);
+    assert_eq!(config.interface.guest_display, GuestDisplayMode::Move);
+    assert!(
+      Args::try_parse_from(["terminai", "--chat-height-percent", "81"])
+        .is_err()
+    );
+  }
+
+  #[test]
   fn cli_help_lists_init_config() {
     let mut command = <Args as clap::CommandFactory>::command();
     let mut help = Vec::new();
@@ -3782,6 +3869,7 @@ mod tests {
       guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
+      overrides: RuntimeOverrides::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -3850,6 +3938,7 @@ mod tests {
       guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
+      overrides: RuntimeOverrides::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -3908,6 +3997,7 @@ mod tests {
       guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
+      overrides: RuntimeOverrides::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -3966,6 +4056,7 @@ mod tests {
       guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
+      overrides: RuntimeOverrides::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
@@ -4032,6 +4123,7 @@ mod tests {
       guest_display: GuestDisplayMode::Resize,
       scrollback_tracker: ScrollbackTracker::new(),
       config: TerminaiConfig::default(),
+      overrides: RuntimeOverrides::default(),
       config_error: None,
       key_combiner: Combiner::default(),
       shell_output_pending: false,
