@@ -1,3 +1,8 @@
+## 0.1.20 - 2026-07-29
+
+- Add capability-gated synchronized terminal output.
+- Fix style corruption when using native scrollback.
+
 ## 0.1.19 - 2026-07-29
 
 - Render changelogs without a Markdown dependency and automatically show only
