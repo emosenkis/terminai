@@ -16,6 +16,7 @@ pub const DEFAULT_TERMINAI_YAML: &str = concat!(
 changelog: true
 
 interface:
+  terminal-sync: true
   chat-position: bottom
   chat-height-percent: 50
   guest-display: resize

@@ -102,6 +102,7 @@ The default agent is Codex. A minimal explicit configuration is:
 
 ```yaml
 interface:
+  terminal-sync: true
   chat-position: bottom
   chat-height-percent: 50
   guest-display: resize
@@ -125,6 +126,9 @@ risk classifier. Terminai marks this mode with `⚠ AUTO-APPROVE`; enabling it
 in-app requires confirmation. In-app mode and agent changes last for the
 current session only.
 
+`terminal-sync` defaults to `true` and brackets each frame with synchronized
+terminal updates to reduce tearing and flicker when the host reports support
+for DEC mode 2026. Set it to `false` to disable the capability.
 `chat-position` accepts `top`, `bottom`, or `fullscreen`.
 `chat-height-percent` controls split layouts and is clamped to 20–80%.
 `guest-display` accepts `resize` (reflow the guest into the remaining space),

@@ -158,6 +158,9 @@ impl Default for KeyBindingsConfig {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InterfaceConfig {
+  /// Use synchronized terminal updates to reduce frame tearing and flicker.
+  #[serde(default = "default_terminal_sync", rename = "terminal-sync")]
+  pub terminal_sync: bool,
   /// Position of the AI chat overlay (default: bottom)
   #[serde(default, rename = "chat-position")]
   pub chat_position: ChatPosition,
@@ -181,9 +184,14 @@ fn default_chat_height_percent() -> u8 {
   50
 }
 
+fn default_terminal_sync() -> bool {
+  true
+}
+
 impl Default for InterfaceConfig {
   fn default() -> Self {
     Self {
+      terminal_sync: default_terminal_sync(),
       chat_position: ChatPosition::default(),
       chat_height_percent: default_chat_height_percent(),
       guest_display: GuestDisplayMode::default(),
@@ -606,7 +614,16 @@ agent:
     );
     assert_eq!(config.interface.chat_height_percent, 50);
     assert_eq!(config.interface.guest_display, GuestDisplayMode::Resize);
+    assert!(config.interface.terminal_sync);
     assert!(AgentPresetConfig::default().show_in_switcher);
+  }
+
+  #[test]
+  fn terminal_sync_can_be_disabled() {
+    let config: TerminaiConfig =
+      serde_yaml::from_str("interface:\n  terminal-sync: false\n").unwrap();
+
+    assert!(!config.interface.terminal_sync);
   }
 
   #[test]
