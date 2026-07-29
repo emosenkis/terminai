@@ -1,3 +1,8 @@
+## 0.1.19 - 2026-07-29
+
+- Render changelogs without a Markdown dependency and automatically show only
+  releases newer than the last acknowledged version after an upgrade.
+
 ## 0.1.18 - 2026-07-28
 
 - Add session-only CLI overrides for approval mode, active agent, AI terminal
