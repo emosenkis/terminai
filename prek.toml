@@ -1,0 +1,14 @@
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "changelog",
+    name = "validate changelog",
+    language = "system",
+    entry = "cargo test -p termin --lib changelog::tests::embedded_changelog_is_valid",
+    files = "^(CHANGELOG\\.md|src/changelog\\.rs)$",
+    pass_filenames = false,
+  },
+]

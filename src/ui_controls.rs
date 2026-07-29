@@ -1,3 +1,4 @@
+use crate::changelog;
 use crate::terminai_config::{ApprovalMode, ChatPosition, GuestDisplayMode};
 use tui::{
   buffer::Buffer,
@@ -50,6 +51,7 @@ pub enum ControlModal {
   },
   Changelog {
     scroll: u16,
+    lines: Vec<Line<'static>>,
   },
 }
 
@@ -86,7 +88,14 @@ impl ControlModal {
   }
 
   pub fn changelog() -> Self {
-    Self::Changelog { scroll: 0 }
+    Self::changelog_since(None)
+  }
+
+  pub fn changelog_since(acknowledged: Option<&str>) -> Self {
+    Self::Changelog {
+      scroll: 0,
+      lines: changelog::render_since(acknowledged),
+    }
   }
 
   fn item_count(&self) -> usize {
@@ -109,7 +118,7 @@ impl ControlModal {
       Self::ConfirmAutoApproval { confirm }
       | Self::ConfirmClearHistory { confirm }
       | Self::ConfirmAgentSwitch { confirm, .. } => usize::from(!*confirm),
-      Self::Changelog { scroll } => *scroll as usize,
+      Self::Changelog { scroll, .. } => *scroll as usize,
     }
   }
 
@@ -211,7 +220,7 @@ impl ControlModal {
   }
 
   pub fn scroll_changelog(&mut self, delta: i16, max: u16) {
-    if let Self::Changelog { scroll } = self {
+    if let Self::Changelog { scroll, .. } = self {
       *scroll = if delta.is_negative() {
         scroll.saturating_sub(delta.unsigned_abs())
       } else {
@@ -257,8 +266,8 @@ pub fn render_control_modal(
   chat_height_percent: u8,
   guest_display: GuestDisplayMode,
 ) {
-  if let ControlModal::Changelog { scroll } = modal {
-    return render_changelog(area, buf, *scroll);
+  if let ControlModal::Changelog { scroll, lines } = modal {
+    return render_changelog(area, buf, *scroll, lines);
   }
 
   let (title, mut lines, height) = match modal {
@@ -395,7 +404,12 @@ pub fn render_control_modal(
     .render(inner, buf);
 }
 
-fn render_changelog(area: Rect, buf: &mut Buffer, scroll: u16) {
+fn render_changelog(
+  area: Rect,
+  buf: &mut Buffer,
+  scroll: u16,
+  lines: &[Line<'static>],
+) {
   let modal_area = changelog_area(area);
   let block = Block::default()
     .borders(Borders::ALL)
@@ -404,7 +418,7 @@ fn render_changelog(area: Rect, buf: &mut Buffer, scroll: u16) {
   let inner = block.inner(modal_area);
   Clear.render(modal_area, buf);
   block.render(modal_area, buf);
-  Paragraph::new(include_str!("../CHANGELOG.md"))
+  Paragraph::new(lines.to_vec())
     .style(Style::default().fg(Color::White).bg(Color::Black))
     .wrap(tui::widgets::Wrap { trim: false })
     .scroll((scroll, 0))
@@ -422,9 +436,12 @@ fn changelog_area(area: Rect) -> Rect {
   )
 }
 
-pub fn changelog_max_scroll(area: Rect) -> u16 {
+pub fn changelog_max_scroll(area: Rect, modal: &ControlModal) -> u16 {
+  let ControlModal::Changelog { lines, .. } = modal else {
+    return 0;
+  };
   let inner = changelog_area(area).inner(tui::layout::Margin::new(1, 1));
-  Paragraph::new(include_str!("../CHANGELOG.md"))
+  Paragraph::new(lines.clone())
     .wrap(tui::widgets::Wrap { trim: false })
     .line_count(inner.width)
     .saturating_sub(inner.height as usize)

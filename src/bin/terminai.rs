@@ -65,6 +65,7 @@ use termin::agent_launcher::{
 };
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
+use termin::changelog::version_is_newer;
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
   CHECK_FOR_UPDATES, GET_SUGGESTION_STATUS, GET_TERMINAL_CONTEXT,
@@ -97,42 +98,14 @@ use termin::shell_resolution::{parent_shell, resolve_shell};
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const CHANGELOG_ACK_FILE: &str = "changelog-version";
 
-fn version_is_newer(current: &str, acknowledged: Option<&str>) -> bool {
-  fn parts(version: &str) -> Option<Vec<u64>> {
-    version
-      .trim()
-      .trim_start_matches('v')
-      .split('.')
-      .map(str::parse)
-      .collect::<Result<_, _>>()
-      .ok()
-  }
-
-  let Some(current) = parts(current) else {
-    return false;
-  };
-  let Some(acknowledged) = acknowledged.and_then(parts) else {
-    return true;
-  };
-  for index in 0..current.len().max(acknowledged.len()) {
-    let current_part = current.get(index).copied().unwrap_or(0);
-    let acknowledged_part = acknowledged.get(index).copied().unwrap_or(0);
-    if current_part != acknowledged_part {
-      return current_part > acknowledged_part;
-    }
-  }
-  false
-}
-
 fn changelog_ack_path() -> Result<PathBuf> {
   Ok(termin::paths::cache_dir()?.join(CHANGELOG_ACK_FILE))
 }
 
-fn changelog_is_unacknowledged() -> bool {
-  let acknowledged = changelog_ack_path()
+fn acknowledged_changelog_version() -> Option<String> {
+  changelog_ack_path()
     .ok()
-    .and_then(|path| fs::read_to_string(path).ok());
-  version_is_newer(env!("CARGO_PKG_VERSION"), acknowledged.as_deref())
+    .and_then(|path| fs::read_to_string(path).ok())
 }
 
 fn acknowledge_changelog() -> Result<()> {
@@ -1801,8 +1774,12 @@ impl AppState {
       self.agent_view.follow_tail = true;
       let (cols, rows) = crossterm::terminal::size()?;
       self.resize_layout(rows, cols)?;
-      if self.config.changelog && changelog_is_unacknowledged() {
-        self.control_modal = Some(ControlModal::changelog());
+      let acknowledged = acknowledged_changelog_version();
+      if self.config.changelog
+        && version_is_newer(env!("CARGO_PKG_VERSION"), acknowledged.as_deref())
+      {
+        self.control_modal =
+          Some(ControlModal::changelog_since(acknowledged.as_deref()));
       }
     }
     Ok(())
@@ -2219,25 +2196,25 @@ impl AppState {
       KeyCode::Up if matches!(modal, ControlModal::Changelog { .. }) => {
         self.control_modal.as_mut().unwrap().scroll_changelog(
           -1,
-          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+          changelog_max_scroll(Rect::new(0, 0, cols, rows), &modal),
         );
       }
       KeyCode::Down if matches!(modal, ControlModal::Changelog { .. }) => {
         self.control_modal.as_mut().unwrap().scroll_changelog(
           1,
-          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+          changelog_max_scroll(Rect::new(0, 0, cols, rows), &modal),
         );
       }
       KeyCode::PageUp if matches!(modal, ControlModal::Changelog { .. }) => {
         self.control_modal.as_mut().unwrap().scroll_changelog(
           -20,
-          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+          changelog_max_scroll(Rect::new(0, 0, cols, rows), &modal),
         );
       }
       KeyCode::PageDown if matches!(modal, ControlModal::Changelog { .. }) => {
         self.control_modal.as_mut().unwrap().scroll_changelog(
           20,
-          changelog_max_scroll(Rect::new(0, 0, cols, rows)),
+          changelog_max_scroll(Rect::new(0, 0, cols, rows), &modal),
         );
       }
       KeyCode::Char('-') if matches!(modal, ControlModal::Layout { .. }) => {
@@ -2609,11 +2586,16 @@ impl AppState {
         _ => 0,
       };
       if delta != 0 {
+        let max_scroll = self
+          .control_modal
+          .as_ref()
+          .map(|modal| changelog_max_scroll(terminal_area, modal))
+          .unwrap_or(0);
         self
           .control_modal
           .as_mut()
           .unwrap()
-          .scroll_changelog(delta, changelog_max_scroll(terminal_area));
+          .scroll_changelog(delta, max_scroll);
       }
       return Control::Changed;
     }

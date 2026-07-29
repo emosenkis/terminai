@@ -3,6 +3,7 @@
 
 // Terminai library - exports modules for use in binaries
 
+pub mod changelog;
 pub mod clipboard;
 pub mod encode_term;
 pub mod key;

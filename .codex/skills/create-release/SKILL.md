@@ -22,12 +22,22 @@ If the user did not specify major, minor, or patch, stop and ask for that one mi
 ## Workflow
 
 1. Confirm the working tree state with `git status --short`.
-2. Run the relevant tests before release metadata changes. For the full project, prefer `cargo test` from `src/`.
+2. Run the relevant checks before release metadata changes:
+   - Format-check the Terminai package with
+     `cargo fmt --manifest-path src/Cargo.toml -- --check`. Do not use
+     `cargo fmt --all`; vendored code under `vendor/` is outside our formatting
+     scope.
+   - For the full project tests, prefer `cargo test` from `src/`.
 3. Bump the version according to the specified release type:
    - `src/Cargo.toml`
    - `Cargo.lock`
    - any other tracked references to the package version that are intentionally versioned
 4. Add a `CHANGELOG.md` entry for the new version with the current date and the *user-visible* changes.
+   - If changelog validation rejects new Markdown syntax, decide deliberately
+     whether that formatting is valuable enough to become supported syntax.
+     Remove incidental formatting; add parser, renderer, and test support when
+     the syntax materially improves the changelog and is likely to be reused.
+     Do not bypass or weaken the validation test.
 5. Re-run verification after the version and changelog updates.
 6. Commit the release changes on `main` with a clear release commit message.
 7. Push `main`.
@@ -40,6 +50,10 @@ If the user did not specify major, minor, or patch, stop and ask for that one mi
     - Confirm every supported architecture completed successfully and produced bottle artifacts, not only passing checks.
     - Download or inspect artifacts and verify they contain `*.bottle.*.tar.gz` and `*.bottle.json`.
 14. Publish bottles before merging the tap PR:
+    - Immediately before dispatch, resolve the exact full PR head SHA with
+      `gh pr view "$PR_NUMBER" --repo emosenkis/homebrew-tap --json headRefOid --jq .headRefOid`.
+    - Pass that value unchanged as the workflow's `head_sha` input. Never
+      abbreviate, guess, or manually transcribe the SHA.
     - Run the tap's GitHub `brew pr-pull` workflow for the PR.
     - Wait for it to publish all supported bottles and push the bottle commit successfully.
 15. Merge the tap PR only after the bottle publish step has succeeded. If the publish step already merged or pushed the required commits, verify `main` includes them.
