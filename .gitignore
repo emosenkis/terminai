@@ -12,6 +12,7 @@
 termin.log
 terminai.log
 terminai_*.log
+*.cast
 
 # Environment variables
 .env
