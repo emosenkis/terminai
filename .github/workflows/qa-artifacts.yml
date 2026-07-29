@@ -1,11 +1,9 @@
 name: QA Build Artifacts
-
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
-
 jobs:
   build:
     name: Build ${{ matrix.name }}
@@ -38,25 +36,20 @@ jobs:
             target: x86_64-pc-windows-msvc
             suffix: windows-x86_64
             binary_name: terminai.exe
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-
       - name: Install Linux build dependencies
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
-
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.target }} --bin terminai
-
       - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:

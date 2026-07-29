@@ -1,6 +1,5 @@
 # Terminai Configuration Example
 # Copy this file to ~/.config/terminai/terminai.yaml and customize
-
 interface:
   chat-position: bottom
   chat-height-percent: 50
@@ -13,21 +12,19 @@ interface:
     layout-mode: F9
     control-panel: F10
     toggle-fullscreen: F11
-
 # DANGER: auto-approval sends every AI suggestion directly to the shell.
 approval-mode: always-ask
-
 agent:
   preset: codex
   # extra-args:
   #   - --model
   #   - gpt-5
-
 agent-presets:
-  # Example: extend a bundled preset.
-  # codex-fast:
-  #   extends: codex
-  #   show-in-switcher: true
-  #   extra-args:
-  #     - --model
-  #     - gpt-5
+
+# Example: extend a bundled preset.
+# codex-fast:
+#   extends: codex
+#   show-in-switcher: true
+#   extra-args:
+#     - --model
+#     - gpt-5

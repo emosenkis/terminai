@@ -1,14 +1,109 @@
 #:schema https://www.schemastore.org/prek.json
 
 [[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "check-yaml"
+
+[[repos.hooks]]
+id = "check-toml"
+
+[[repos.hooks]]
+id = "check-json"
+
+[[repos.hooks]]
+id = "check-merge-conflict"
+
+[[repos.hooks]]
+id = "detect-private-key"
+
+[[repos.hooks]]
+id = "check-added-large-files"
+
+[[repos.hooks]]
+id = "check-case-conflict"
+
+[[repos.hooks]]
+id = "check-illegal-windows-names"
+
+[[repos.hooks]]
+id = "trailing-whitespace"
+exclude = "^vendor/"
+
+[[repos.hooks]]
+id = "end-of-file-fixer"
+exclude = "^vendor/"
+
+[[repos.hooks]]
+id = "mixed-line-ending"
+args = ["--fix=lf"]
+exclude = "^vendor/"
+
+[[repos]]
+repo = "https://github.com/rbubley/mirrors-prettier"
+rev = "v3.9.6"
+
+[[repos.hooks]]
+id = "prettier"
+files = "\\.ya?ml$"
+exclude = "^vendor/"
+
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+
+[[repos.hooks]]
+id = "actionlint"
+
+[[repos]]
+repo = "https://github.com/shellcheck-py/shellcheck-py"
+rev = "v0.11.0.1"
+
+[[repos.hooks]]
+id = "shellcheck"
+exclude = "^vendor/"
+
+[[repos]]
+repo = "https://github.com/scop/pre-commit-shfmt"
+rev = "v3.13.1-1"
+
+[[repos.hooks]]
+id = "shfmt"
+exclude = "^vendor/"
+
+[[repos]]
 repo = "local"
-hooks = [
-  {
-    id = "changelog",
-    name = "validate changelog",
-    language = "system",
-    entry = "cargo test -p termin --lib changelog::tests::embedded_changelog_is_valid",
-    files = "^(CHANGELOG\\.md|src/changelog\\.rs)$",
-    pass_filenames = false,
-  },
-]
+
+[[repos.hooks]]
+id = "cargo-fmt"
+name = "cargo fmt"
+language = "system"
+entry = "cargo fmt --manifest-path src/Cargo.toml --"
+files = "\\.rs$"
+exclude = "^vendor/"
+pass_filenames = false
+
+[[repos.hooks]]
+id = "cargo-check"
+name = "cargo check"
+language = "system"
+entry = "cargo check -p termin"
+files = "(^|/)(Cargo\\.toml|Cargo\\.lock|.*\\.rs)$"
+pass_filenames = false
+
+[[repos.hooks]]
+id = "cargo-clippy"
+name = "cargo clippy"
+language = "system"
+entry = "cargo clippy -p termin --all-targets --no-deps -- -D warnings"
+files = "(^|/)(Cargo\\.toml|Cargo\\.lock|.*\\.rs)$"
+pass_filenames = false
+
+[[repos.hooks]]
+id = "changelog"
+name = "validate changelog"
+language = "system"
+entry = "cargo test -p termin --lib changelog::tests::embedded_changelog_is_valid"
+files = "^(CHANGELOG\\.md|src/changelog\\.rs)$"
+pass_filenames = false

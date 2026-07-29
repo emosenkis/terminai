@@ -1,5 +1,4 @@
 version: "3"
-
 tasks:
   config-schema:
     desc: Regenerate JSON schema from config struct
@@ -9,7 +8,6 @@ tasks:
       - docs/schema-v*.json
     cmds:
       - cargo run --features=schema --bin dump-config-schema
-
   config-docs:
     desc: Regenerate docs/config.html from JSON schema
     deps:
