@@ -839,8 +839,9 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
         let sequence = format!("\x1b]{cmd}\x07");
         self.reply_sender.host_escape(sequence.to_compact_string());
       }
-      OperatingSystemCommand::FinalTermSemanticPrompt(p) => {
-        skip!("FinalTermSemanticPrompt {:?}", p)
+      OperatingSystemCommand::FinalTermSemanticPrompt(_) => {
+        let sequence = cmd.to_string();
+        self.reply_sender.host_escape(sequence.to_compact_string());
       }
       OperatingSystemCommand::ChangeColorNumber(_) => {
         skip!("ChangeColorNumber")
@@ -861,7 +862,10 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
         skip!("ConEmuProgress")
       }
       OperatingSystemCommand::Unspecified(ref data) => {
-        if data.first().map(|b| b.as_slice()) == Some(b"1337") {
+        if data.first().map(|b| b.as_slice()) == Some(b"633") {
+          let sequence = cmd.to_string();
+          self.reply_sender.host_escape(sequence.to_compact_string());
+        } else if data.first().map(|b| b.as_slice()) == Some(b"1337") {
           let sequence = format!("\x1b]{cmd}\x07");
           self.reply_sender.host_escape(sequence.to_compact_string());
         } else {

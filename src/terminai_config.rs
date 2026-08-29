@@ -343,6 +343,10 @@ pub struct AgentConfig {
   /// `args`.
   #[serde(default)]
   pub extra_args: Vec<AgentArg>,
+  /// Arguments for a non-interactive, single-prompt invocation. Supports the
+  /// same templates as `args`, plus `{{ prompt }}`.
+  #[serde(default)]
+  pub single_prompt_args: Vec<AgentArg>,
   /// Prompt template to render for this agent. Defaults to `default.jinja`,
   /// which is loaded from the Terminai XDG config directory when present and
   /// otherwise falls back to the bundled template. Other names are loaded from
@@ -368,6 +372,7 @@ impl AgentConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
+      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
@@ -381,6 +386,7 @@ impl AgentConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
+      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
@@ -455,6 +461,10 @@ pub struct AgentPresetConfig {
   /// `args`.
   #[serde(default)]
   pub extra_args: Vec<AgentArg>,
+  /// Arguments inherited by agents for a non-interactive, single-prompt
+  /// invocation. Supports the same templates as `args`, plus `{{ prompt }}`.
+  #[serde(default)]
+  pub single_prompt_args: Vec<AgentArg>,
   /// Prompt template inherited by agents using this preset. Uses the same XDG
   /// lookup and `default.jinja` shadowing behavior as the agent setting.
   #[serde(default)]
@@ -481,6 +491,7 @@ impl Default for AgentPresetConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
+      single_prompt_args: Vec::new(),
       prompt_template: None,
       env: HashMap::new(),
       uses_mcp: None,
@@ -503,6 +514,9 @@ pub struct TerminaiConfig {
   /// Automatically show the changelog once after an upgrade.
   #[serde(default = "default_changelog")]
   pub changelog: bool,
+  /// Request a command completion when the shell reports a new prompt.
+  #[serde(default, rename = "auto-completion")]
+  pub auto_completion: bool,
   /// Startup policy for agent-suggested shell input. `auto-approval` is
   /// dangerous and sends every suggestion without consulting the risk
   /// classifier.
@@ -533,6 +547,7 @@ impl Default for TerminaiConfig {
   fn default() -> Self {
     Self {
       changelog: true,
+      auto_completion: false,
       approval_mode: ApprovalMode::default(),
       shell: ShellConfig::default(),
       interface: InterfaceConfig::default(),
@@ -596,6 +611,7 @@ agent:
     let config: TerminaiConfig = serde_yaml::from_str("{}").unwrap();
 
     assert_eq!(config.approval_mode, ApprovalMode::AlwaysAsk);
+    assert!(!config.auto_completion);
     assert!(config.changelog);
     assert!(config.interface.key_bindings.layout_mode.matches(key!(f9)));
     assert!(
@@ -616,6 +632,27 @@ agent:
     assert_eq!(config.interface.guest_display, GuestDisplayMode::Resize);
     assert!(config.interface.terminal_sync);
     assert!(AgentPresetConfig::default().show_in_switcher);
+  }
+
+  #[test]
+  fn auto_completion_and_single_prompt_args_deserialize() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+auto-completion: true
+agent:
+  preset: codex
+  single-prompt-args:
+    - exec
+    - "{{ prompt }}"
+"#,
+    )
+    .unwrap();
+
+    assert!(config.auto_completion);
+    assert_eq!(
+      config.agent.single_prompt_args,
+      vec![AgentArg::from("exec"), AgentArg::from("{{ prompt }}")]
+    );
   }
 
   #[test]

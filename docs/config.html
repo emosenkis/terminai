@@ -59,7 +59,7 @@ Windows it is <code>%APPDATA%\\terminai\\terminai.yaml</code>.</p>
                 d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
             />
         </svg>
-    <a href="#agent" onclick="anchorLink('agent')">agent</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"args": [], "command": null, "extra-args": [], "kind": "codex", "preset": "codex", "prompt-template": null, "uses-mcp": null, "uses-tool-cli": null}</span><br/>
+    <a href="#agent" onclick="anchorLink('agent')">agent</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"args": [], "command": null, "extra-args": [], "kind": "codex", "preset": "codex", "prompt-template": null, "single-prompt-args": [], "uses-mcp": null, "uses-tool-cli": null}</span><br/>
 <span class="description"><p>External CLI agent to run in the AI terminal.</p>
 </span>
 
@@ -704,6 +704,78 @@ template and can be extended by a user-provided default.</p>
 
 
 
+            </div>
+        </div>
+    </div>
+</div>
+<div class="accordion" id="accordionagent_single-prompt-args">
+    <div class="card">
+        <div class="card-header" id="headingagent_single-prompt-args">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#agent_single-prompt-args"
+                        aria-expanded="" aria-controls="agent_single-prompt-args" onclick="setAnchor('#agent_single-prompt-args')"><span class="property-name">single-prompt-args</span></button>
+            </h2>
+        </div>
+
+        <div id="agent_single-prompt-args"
+             class="collapse property-definition-div" aria-labelledby="headingagent_single-prompt-args"
+             data-parent="#accordionagent_single-prompt-args">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent" onclick="anchorLink('agent')">agent</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent_single-prompt-args" onclick="anchorLink('agent_single-prompt-args')">single-prompt-args</a></div><span class="badge badge-dark value-type">Type: array</span> <span class="badge badge-success default-value">Default: []</span><br/>
+<span class="description"><p>Arguments for a non-interactive, single-prompt invocation. Supports the<br />
+same templates as <code>args</code>, plus <code>{{ prompt }}</code>.</p>
+</span>
+
+
+
+
+
+         <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
+    <div class="card">
+        <div class="card-body items-definition" id="agent_single-prompt-args_items">
+
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent" onclick="anchorLink('agent')">agent</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent_single-prompt-args" onclick="anchorLink('agent_single-prompt-args')">single-prompt-args</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent_single-prompt-args_items" onclick="anchorLink('agent_single-prompt-args_items')">AgentArg</a></div><span class="badge badge-dark value-type">Type: object</span><br/>
+<span class="description"><p>A command-line argument rendered for an agent process.</p>
+</span><a href="#agent_args_items" onclick="anchorLink('agent_args_items')" class="ref-link">Same definition as agent_args_items</a>
+        </div>
+    </div>
             </div>
         </div>
     </div>
@@ -1368,6 +1440,92 @@ lookup and <code>default.jinja</code> shadowing behavior as the agent setting.</
         </div>
     </div>
 </div>
+<div class="accordion" id="accordionagent-presets_additionalProperties_single-prompt-args">
+    <div class="card">
+        <div class="card-header" id="headingagent-presets_additionalProperties_single-prompt-args">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#agent-presets_additionalProperties_single-prompt-args"
+                        aria-expanded="" aria-controls="agent-presets_additionalProperties_single-prompt-args" onclick="setAnchor('#agent-presets_additionalProperties_single-prompt-args')"><span class="property-name">single-prompt-args</span></button>
+            </h2>
+        </div>
+
+        <div id="agent-presets_additionalProperties_single-prompt-args"
+             class="collapse property-definition-div" aria-labelledby="headingagent-presets_additionalProperties_single-prompt-args"
+             data-parent="#accordionagent-presets_additionalProperties_single-prompt-args">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets" onclick="anchorLink('agent-presets')">agent-presets</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets_additionalProperties" onclick="anchorLink('agent-presets_additionalProperties')">additionalProperties</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets_additionalProperties_single-prompt-args" onclick="anchorLink('agent-presets_additionalProperties_single-prompt-args')">single-prompt-args</a></div><span class="badge badge-dark value-type">Type: array</span> <span class="badge badge-success default-value">Default: []</span><br/>
+<span class="description"><p>Arguments inherited by agents for a non-interactive, single-prompt<br />
+invocation. Supports the same templates as <code>args</code>, plus <code>{{ prompt }}</code>.</p>
+</span>
+
+
+
+
+
+         <span class="badge badge-info no-additional">No Additional Items</span><h4>Each item of this array must be:</h4>
+    <div class="card">
+        <div class="card-body items-definition" id="agent-presets_additionalProperties_single-prompt-args_items">
+
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets" onclick="anchorLink('agent-presets')">agent-presets</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets_additionalProperties" onclick="anchorLink('agent-presets_additionalProperties')">additionalProperties</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets_additionalProperties_single-prompt-args" onclick="anchorLink('agent-presets_additionalProperties_single-prompt-args')">single-prompt-args</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#agent-presets_additionalProperties_single-prompt-args_items" onclick="anchorLink('agent-presets_additionalProperties_single-prompt-args_items')">AgentArg</a></div><span class="badge badge-dark value-type">Type: object</span><br/>
+<span class="description"><p>A command-line argument rendered for an agent process.</p>
+</span><a href="#agent_args_items" onclick="anchorLink('agent_args_items')" class="ref-link">Same definition as agent_args_items</a>
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+</div>
 <div class="accordion" id="accordionagent-presets_additionalProperties_uses-mcp">
     <div class="card">
         <div class="card-header" id="headingagent-presets_additionalProperties_uses-mcp">
@@ -1590,6 +1748,40 @@ command risk classifier is not consulted.</p>
         </div>
     </div>
 </div>
+<div class="accordion" id="accordionauto-completion">
+    <div class="card">
+        <div class="card-header" id="headingauto-completion">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#auto-completion"
+                        aria-expanded="" aria-controls="auto-completion" onclick="setAnchor('#auto-completion')"><span class="property-name">auto-completion</span></button>
+            </h2>
+        </div>
+
+        <div id="auto-completion"
+             class="collapse property-definition-div" aria-labelledby="headingauto-completion"
+             data-parent="#accordionauto-completion">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#auto-completion" onclick="anchorLink('auto-completion')">auto-completion</a></div><span class="badge badge-dark value-type">Type: boolean</span> <span class="badge badge-success default-value">Default: false</span><br/>
+<span class="description"><p>Request a command completion when the shell reports a new prompt.</p>
+</span>
+
+
+
+
+
+
+            </div>
+        </div>
+    </div>
+</div>
 <div class="accordion" id="accordionchangelog">
     <div class="card">
         <div class="card-header" id="headingchangelog">
@@ -1645,7 +1837,7 @@ command risk classifier is not consulted.</p>
                 d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
             />
         </svg>
-    <a href="#interface" onclick="anchorLink('interface')">interface</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"chat-height-percent": 50, "chat-position": "bottom", "guest-display": "resize", "key_bindings": {"activate-overlay": "Ctrl-Space", "approve": "y", "control-panel": "F10", "deactivate-overlay": "Ctrl-Space", "deny": "n", "layout-mode": "F9", "toggle-fullscreen": "F11"}}</span><br/>
+    <a href="#interface" onclick="anchorLink('interface')">interface</a></div><span class="badge badge-dark value-type">Type: object</span> <span class="badge badge-success default-value">Default: {"chat-height-percent": 50, "chat-position": "bottom", "guest-display": "resize", "key_bindings": {"activate-overlay": "Ctrl-Space", "approve": "y", "control-panel": "F10", "deactivate-overlay": "Ctrl-Space", "deny": "n", "layout-mode": "F9", "toggle-fullscreen": "F11"}, "terminal-sync": true}</span><br/>
 <span class="description"><p>Interface configuration</p>
 </span>
 
@@ -2812,6 +3004,47 @@ command risk classifier is not consulted.</p>
         </div>
     </div>
 </div>
+<div class="accordion" id="accordioninterface_terminal-sync">
+    <div class="card">
+        <div class="card-header" id="headinginterface_terminal-sync">
+            <h2 class="mb-0">
+                <button class="btn btn-link property-name-button" type="button" data-toggle="collapse" data-target="#interface_terminal-sync"
+                        aria-expanded="" aria-controls="interface_terminal-sync" onclick="setAnchor('#interface_terminal-sync')"><span class="property-name">terminal-sync</span></button>
+            </h2>
+        </div>
+
+        <div id="interface_terminal-sync"
+             class="collapse property-definition-div" aria-labelledby="headinginterface_terminal-sync"
+             data-parent="#accordioninterface_terminal-sync">
+            <div class="card-body pl-5">
+
+    <div class="breadcrumbs">root
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#interface" onclick="anchorLink('interface')">interface</a>
+        <svg width="1em" height="1em" viewBox="0 0 16 16" class="bi bi-arrow-right-short" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path
+                fill-rule="evenodd"
+                d="M4 8a.5.5 0 0 1 .5-.5h5.793L8.146 5.354a.5.5 0 1 1 .708-.708l3 3a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708-.708L10.293 8.5H4.5A.5.5 0 0 1 4 8z"
+            />
+        </svg>
+    <a href="#interface_terminal-sync" onclick="anchorLink('interface_terminal-sync')">terminal-sync</a></div><span class="badge badge-dark value-type">Type: boolean</span> <span class="badge badge-success default-value">Default: true</span><br/>
+<span class="description"><p>Use synchronized terminal updates to reduce frame tearing and flicker.</p>
+</span>
+
+
+
+
+
+
+            </div>
+        </div>
+    </div>
+</div>
             </div>
         </div>
     </div>
@@ -3126,6 +3359,6 @@ command risk classifier is not consulted.</p>
 </div>
 
     <footer>
-        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-07-28 at 19:45:23 +0300</p>
+        <p class="generated-by-footer">Generated using <a href="https://github.com/coveooss/json-schema-for-humans">json-schema-for-humans</a> on 2026-08-29 at 23:22:45 +0300</p>
     </footer></body>
 </html>

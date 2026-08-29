@@ -14,8 +14,11 @@ interface:
     toggle-fullscreen: F11
 # DANGER: auto-approval sends every AI suggestion directly to the shell.
 approval-mode: always-ask
+# Insert an AI-generated command without Enter at OSC 133/633 prompt markers.
+auto-completion: false
 agent:
   preset: codex
+  # single-prompt-args: [exec, --skip-git-repo-check, "{{ prompt }}"]
   # extra-args:
   #   - --model
   #   - gpt-5

@@ -1,3 +1,9 @@
+## 0.1.21 - 2026-08-29
+
+- Add off-by-default AI command completion using the active agent's
+  configurable single-prompt invocation, with OSC 133/633 prompt detection,
+  session controls, privacy filtering, and stale-response protection.
+
 ## 0.1.20 - 2026-07-29
 
 - Add capability-gated synchronized terminal output.

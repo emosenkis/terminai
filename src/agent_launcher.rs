@@ -103,6 +103,7 @@ pub fn build_launch_plan(
     &rendered_context_prompt,
     resolved.uses_mcp,
     resolved.uses_tool_cli,
+    "",
   )?;
   let metadata = AgentLaunchMetadata {
     mcp_url: context.mcp_url.clone(),
@@ -122,10 +123,35 @@ pub fn build_launch_plan(
   })
 }
 
+pub fn build_single_prompt_plan(
+  config: &AgentConfig,
+  user_presets: &HashMap<String, AgentPresetConfig>,
+  context: &AgentLaunchContext,
+  prompt: &str,
+) -> Result<AgentLaunchPlan> {
+  let resolved = resolve_agent_config(config, user_presets)?;
+  if resolved.single_prompt_args.is_empty() {
+    bail!("configured agent does not define single-prompt-args");
+  }
+  let mut plan = build_launch_plan(config, user_presets, context)?;
+  let environment = launch_template_environment(context.config_dir.clone());
+  plan.args = expand_args(
+    &environment,
+    resolved.single_prompt_args,
+    context,
+    "",
+    resolved.uses_mcp,
+    resolved.uses_tool_cli,
+    prompt,
+  )?;
+  Ok(plan)
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedAgentConfig {
   command: String,
   args: Vec<AgentArg>,
+  single_prompt_args: Vec<AgentArg>,
   env: HashMap<String, String>,
   uses_mcp: bool,
   uses_tool_cli: bool,
@@ -220,6 +246,7 @@ fn resolve_agent_config(
         anyhow::anyhow!("custom agent config requires command")
       })?,
       args: Vec::new(),
+      single_prompt_args: config.single_prompt_args.clone(),
       env: HashMap::new(),
       uses_mcp: config.uses_mcp.unwrap_or(false),
       uses_tool_cli: config.uses_tool_cli.unwrap_or(true),
@@ -234,6 +261,9 @@ fn resolve_agent_config(
     resolved.args = config.args.clone();
   }
   resolved.args.extend(config.extra_args.clone());
+  if !config.single_prompt_args.is_empty() {
+    resolved.single_prompt_args = config.single_prompt_args.clone();
+  }
   if let Some(uses_mcp) = config.uses_mcp {
     resolved.uses_mcp = uses_mcp;
   }
@@ -269,6 +299,7 @@ fn resolve_preset(
     ResolvedAgentConfig {
       command: String::new(),
       args: Vec::new(),
+      single_prompt_args: Vec::new(),
       env: HashMap::new(),
       uses_mcp: false,
       uses_tool_cli: true,
@@ -283,6 +314,9 @@ fn resolve_preset(
     resolved.args = preset.args;
   }
   resolved.args.extend(preset.extra_args);
+  if !preset.single_prompt_args.is_empty() {
+    resolved.single_prompt_args = preset.single_prompt_args;
+  }
   resolved.env.extend(preset.env);
   if let Some(uses_mcp) = preset.uses_mcp {
     resolved.uses_mcp = uses_mcp;
@@ -310,6 +344,7 @@ struct AgentLaunchTemplateData<'a> {
   mcp_command: &'a str,
   mcp_port: &'a str,
   context_prompt: &'a str,
+  prompt: &'a str,
   uses_mcp: bool,
   uses_tool_cli: bool,
 }
@@ -320,6 +355,7 @@ impl<'a> AgentLaunchTemplateData<'a> {
     context_prompt: &'a str,
     uses_mcp: bool,
     uses_tool_cli: bool,
+    prompt: &'a str,
   ) -> Self {
     Self {
       cwd: context.cwd.display().to_string(),
@@ -328,6 +364,7 @@ impl<'a> AgentLaunchTemplateData<'a> {
       mcp_command: &context.terminai_mcp_command,
       mcp_port: &context.terminai_mcp_port,
       context_prompt,
+      prompt,
       uses_mcp: uses_mcp,
       uses_tool_cli: uses_tool_cli,
     }
@@ -341,7 +378,8 @@ fn render_context_prompt(
   uses_mcp: bool,
   uses_tool_cli: bool,
 ) -> Result<String> {
-  let data = AgentLaunchTemplateData::new(context, "", uses_mcp, uses_tool_cli);
+  let data =
+    AgentLaunchTemplateData::new(context, "", uses_mcp, uses_tool_cli, "");
   environment
     .get_template(template_name)
     .with_context(|| {
@@ -360,12 +398,14 @@ fn expand_args(
   context_prompt: &str,
   uses_mcp: bool,
   uses_tool_cli: bool,
+  prompt: &str,
 ) -> Result<Vec<String>> {
   let data = AgentLaunchTemplateData::new(
     context,
     context_prompt,
     uses_mcp,
     uses_tool_cli,
+    prompt,
   );
   let mut expanded = Vec::new();
 
@@ -529,6 +569,29 @@ mod tests {
     let mut context = context();
     context.config_dir = Some(config_dir.to_path_buf());
     context
+  }
+
+  #[test]
+  fn single_prompt_plan_uses_dedicated_templated_args() {
+    let config: AgentConfig = serde_yaml::from_str(
+      r#"
+command: my-agent
+args: [interactive]
+single-prompt-args: [complete, "{{ prompt }}"]
+"#,
+    )
+    .unwrap();
+
+    let plan = build_single_prompt_plan(
+      &config,
+      &HashMap::new(),
+      &context(),
+      "Suggest one command",
+    )
+    .unwrap();
+
+    assert_eq!(plan.command, "my-agent");
+    assert_eq!(plan.args, ["complete", "Suggest one command"]);
   }
 
   fn custom_agent_with_prompt(template: Option<&str>) -> AgentConfig {
@@ -699,6 +762,7 @@ mod tests {
         "_mcp".into(),
       ],
       extra_args: Vec::new(),
+      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,

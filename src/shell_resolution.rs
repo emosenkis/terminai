@@ -70,11 +70,11 @@ fn validate_bootstrap_args(
 }
 
 pub fn powershell_bootstrap() -> String {
-  "$__terminai_prompt = ${function:prompt}; function global:prompt { $p = (Get-Location).Path -replace '\\\\','/'; $u = [uri]::EscapeUriString($p); [Console]::Write(\"`e]7;file:///$u`a\"); & $__terminai_prompt }".into()
+  "$__terminai_prompt = ${function:prompt}; function global:prompt { $p = (Get-Location).Path -replace '\\\\','/'; $u = [uri]::EscapeUriString($p); [Console]::Write(\"`e]7;file:///$u`a`e]133;A`a\"); & $__terminai_prompt }".into()
 }
 
 pub fn cmd_bootstrap() -> String {
-  "set \"PROMPT=$E]7;file:///$P$E\\$G$PROMPT\"".into()
+  "set \"PROMPT=$E]7;file:///$P$E\\$G$E]133;A$E\\$G$PROMPT\"".into()
 }
 
 fn with_bootstrap(
@@ -205,16 +205,18 @@ mod tests {
     assert!(resolve_shell(&[], None, Some(&shell), None).is_err());
   }
   #[test]
-  fn bootstrap_payloads_emit_osc7() {
+  fn bootstrap_payloads_emit_cwd_and_prompt_markers() {
     assert!(powershell_bootstrap().contains("]7;file:///"));
+    assert!(powershell_bootstrap().contains("]133;A"));
     assert!(cmd_bootstrap().contains("$P"));
+    assert!(cmd_bootstrap().contains("]133;A"));
   }
 
   #[test]
   fn cmd_bootstrap_terminates_osc7_before_the_prompt() {
     assert_eq!(
       cmd_bootstrap(),
-      "set \"PROMPT=$E]7;file:///$P$E\\$G$PROMPT\""
+      "set \"PROMPT=$E]7;file:///$P$E\\$G$E]133;A$E\\$G$PROMPT\""
     );
   }
 }

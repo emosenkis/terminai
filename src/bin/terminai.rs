@@ -61,11 +61,15 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 // Import only what we need from the crate
 use termin::agent_launcher::{
   AgentLaunchContext, AgentLaunchPlan, available_agent_presets,
-  build_launch_plan,
+  build_launch_plan, build_single_prompt_plan,
 };
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
+use termin::completion::{
+  command_completion_prompt, current_completion, is_prompt_start_escape,
+  run_completion,
+};
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
   CHECK_FOR_UPDATES, GET_SUGGESTION_STATUS, GET_TERMINAL_CONTEXT,
@@ -97,6 +101,7 @@ use termin::shell_resolution::{parent_shell, resolve_shell};
 
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const CHANGELOG_ACK_FILE: &str = "changelog-version";
+type CompletionResult = (u64, std::result::Result<String, String>);
 
 fn changelog_ack_path() -> Result<PathBuf> {
   Ok(termin::paths::cache_dir()?.join(CHANGELOG_ACK_FILE))
@@ -184,6 +189,7 @@ fn agent_config_for_choice(
     command: None,
     args: Vec::new(),
     extra_args: Vec::new(),
+    single_prompt_args: Vec::new(),
     prompt_template: None,
     uses_mcp: None,
     uses_tool_cli: None,
@@ -1532,6 +1538,7 @@ fn run_interactive(
   log::debug!("Creating rat-salsa theme");
   let theme = create_salsa_theme("Monochrome Dark");
   let mut global = Global::new(theme);
+  let (completion_tx, completion_rx) = mpsc::unbounded_channel();
 
   // Create application state
   log::debug!("Creating application state");
@@ -1564,8 +1571,13 @@ fn run_interactive(
     agent_event_rx,
     agent_view: TerminalViewState::new(),
     suggestion_rx,
+    completion_tx,
+    completion_rx,
+    completion_generation: 0,
+    completion_handle: Some(tokio_rt.handle().clone()),
     pending_command: None,
     approval_mode: config.approval_mode,
+    auto_completion_enabled: config.auto_completion,
     approval_scroll: 0,
     approval_focus: ApprovalAction::Approve,
     control_modal: None,
@@ -1641,8 +1653,13 @@ struct AppState {
   agent_event_rx: SharedAgentReceiver,
   agent_view: TerminalViewState,
   suggestion_rx: UnboundedReceiver<PendingCommand>,
+  completion_tx: mpsc::UnboundedSender<CompletionResult>,
+  completion_rx: UnboundedReceiver<CompletionResult>,
+  completion_generation: u64,
+  completion_handle: Option<tokio::runtime::Handle>,
   pending_command: Option<PendingCommand>,
   approval_mode: ApprovalMode,
+  auto_completion_enabled: bool,
   approval_scroll: usize,
   approval_focus: ApprovalAction,
   control_modal: Option<ControlModal>,
@@ -2079,6 +2096,82 @@ impl AppState {
     changed
   }
 
+  fn invalidate_completion(&mut self) {
+    self.completion_generation = self.completion_generation.wrapping_add(1);
+  }
+
+  fn request_auto_completion(&mut self) {
+    self.invalidate_completion();
+    if !self.auto_completion_enabled {
+      return;
+    }
+    let (Some(handle), Some(mcp_state), Some(active_plan)) = (
+      self.completion_handle.clone(),
+      self.mcp_state.clone(),
+      self.agent_launch_plan.as_ref(),
+    ) else {
+      return;
+    };
+    let generation = self.completion_generation;
+    let tx = self.completion_tx.clone();
+    let agent = self.active_agent_config.clone();
+    let presets = self.config.agent_presets.clone();
+    let metadata = active_plan.metadata.clone();
+    let cwd = self
+      .shell_cwd
+      .clone()
+      .unwrap_or_else(|| active_plan.cwd.clone());
+
+    handle.spawn(async move {
+      let result = async {
+        let terminal = mcp_state
+          .filtered_terminal_text(120)
+          .await
+          .map_err(|err| format!("{err:?}"))?;
+        let prompt = command_completion_prompt(&terminal);
+        let context = AgentLaunchContext::new(
+          cwd,
+          metadata.mcp_url,
+          metadata.mcp_auth_token,
+          metadata.terminai_binary_path,
+          metadata.terminai_mcp_port,
+        );
+        let mut plan =
+          build_single_prompt_plan(&agent, &presets, &context, &prompt)
+            .map_err(|err| err.to_string())?;
+        normalize_agent_launch_plan_env(&mut plan);
+        run_completion(plan).await.map_err(|err| err.to_string())
+      }
+      .await;
+      let _ = tx.send((generation, result));
+    });
+  }
+
+  fn process_auto_completions(&mut self) {
+    while let Ok((generation, result)) = self.completion_rx.try_recv() {
+      if let Err(err) = &result {
+        log::warn!("AI command completion failed: {err}");
+      }
+      if let Some(text) = current_completion(
+        self.completion_generation,
+        generation,
+        self.auto_completion_enabled,
+        result,
+      ) && let Err(err) = self.shell.send_paste(&text)
+      {
+        log::error!("Failed to insert AI command completion: {err}");
+      }
+    }
+  }
+
+  fn toggle_auto_completion(&mut self) {
+    self.auto_completion_enabled = !self.auto_completion_enabled;
+    if !self.auto_completion_enabled {
+      self.invalidate_completion();
+    }
+    self.control_modal = None;
+  }
+
   fn request_approval_mode_toggle(&mut self) {
     if self.approval_mode == ApprovalMode::AutoApproval {
       self.approval_mode = ApprovalMode::AlwaysAsk;
@@ -2257,6 +2350,7 @@ impl AppState {
         ControlModal::Panel { .. } => match modal.panel_item().unwrap() {
           ControlPanelItem::ApprovalMode => self.request_approval_mode_toggle(),
           ControlPanelItem::Agent => self.open_agent_picker(),
+          ControlPanelItem::AutoCompletion => self.toggle_auto_completion(),
           ControlPanelItem::ClearHistory => {
             self.control_modal = Some(ControlModal::confirm_clear_history())
           }
@@ -2434,6 +2528,8 @@ impl AppState {
     self.chat_height_percent =
       config.interface.chat_height_percent.clamp(20, 80);
     self.guest_display = config.interface.guest_display;
+    self.auto_completion_enabled = config.auto_completion;
+    self.invalidate_completion();
     self.config = config;
     if active_was_startup {
       self.active_agent_config = self.config.agent.clone();
@@ -2916,6 +3012,7 @@ fn render(
         buf,
         modal,
         state.approval_mode,
+        state.auto_completion_enabled,
         &state.active_agent_name,
         state.chat_position,
         state.chat_height_percent,
@@ -2936,6 +3033,7 @@ fn event(
 ) -> Result<Control<AppEvent>, Error> {
   // Track if any state changed requiring re-render
   let mut shell_changed = state.process_agent_suggestions();
+  state.process_auto_completions();
 
   // Check for VT rows waiting to be pushed into native scrollback.
   if let Ok(vt) = state.shell.vt.read() {
@@ -3000,6 +3098,7 @@ fn event(
         // TODO: Kitty enhanced keyboard capability mode support?
         if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
           // Route to shell when AI overlay not visible
+          state.invalidate_completion();
           let key = Key::new(*code, *modifiers);
           state.shell.send_key(key)?;
         }
@@ -3182,6 +3281,7 @@ fn event(
     AppEvent::Crossterm(Event::Paste(text)) => {
       if !state.ai_visible {
         // Send pasted text to shell, with bracketed paste if the shell wants it
+        state.invalidate_completion();
         state.shell.send_paste(text)?;
       } else if state.control_modal.is_none()
         && let Some(agent) = &mut state.agent_terminal
@@ -3224,6 +3324,9 @@ fn event(
       stdout.flush()?;
       if let Some(cwd) = cwd_from_osc7_escape(escape) {
         state.update_shell_cwd(cwd);
+      }
+      if is_prompt_start_escape(escape) {
+        state.request_auto_completion();
       }
       log::trace!("Shell host escape forwarded");
       Control::Continue
@@ -3337,6 +3440,7 @@ mod tests {
       command: Some("private-agent".into()),
       args: Vec::new(),
       extra_args: Vec::new(),
+      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
@@ -3815,6 +3919,7 @@ mod tests {
   #[cfg(not(windows))]
   fn deactivate_overlay_keeps_pending_command_for_reopen() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    let (completion_tx, completion_rx) = mpsc::unbounded_channel();
     drop(suggestion_tx);
 
     let (shell, _shell_rx) = Shell::spawn_command(
@@ -3842,8 +3947,13 @@ mod tests {
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
+      completion_tx,
+      completion_rx,
+      completion_generation: 0,
+      completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
+      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -3873,6 +3983,7 @@ mod tests {
   #[test]
   fn approval_scroll_clamps_to_pending_content() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    let (completion_tx, completion_rx) = mpsc::unbounded_channel();
     drop(suggestion_tx);
 
     let (shell, _shell_rx) = Shell::spawn_command(
@@ -3911,8 +4022,13 @@ mod tests {
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
+      completion_tx,
+      completion_rx,
+      completion_generation: 0,
+      completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
+      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -3943,6 +4059,7 @@ mod tests {
   #[test]
   fn approval_focus_toggles_and_return_activates_focused_button() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    let (completion_tx, completion_rx) = mpsc::unbounded_channel();
     drop(suggestion_tx);
 
     let (shell, _shell_rx) = Shell::spawn_command(
@@ -3970,8 +4087,13 @@ mod tests {
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
+      completion_tx,
+      completion_rx,
+      completion_generation: 0,
+      completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
+      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -4002,6 +4124,7 @@ mod tests {
   #[test]
   fn auto_approval_keeps_modal_open_but_explicit_approval_closes_it() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    let (completion_tx, completion_rx) = mpsc::unbounded_channel();
 
     let (shell, _shell_rx) = Shell::spawn_command(
       "sh",
@@ -4029,8 +4152,13 @@ mod tests {
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
+      completion_tx,
+      completion_rx,
+      completion_generation: 0,
+      completion_handle: None,
       pending_command: None,
       approval_mode: ApprovalMode::AutoApproval,
+      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -4069,6 +4197,7 @@ mod tests {
   #[test]
   fn approval_button_click_activates_action() {
     let (suggestion_tx, suggestion_rx) = mpsc::unbounded_channel();
+    let (completion_tx, completion_rx) = mpsc::unbounded_channel();
     drop(suggestion_tx);
 
     let (shell, _shell_rx) = Shell::spawn_command(
@@ -4096,8 +4225,13 @@ mod tests {
       agent_event_rx: Arc::new(std::sync::Mutex::new(None)),
       agent_view: TerminalViewState::new(),
       suggestion_rx,
+      completion_tx,
+      completion_rx,
+      completion_generation: 0,
+      completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
+      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,

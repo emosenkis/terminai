@@ -135,6 +135,12 @@ for DEC mode 2026. Set it to `false` to disable the capability.
 `overlay` (draw AI over the unchanged guest), or `move` (shift/crop the
 unchanged guest away from AI). Runtime layout changes last for the session.
 
+`auto-completion` defaults to `false`. When enabled, an OSC 133 or OSC 633
+prompt-start marker requests one completion from the active agent and inserts
+its single-line response without Enter. Typing or pasting before the response
+arrives discards it. Toggle it for the current session in the F10 control
+panel. The shell must have compatible semantic prompt integration enabled.
+
 The same session settings can override `terminai.yaml` at startup:
 
 ```sh
@@ -185,6 +191,21 @@ agent:
 ```
 
 String arguments are rendered as Minijinja templates. An `expr` entry must evaluate to an array of strings and can therefore emit zero, one, or multiple CLI arguments. Available values include `cwd`, `context_prompt`, `uses_mcp`, `uses_tool_cli`, `mcp_url`, `mcp_command`, `mcp_port`, and `tool_command`; the `json` and `toml` filters provide safe serialization for nested CLI configuration. The MCP bearer token is passed to the agent process in `TERMINAI_MCP_AUTH_TOKEN` rather than embedded in arguments.
+
+`agent.single-prompt-args` defines the non-interactive invocation used for
+command completion. It supports the same argument templates plus `prompt`:
+
+```yaml
+agent:
+  preset: codex
+  single-prompt-args:
+    - exec
+    - --skip-git-repo-check
+    - "{{ prompt }}"
+```
+
+Bundled Codex, Claude, and OpenCode presets already provide their native
+single-prompt arguments. A custom agent must configure them explicitly.
 
 ### Prompt customization
 

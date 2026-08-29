@@ -15,6 +15,10 @@ pub const DEFAULT_TERMINAI_YAML: &str = concat!(
 # Show release notes once after each upgrade.
 changelog: true
 
+# Request one AI command completion when the shell emits an OSC 133/633
+# prompt-start marker. The completion is inserted without pressing Enter.
+auto-completion: false
+
 interface:
   terminal-sync: true
   chat-position: bottom
@@ -49,6 +53,9 @@ privacy:
 
 agent:
   preset: codex
+  # Override the preset's non-interactive invocation if needed. These
+  # arguments support the {{ prompt }} template variable.
+  # single-prompt-args: [exec, --skip-git-repo-check, "{{ prompt }}"]
   # prompt-template: custom.jinja
   # Templates are loaded from this directory. A default.jinja here shadows
   # the bundled default; it can extend "builtin/default.jinja".

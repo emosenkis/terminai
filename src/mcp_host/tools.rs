@@ -101,6 +101,26 @@ impl TerminaiMcpState {
     }
   }
 
+  pub async fn filtered_terminal_text(
+    &self,
+    max_lines: usize,
+  ) -> Result<String, ErrorData> {
+    let result = self
+      .read_terminal(Parameters(ReadTerminalArgs {
+        max_lines: Some(max_lines),
+        include_visible: Some(true),
+      }))
+      .await?;
+    Ok(
+      result
+        .structured_content
+        .and_then(|value| value.get("lines").cloned())
+        .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
+        .unwrap_or_default()
+        .join("\n"),
+    )
+  }
+
   fn tool_result(text: String, data: serde_json::Value) -> CallToolResult {
     let mut result = CallToolResult::success(vec![Content::text(text)]);
     result.structured_content = Some(data);

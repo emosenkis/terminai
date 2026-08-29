@@ -12,3 +12,6 @@ claude:
          '{"mcpServers":{"terminai":{"type":"http","url":' ~ (mcp_url|json) ~ ',"headers":{"Authorization":"Bearer ${TERMINAI_MCP_AUTH_TOKEN}"}}}}',
          "--strict-mcp-config"]
         if uses_mcp else []
+  single-prompt-args:
+    - --print
+    - "{{ prompt }}"

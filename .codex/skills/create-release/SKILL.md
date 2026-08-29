@@ -17,7 +17,7 @@ Before changing release files, confirm the release type is known:
 - minor
 - patch
 
-If the user did not specify major, minor, or patch, stop and ask for that one missing detail. Do not infer it from the change size.
+If the user did not specify major, minor, or patch, ask for that one missing detail and wait up to five minutes for a response. If no response arrives, use `patch`. Do not infer another release type from the change size.
 
 ## Workflow
 

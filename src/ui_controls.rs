@@ -12,6 +12,7 @@ use tui::{
 pub enum ControlPanelItem {
   ApprovalMode,
   Agent,
+  AutoCompletion,
   ClearHistory,
   Changelog,
   Fullscreen,
@@ -100,7 +101,7 @@ impl ControlModal {
 
   fn item_count(&self) -> usize {
     match self {
-      Self::Panel { .. } => 6,
+      Self::Panel { .. } => 7,
       Self::Layout { .. } => 4,
       Self::AgentPicker { agents, .. } => agents.len(),
       Self::ConfirmAutoApproval { .. }
@@ -174,9 +175,10 @@ impl ControlModal {
     Some(match selected {
       0 => ControlPanelItem::ApprovalMode,
       1 => ControlPanelItem::Agent,
-      2 => ControlPanelItem::ClearHistory,
-      3 => ControlPanelItem::Changelog,
-      4 => ControlPanelItem::Fullscreen,
+      2 => ControlPanelItem::AutoCompletion,
+      3 => ControlPanelItem::ClearHistory,
+      4 => ControlPanelItem::Changelog,
+      5 => ControlPanelItem::Fullscreen,
       _ => ControlPanelItem::Layout,
     })
   }
@@ -261,6 +263,7 @@ pub fn render_control_modal(
   buf: &mut Buffer,
   modal: &ControlModal,
   approval_mode: ApprovalMode,
+  auto_completion: bool,
   active_agent: &str,
   chat_position: ChatPosition,
   chat_height_percent: u8,
@@ -282,10 +285,17 @@ pub fn render_control_modal(
           selected_line(format!("Approval mode: {mode}"), *selected == 0),
           selected_line(format!("Agent: {active_agent}"), *selected == 1),
           selected_line(
-            "Clear AI-readable history".to_string(),
+            format!(
+              "Auto-completion: {}",
+              if auto_completion { "on" } else { "off" }
+            ),
             *selected == 2,
           ),
-          selected_line("Changelog".to_string(), *selected == 3),
+          selected_line(
+            "Clear AI-readable history".to_string(),
+            *selected == 3,
+          ),
+          selected_line("Changelog".to_string(), *selected == 4),
           selected_line(
             format!(
               "Fullscreen: {}",
@@ -295,13 +305,13 @@ pub fn render_control_modal(
                 "off"
               }
             ),
-            *selected == 4,
+            *selected == 5,
           ),
-          selected_line("Layout…".to_string(), *selected == 5),
+          selected_line("Layout…".to_string(), *selected == 6),
           Line::from(""),
           Line::from("↑/↓ select  Enter open  Esc close"),
         ],
-        11,
+        12,
       )
     }
     ControlModal::Layout { selected } => (
@@ -480,9 +490,13 @@ mod tests {
   fn panel_and_picker_selection_wrap() {
     let mut panel = ControlModal::panel();
     panel.previous();
-    assert_eq!(panel.selected(), 5);
+    assert_eq!(panel.selected(), 6);
+    assert_eq!(panel.panel_item(), Some(ControlPanelItem::Layout));
     panel.next();
     assert_eq!(panel.selected(), 0);
+    panel.next();
+    panel.next();
+    assert_eq!(panel.panel_item(), Some(ControlPanelItem::AutoCompletion));
 
     let mut layout = ControlModal::layout();
     layout.previous();
@@ -512,6 +526,7 @@ mod tests {
       &mut buffer,
       &ControlModal::panel(),
       ApprovalMode::AutoApproval,
+      true,
       "codex",
       ChatPosition::Bottom,
       50,
@@ -526,6 +541,7 @@ mod tests {
       .join("\n");
     assert!(rendered.contains("Terminai Controls"));
     assert!(rendered.contains("AUTO-APPROVAL (DANGEROUS)"));
+    assert!(rendered.contains("Auto-completion: on"));
     assert!(rendered.contains("codex"));
     assert!(rendered.contains("Clear AI-readable history"));
     assert!(rendered.contains("Changelog"));

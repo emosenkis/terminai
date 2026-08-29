@@ -5,6 +5,7 @@
 
 pub mod changelog;
 pub mod clipboard;
+pub mod completion;
 pub mod encode_term;
 pub mod key;
 pub mod mouse;

@@ -548,3 +548,32 @@ mod windows_smoke_tests {
     );
   }
 }
+
+#[cfg(test)]
+mod prompt_marker_tests {
+  use super::*;
+
+  #[test]
+  fn semantic_prompt_markers_reach_the_host() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut parser = vt100::Parser::new(2, 20, 10, ReplySender::new(tx));
+
+    parser.process(b"\x1b]133;A\x07\x1b]633;A\x1b\\");
+
+    let events: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(
+      matches!(
+        events.first(),
+        Some(ShellEvent::HostEscape(escape)) if escape.starts_with("\x1b]133;A")
+      ),
+      "{events:?}"
+    );
+    assert!(
+      matches!(
+        events.get(1),
+        Some(ShellEvent::HostEscape(escape)) if escape.starts_with("\x1b]633;A")
+      ),
+      "{events:?}"
+    );
+  }
+}
