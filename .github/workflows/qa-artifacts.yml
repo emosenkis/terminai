@@ -13,6 +13,7 @@ jobs:
         with:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.15.2
@@ -67,6 +68,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
       - name: Install Linux build dependencies
         if: matrix.os == 'linux'
         run: |
