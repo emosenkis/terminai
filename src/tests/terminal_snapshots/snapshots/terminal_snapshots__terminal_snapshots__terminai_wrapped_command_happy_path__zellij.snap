@@ -2,7 +2,7 @@
 source: src/tests/terminal_snapshots/support.rs
 expression: snapshot
 ---
-[mguest-ready
+[38;5;2m[49m[29m[28m[27m[25m[25m[1m[24m[22m[1m[23mguest-ready
 [mhello
 [mguest:hello
 

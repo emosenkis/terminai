@@ -187,6 +187,7 @@ fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
   command.args(["-c", scenario.command]);
   command.cwd(scenario.cwd);
   command.env("TERM", "xterm-256color");
+  command.env_remove("NO_COLOR");
   let mut child = pair.slave.spawn_command(command)?;
   drop(pair.slave);
   let mut reader = pair.master.try_clone_reader()?;
@@ -337,7 +338,13 @@ impl TmuxSession {
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
   {
-    checked(Command::new("tmux").arg("-L").arg(&self.socket).args(args))
+    checked(
+      Command::new("tmux")
+        .env_remove("NO_COLOR")
+        .arg("-L")
+        .arg(&self.socket)
+        .args(args),
+    )
   }
 
   fn capture(&self, ansi: bool, scrollback: bool) -> Result<Vec<u8>> {
@@ -429,6 +436,7 @@ impl ZellijSession {
     })?;
     let mut command = CommandBuilder::new("zellij");
     command.env("TERM", "xterm-256color");
+    command.env_remove("NO_COLOR");
     command.args([
       "--new-session-with-layout",
       layout.to_str().context("non-UTF-8 layout path")?,

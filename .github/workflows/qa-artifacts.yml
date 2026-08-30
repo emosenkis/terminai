@@ -5,6 +5,30 @@ on:
   push:
     branches: [main]
 jobs:
+  snapshot-tests:
+    name: Terminal snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - name: Install terminal emulators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+          curl -fsSLO https://github.com/zellij-org/zellij/releases/download/v0.44.3/zellij-x86_64-unknown-linux-musl.tar.gz
+          echo "0f7c346788627f506c0a28296517768633cff24fc822a739f8264b640ecad751  zellij-x86_64-unknown-linux-musl.tar.gz" | sha256sum -c -
+          sudo tar -xzf zellij-x86_64-unknown-linux-musl.tar.gz -C /usr/local/bin
+      - name: Run terminal snapshots
+        run: >-
+          TERMINAI_SNAPSHOT_EMULATORS=internal,tmux,zellij,ghostty-vt
+          cargo test -p termin --features ghostty-snapshot-tests
+          --test terminal_snapshots
+
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.runs_on }}

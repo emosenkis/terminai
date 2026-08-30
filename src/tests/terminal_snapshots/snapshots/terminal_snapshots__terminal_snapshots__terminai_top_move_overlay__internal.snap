@@ -2,7 +2,7 @@
 source: src/tests/terminal_snapshots/support.rs
 expression: snapshot
 ---
-agent-ready[m
+[35;1magent-ready[m
 [m
 [m
 [m
@@ -13,7 +13,7 @@ agent-ready[m
 [m
 [m
 [m
- ↑ agent.sh ────────────────────────────────────────────────────────────────────[m
+[36;40m ↑ agent.sh ────────────────────────────────────────────────────────────────────[m
 guest-top[m
 [m
 [m
