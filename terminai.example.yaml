@@ -18,11 +18,10 @@ approval-mode: always-ask
 auto-completion: false
 agent:
   preset: codex
-  # single-prompt-args: [exec, --skip-git-repo-check, "{{ prompt }}"]
   # extra-args:
   #   - --model
   #   - gpt-5
-agent-presets:
+agent-presets: {}
 
 # Example: extend a bundled preset.
 # codex-fast:
@@ -31,3 +30,12 @@ agent-presets:
 #   extra-args:
 #     - --model
 #     - gpt-5
+
+auto-completer:
+  preset: codex
+auto-completers: {}
+
+# Example: choose a separate model for command completion.
+# codex-fast:
+#   extends: codex
+#   extra-args: [--model, gpt-5-mini]

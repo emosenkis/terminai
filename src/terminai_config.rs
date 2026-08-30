@@ -295,7 +295,7 @@ impl From<&str> for AgentArg {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct AgentConfig {
   #[serde(default)]
   pub preset: Option<String>,
@@ -311,6 +311,8 @@ pub struct AgentConfig {
   ///
   /// General:
   /// - `{{ cwd }}`: the working directory where the agent starts.
+  /// - `{{ prompt }}`: the command-completion request when this shape is used
+  ///   by `auto-completer` or `auto-completers`.
   /// - `{{ context_prompt }}`: the rendered Terminai context prompt for the
   ///   resolved agent config.
   /// - `{{ uses_mcp }}`: whether the resolved agent config enables
@@ -343,10 +345,6 @@ pub struct AgentConfig {
   /// `args`.
   #[serde(default)]
   pub extra_args: Vec<AgentArg>,
-  /// Arguments for a non-interactive, single-prompt invocation. Supports the
-  /// same templates as `args`, plus `{{ prompt }}`.
-  #[serde(default)]
-  pub single_prompt_args: Vec<AgentArg>,
   /// Prompt template to render for this agent. Defaults to `default.jinja`,
   /// which is loaded from the Terminai XDG config directory when present and
   /// otherwise falls back to the bundled template. Other names are loaded from
@@ -372,7 +370,6 @@ impl AgentConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
-      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
@@ -386,7 +383,6 @@ impl AgentConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
-      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,
@@ -415,7 +411,7 @@ impl Default for AgentConfig {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct AgentPresetConfig {
   #[serde(default)]
   pub extends: Option<String>,
@@ -429,6 +425,8 @@ pub struct AgentPresetConfig {
   ///
   /// General:
   /// - `{{ cwd }}`: the working directory where the agent starts.
+  /// - `{{ prompt }}`: the command-completion request when this shape is used
+  ///   by `auto-completer` or `auto-completers`.
   /// - `{{ context_prompt }}`: the rendered Terminai context prompt for the
   ///   resolved agent config.
   /// - `{{ uses_mcp }}`: whether the resolved agent config enables
@@ -461,10 +459,6 @@ pub struct AgentPresetConfig {
   /// `args`.
   #[serde(default)]
   pub extra_args: Vec<AgentArg>,
-  /// Arguments inherited by agents for a non-interactive, single-prompt
-  /// invocation. Supports the same templates as `args`, plus `{{ prompt }}`.
-  #[serde(default)]
-  pub single_prompt_args: Vec<AgentArg>,
   /// Prompt template inherited by agents using this preset. Uses the same XDG
   /// lookup and `default.jinja` shadowing behavior as the agent setting.
   #[serde(default)]
@@ -491,7 +485,6 @@ impl Default for AgentPresetConfig {
       command: None,
       args: Vec::new(),
       extra_args: Vec::new(),
-      single_prompt_args: Vec::new(),
       prompt_template: None,
       env: HashMap::new(),
       uses_mcp: None,
@@ -537,6 +530,14 @@ pub struct TerminaiConfig {
   /// User-defined CLI agent presets. Built-in presets include codex and claude.
   #[serde(default, rename = "agent-presets")]
   pub agent_presets: HashMap<String, AgentPresetConfig>,
+  /// CLI agent used for automatic command completion. Its `args` support the
+  /// `{{ prompt }}` template variable.
+  #[serde(default, rename = "auto-completer")]
+  pub auto_completer: AgentConfig,
+  /// User-defined auto-completer presets. Built-ins include codex, claude, and
+  /// opencode.
+  #[serde(default, rename = "auto-completers")]
+  pub auto_completers: HashMap<String, AgentPresetConfig>,
 }
 
 fn default_changelog() -> bool {
@@ -554,6 +555,8 @@ impl Default for TerminaiConfig {
       privacy: PrivacyConfig::default(),
       agent: AgentConfig::default(),
       agent_presets: HashMap::new(),
+      auto_completer: AgentConfig::default(),
+      auto_completers: HashMap::new(),
     }
   }
 }
@@ -635,23 +638,38 @@ agent:
   }
 
   #[test]
-  fn auto_completion_and_single_prompt_args_deserialize() {
+  fn auto_completer_is_configured_independently_from_agent() {
     let config: TerminaiConfig = serde_yaml::from_str(
       r#"
 auto-completion: true
 agent:
-  preset: codex
-  single-prompt-args:
-    - exec
-    - "{{ prompt }}"
+  preset: claude
+auto-completer:
+  preset: codex-fast
+auto-completers:
+  codex-fast:
+    extends: codex
+    extra-args: [--model, gpt-5-mini]
 "#,
     )
     .unwrap();
 
     assert!(config.auto_completion);
+    assert_eq!(config.agent.preset.as_deref(), Some("claude"));
+    assert_eq!(config.auto_completer.preset.as_deref(), Some("codex-fast"));
     assert_eq!(
-      config.agent.single_prompt_args,
-      vec![AgentArg::from("exec"), AgentArg::from("{{ prompt }}")]
+      config.auto_completers["codex-fast"].extra_args,
+      vec![AgentArg::from("--model"), AgentArg::from("gpt-5-mini")]
+    );
+  }
+
+  #[test]
+  fn obsolete_single_prompt_args_are_rejected() {
+    assert!(
+      serde_yaml::from_str::<TerminaiConfig>(
+        "agent:\n  single-prompt-args: [exec]\n"
+      )
+      .is_err()
     );
   }
 

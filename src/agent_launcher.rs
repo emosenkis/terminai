@@ -77,6 +77,24 @@ pub fn build_launch_plan(
   context: &AgentLaunchContext,
 ) -> Result<AgentLaunchPlan> {
   let resolved = resolve_agent_config(config, user_presets)?;
+  build_resolved_launch_plan(resolved, context, "")
+}
+
+pub fn build_auto_completer_plan(
+  config: &AgentConfig,
+  user_presets: &HashMap<String, AgentPresetConfig>,
+  context: &AgentLaunchContext,
+  prompt: &str,
+) -> Result<AgentLaunchPlan> {
+  let resolved = resolve_auto_completer_config(config, user_presets)?;
+  build_resolved_launch_plan(resolved, context, prompt)
+}
+
+fn build_resolved_launch_plan(
+  resolved: ResolvedAgentConfig,
+  context: &AgentLaunchContext,
+  prompt: &str,
+) -> Result<AgentLaunchPlan> {
   let mut env = resolved.env;
   env.insert(
     "TERMINAI_MCP_AUTH_TOKEN".to_string(),
@@ -103,7 +121,7 @@ pub fn build_launch_plan(
     &rendered_context_prompt,
     resolved.uses_mcp,
     resolved.uses_tool_cli,
-    "",
+    prompt,
   )?;
   let metadata = AgentLaunchMetadata {
     mcp_url: context.mcp_url.clone(),
@@ -123,35 +141,10 @@ pub fn build_launch_plan(
   })
 }
 
-pub fn build_single_prompt_plan(
-  config: &AgentConfig,
-  user_presets: &HashMap<String, AgentPresetConfig>,
-  context: &AgentLaunchContext,
-  prompt: &str,
-) -> Result<AgentLaunchPlan> {
-  let resolved = resolve_agent_config(config, user_presets)?;
-  if resolved.single_prompt_args.is_empty() {
-    bail!("configured agent does not define single-prompt-args");
-  }
-  let mut plan = build_launch_plan(config, user_presets, context)?;
-  let environment = launch_template_environment(context.config_dir.clone());
-  plan.args = expand_args(
-    &environment,
-    resolved.single_prompt_args,
-    context,
-    "",
-    resolved.uses_mcp,
-    resolved.uses_tool_cli,
-    prompt,
-  )?;
-  Ok(plan)
-}
-
 #[derive(Debug, Clone)]
 struct ResolvedAgentConfig {
   command: String,
   args: Vec<AgentArg>,
-  single_prompt_args: Vec<AgentArg>,
   env: HashMap<String, String>,
   uses_mcp: bool,
   uses_tool_cli: bool,
@@ -166,6 +159,9 @@ const BUILTIN_AGENT_PRESET_CONFIGS: &[(&str, &str)] = &[
     include_str!("../config/opencode.yaml"),
   ),
 ];
+
+const BUILTIN_AUTO_COMPLETER_CONFIG: &str =
+  include_str!("../config/auto-completers.yaml");
 
 #[derive(Debug, Default)]
 struct BuiltinAgentConfig {
@@ -200,6 +196,15 @@ fn builtin_agent_presets() -> Result<HashMap<String, AgentPresetConfig>> {
   Ok(builtin_agent_config()?.presets)
 }
 
+fn builtin_auto_completers() -> Result<HashMap<String, AgentPresetConfig>> {
+  Ok(
+    serde_yaml::from_str::<BuiltinAgentConfigFile>(
+      BUILTIN_AUTO_COMPLETER_CONFIG,
+    )?
+    .presets,
+  )
+}
+
 pub fn available_agent_presets(
   user_presets: &HashMap<String, AgentPresetConfig>,
 ) -> Result<Vec<String>> {
@@ -218,13 +223,35 @@ pub fn available_agent_presets(
   Ok(names)
 }
 
-fn builtin_preset(name: &str) -> Result<Option<AgentPresetConfig>> {
-  Ok(builtin_agent_presets()?.remove(name))
-}
-
 fn resolve_agent_config(
   config: &AgentConfig,
   user_presets: &HashMap<String, AgentPresetConfig>,
+) -> Result<ResolvedAgentConfig> {
+  resolve_config(
+    config,
+    user_presets,
+    &builtin_agent_presets()?,
+    "agent preset",
+  )
+}
+
+fn resolve_auto_completer_config(
+  config: &AgentConfig,
+  user_presets: &HashMap<String, AgentPresetConfig>,
+) -> Result<ResolvedAgentConfig> {
+  resolve_config(
+    config,
+    user_presets,
+    &builtin_auto_completers()?,
+    "auto-completer",
+  )
+}
+
+fn resolve_config(
+  config: &AgentConfig,
+  user_presets: &HashMap<String, AgentPresetConfig>,
+  builtin_presets: &HashMap<String, AgentPresetConfig>,
+  preset_label: &str,
 ) -> Result<ResolvedAgentConfig> {
   let preset_name = config.preset.clone().or_else(|| match config.kind {
     Some(AgentKind::Claude) => Some("claude".to_string()),
@@ -239,14 +266,19 @@ fn resolve_agent_config(
   });
 
   let mut resolved = if let Some(name) = preset_name {
-    resolve_preset(&name, user_presets, &mut HashSet::new())?
+    resolve_preset(
+      &name,
+      user_presets,
+      builtin_presets,
+      preset_label,
+      &mut HashSet::new(),
+    )?
   } else {
     ResolvedAgentConfig {
       command: config.command.clone().ok_or_else(|| {
         anyhow::anyhow!("custom agent config requires command")
       })?,
       args: Vec::new(),
-      single_prompt_args: config.single_prompt_args.clone(),
       env: HashMap::new(),
       uses_mcp: config.uses_mcp.unwrap_or(false),
       uses_tool_cli: config.uses_tool_cli.unwrap_or(true),
@@ -261,9 +293,6 @@ fn resolve_agent_config(
     resolved.args = config.args.clone();
   }
   resolved.args.extend(config.extra_args.clone());
-  if !config.single_prompt_args.is_empty() {
-    resolved.single_prompt_args = config.single_prompt_args.clone();
-  }
   if let Some(uses_mcp) = config.uses_mcp {
     resolved.uses_mcp = uses_mcp;
   }
@@ -280,26 +309,29 @@ fn resolve_agent_config(
 fn resolve_preset(
   name: &str,
   user_presets: &HashMap<String, AgentPresetConfig>,
+  builtin_presets: &HashMap<String, AgentPresetConfig>,
+  preset_label: &str,
   seen: &mut HashSet<String>,
 ) -> Result<ResolvedAgentConfig> {
   if !seen.insert(name.to_string()) {
-    bail!("agent preset '{name}' extends itself recursively");
+    bail!("{preset_label} '{name}' extends itself recursively");
   }
 
   let preset = if let Some(preset) = user_presets.get(name).cloned() {
     preset
   } else {
-    builtin_preset(name)?
-      .ok_or_else(|| anyhow::anyhow!("unknown agent preset '{name}'"))?
+    builtin_presets
+      .get(name)
+      .cloned()
+      .ok_or_else(|| anyhow::anyhow!("unknown {preset_label} '{name}'"))?
   };
 
   let mut resolved = if let Some(parent) = &preset.extends {
-    resolve_preset(parent, user_presets, seen)?
+    resolve_preset(parent, user_presets, builtin_presets, preset_label, seen)?
   } else {
     ResolvedAgentConfig {
       command: String::new(),
       args: Vec::new(),
-      single_prompt_args: Vec::new(),
       env: HashMap::new(),
       uses_mcp: false,
       uses_tool_cli: true,
@@ -314,9 +346,6 @@ fn resolve_preset(
     resolved.args = preset.args;
   }
   resolved.args.extend(preset.extra_args);
-  if !preset.single_prompt_args.is_empty() {
-    resolved.single_prompt_args = preset.single_prompt_args;
-  }
   resolved.env.extend(preset.env);
   if let Some(uses_mcp) = preset.uses_mcp {
     resolved.uses_mcp = uses_mcp;
@@ -329,7 +358,7 @@ fn resolve_preset(
   }
 
   if resolved.command.is_empty() {
-    bail!("agent preset '{name}' does not define a command");
+    bail!("{preset_label} '{name}' does not define a command");
   }
 
   seen.remove(name);
@@ -572,26 +601,66 @@ mod tests {
   }
 
   #[test]
-  fn single_prompt_plan_uses_dedicated_templated_args() {
+  fn auto_completer_plan_is_independent_and_expands_prompt() {
     let config: AgentConfig = serde_yaml::from_str(
       r#"
-command: my-agent
-args: [interactive]
-single-prompt-args: [complete, "{{ prompt }}"]
+preset: custom
+"#,
+    )
+    .unwrap();
+    let presets: HashMap<String, AgentPresetConfig> = serde_yaml::from_str(
+      r#"
+custom:
+  command: my-completer
+  args: [complete, "{{ prompt }}"]
 "#,
     )
     .unwrap();
 
-    let plan = build_single_prompt_plan(
+    let plan = build_auto_completer_plan(
       &config,
-      &HashMap::new(),
+      &presets,
       &context(),
       "Suggest one command",
     )
     .unwrap();
 
-    assert_eq!(plan.command, "my-agent");
+    assert_eq!(plan.command, "my-completer");
     assert_eq!(plan.args, ["complete", "Suggest one command"]);
+  }
+
+  #[test]
+  fn auto_completer_can_extend_builtin_and_choose_model() {
+    let config: AgentConfig =
+      serde_yaml::from_str("preset: codex-fast").unwrap();
+    let presets: HashMap<String, AgentPresetConfig> = serde_yaml::from_str(
+      r#"
+codex-fast:
+  extends: codex
+  extra-args: [--model, gpt-5-mini]
+"#,
+    )
+    .unwrap();
+
+    let plan = build_auto_completer_plan(
+      &config,
+      &presets,
+      &context(),
+      "Suggest one command",
+    )
+    .unwrap();
+
+    assert_eq!(plan.command, "codex");
+    assert_eq!(
+      plan.args,
+      [
+        "exec",
+        "--skip-git-repo-check",
+        "Suggest one command",
+        "--model",
+        "gpt-5-mini"
+      ]
+    );
   }
 
   fn custom_agent_with_prompt(template: Option<&str>) -> AgentConfig {
@@ -608,11 +677,22 @@ single-prompt-args: [complete, "{{ prompt }}"]
   #[test]
   fn bundled_agent_presets_are_parseable_reference_configs() {
     let presets = builtin_agent_presets().unwrap();
+    let auto_completers = builtin_auto_completers().unwrap();
 
     assert!(presets.contains_key("codex"));
     assert!(presets.contains_key("claude"));
     assert!(presets.contains_key("opencode"));
     assert!(!presets.contains_key("deprecated-agent"));
+    assert_eq!(
+      auto_completers["codex"].args,
+      [
+        "exec".into(),
+        "--skip-git-repo-check".into(),
+        "{{ prompt }}".into()
+      ]
+    );
+    assert_eq!(auto_completers["claude"].args[0], "--print".into());
+    assert_eq!(auto_completers["opencode"].args[0], "run".into());
     assert_eq!(
       presets.get("codex").unwrap().command.as_deref(),
       Some("codex")
@@ -762,7 +842,6 @@ single-prompt-args: [complete, "{{ prompt }}"]
         "_mcp".into(),
       ],
       extra_args: Vec::new(),
-      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,

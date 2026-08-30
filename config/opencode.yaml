@@ -3,6 +3,3 @@ opencode:
   show-in-switcher: true
   args:
     - "{{ context_prompt }}"
-  single-prompt-args:
-    - run
-    - "{{ prompt }}"

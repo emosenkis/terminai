@@ -53,9 +53,6 @@ privacy:
 
 agent:
   preset: codex
-  # Override the preset's non-interactive invocation if needed. These
-  # arguments support the {{ prompt }} template variable.
-  # single-prompt-args: [exec, --skip-git-repo-check, "{{ prompt }}"]
   # prompt-template: custom.jinja
   # Templates are loaded from this directory. A default.jinja here shadows
   # the bundled default; it can extend "builtin/default.jinja".
@@ -72,6 +69,18 @@ agent:
 # Add overrides or new presets here using the same shape.
 # Set show-in-switcher: false on a user preset to hide it from the picker.
 agent-presets: {}
+
+# Select command completion independently from the interactive agent.
+auto-completer:
+  preset: codex
+
+# Built-ins: codex, claude, and opencode. `args` supports {{ prompt }}.
+# Example model-specific preset:
+# auto-completers:
+#   codex-fast:
+#     extends: codex
+#     extra-args: [--model, gpt-5-mini]
+auto-completers: {}
 "#,
 );
 
@@ -221,6 +230,7 @@ mod tests {
       serde_yaml::from_str(DEFAULT_TERMINAI_YAML).unwrap();
 
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
+    assert_eq!(config.auto_completer.preset.as_deref(), Some("codex"));
   }
 
   #[test]

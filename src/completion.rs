@@ -26,15 +26,15 @@ pub async fn run_completion(plan: AgentLaunchPlan) -> Result<String> {
   let output =
     tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
       .await
-      .context("single-prompt agent invocation timed out")??;
+      .context("auto-completer invocation timed out")??;
   if !output.status.success() {
     bail!(
-      "single-prompt agent invocation failed: {}",
+      "auto-completer invocation failed: {}",
       String::from_utf8_lossy(&output.stderr).trim()
     );
   }
   completion_text(&String::from_utf8(output.stdout)?)
-    .context("single-prompt agent returned no safe completion")
+    .context("auto-completer returned no safe completion")
 }
 
 pub fn completion_text(output: &str) -> Option<String> {
@@ -93,7 +93,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn runs_the_configured_single_prompt_process() {
+  async fn runs_the_configured_auto_completer() {
     #[cfg(windows)]
     let (command, args) =
       ("cmd.exe", vec!["/C".into(), "echo git status".into()]);

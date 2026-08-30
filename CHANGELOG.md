@@ -1,3 +1,9 @@
+## 0.1.22 - 2026-08-31
+
+- Configure command completion independently from the interactive agent with
+  dedicated `auto-completer` and `auto-completers` settings and built-in Codex,
+  Claude, and OpenCode presets.
+
 ## 0.1.21 - 2026-08-29
 
 - Add off-by-default AI command completion using the active agent's

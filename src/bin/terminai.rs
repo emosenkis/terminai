@@ -61,7 +61,7 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 // Import only what we need from the crate
 use termin::agent_launcher::{
   AgentLaunchContext, AgentLaunchPlan, available_agent_presets,
-  build_launch_plan, build_single_prompt_plan,
+  build_auto_completer_plan, build_launch_plan,
 };
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
@@ -189,7 +189,6 @@ fn agent_config_for_choice(
     command: None,
     args: Vec::new(),
     extra_args: Vec::new(),
-    single_prompt_args: Vec::new(),
     prompt_template: None,
     uses_mcp: None,
     uses_tool_cli: None,
@@ -2112,8 +2111,8 @@ impl AppState {
     };
     let generation = self.completion_generation;
     let tx = self.completion_tx.clone();
-    let agent = self.active_agent_config.clone();
-    let presets = self.config.agent_presets.clone();
+    let auto_completer = self.config.auto_completer.clone();
+    let auto_completers = self.config.auto_completers.clone();
     let metadata = active_plan.metadata.clone();
     let cwd = self
       .shell_cwd
@@ -2134,9 +2133,13 @@ impl AppState {
           metadata.terminai_binary_path,
           metadata.terminai_mcp_port,
         );
-        let mut plan =
-          build_single_prompt_plan(&agent, &presets, &context, &prompt)
-            .map_err(|err| err.to_string())?;
+        let mut plan = build_auto_completer_plan(
+          &auto_completer,
+          &auto_completers,
+          &context,
+          &prompt,
+        )
+        .map_err(|err| err.to_string())?;
         normalize_agent_launch_plan_env(&mut plan);
         run_completion(plan).await.map_err(|err| err.to_string())
       }
@@ -3438,7 +3441,6 @@ mod tests {
       command: Some("private-agent".into()),
       args: Vec::new(),
       extra_args: Vec::new(),
-      single_prompt_args: Vec::new(),
       prompt_template: None,
       uses_mcp: None,
       uses_tool_cli: None,

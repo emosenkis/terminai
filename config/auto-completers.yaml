@@ -1,0 +1,11 @@
+codex:
+  command: codex
+  args: [exec, --skip-git-repo-check, "{{ prompt }}"]
+
+claude:
+  command: claude
+  args: [--print, "{{ prompt }}"]
+
+opencode:
+  command: opencode
+  args: [run, "{{ prompt }}"]
