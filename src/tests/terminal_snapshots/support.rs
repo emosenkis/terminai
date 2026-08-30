@@ -1,7 +1,7 @@
 use std::{
   io::{Read, Write},
   path::Path,
-  process::Command,
+  process::{Command, Output, Stdio},
   sync::{
     Mutex,
     mpsc::{self, Receiver},
@@ -361,9 +361,11 @@ impl TmuxSession {
 
 impl Drop for TmuxSession {
   fn drop(&mut self) {
-    let _ = Command::new("tmux")
-      .args(["-L", &self.socket, "kill-server"])
-      .output();
+    let _ = command_output(Command::new("tmux").args([
+      "-L",
+      &self.socket,
+      "kill-server",
+    ]));
   }
 }
 
@@ -449,8 +451,21 @@ impl ZellijSession {
     let child = pair.slave.spawn_command(command)?;
     drop(pair.slave);
     let mut reader = pair.master.try_clone_reader()?;
+    let mut writer = pair.master.take_writer()?;
+    let (reply_send, reply_recv) = mpsc::channel();
+    let mut responder = Parser::new(rows, cols, 0, LiveReplies(reply_send));
     thread::spawn(move || {
-      let _ = std::io::copy(&mut reader, &mut std::io::sink());
+      let mut chunk = [0; 8192];
+      while let Ok(count) = reader.read(&mut chunk) {
+        if count == 0 {
+          break;
+        }
+        responder.process(&chunk[..count]);
+        for reply in reply_recv.try_iter() {
+          let _ = writer.write_all(reply.as_bytes());
+        }
+        let _ = writer.flush();
+      }
     });
     Ok(Self {
       name,
@@ -468,10 +483,11 @@ impl ZellijSession {
   fn first_pane_id(&self) -> Result<String> {
     let start = Instant::now();
     loop {
-      let output = self
-        .command()
-        .args(["action", "list-panes", "--json"])
-        .output()?;
+      let output = command_output(self.command().args([
+        "action",
+        "list-panes",
+        "--json",
+      ]))?;
       if output.status.success() {
         let panes: serde_json::Value = serde_json::from_slice(&output.stdout)?;
         if let Some(id) = panes
@@ -547,9 +563,11 @@ impl ZellijSession {
 
 impl Drop for ZellijSession {
   fn drop(&mut self) {
-    let _ = Command::new("zellij")
-      .args(["delete-session", "--force", &self.name])
-      .output();
+    let _ = command_output(Command::new("zellij").args([
+      "delete-session",
+      "--force",
+      &self.name,
+    ]));
     let _ = self.child.kill();
   }
 }
@@ -585,8 +603,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 fn checked(command: &mut Command) -> Result<Vec<u8>> {
   let debug = format!("{command:?}");
-  let output = command
-    .output()
+  let output = command_output(command)
     .with_context(|| format!("failed to run {debug}"))?;
   if !output.status.success() {
     bail!(
@@ -595,6 +612,26 @@ fn checked(command: &mut Command) -> Result<Vec<u8>> {
     );
   }
   Ok(output.stdout)
+}
+
+fn command_output(command: &mut Command) -> Result<Output> {
+  let debug = format!("{command:?}");
+  let mut child = command
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()?;
+  let start = Instant::now();
+  loop {
+    if child.try_wait()?.is_some() {
+      return child.wait_with_output().map_err(Into::into);
+    }
+    if start.elapsed() >= Duration::from_secs(10) {
+      let _ = child.kill();
+      let _ = child.wait();
+      bail!("{debug} timed out");
+    }
+    thread::sleep(Duration::from_millis(10));
+  }
 }
 
 fn require_command(name: &str) -> Result<()> {

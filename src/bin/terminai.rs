@@ -1605,10 +1605,8 @@ fn run_interactive(
   log::info!("Starting rat-salsa event loop");
 
   // Create inline terminal (no alternate screen) for native scrollback support
-  let terminal_sync = termin::terminai_init::should_enable_terminal_sync(
-    state.config.interface.terminal_sync,
-    termin::terminai_init::supports_synchronized_output(),
-  );
+  let terminal_sync = state.config.interface.terminal_sync
+    && termin::terminai_init::supports_synchronized_output();
   log::debug!("Synchronized terminal output enabled: {terminal_sync}");
   let terminal = termin::terminai_init::create_terminal(terminal_sync)?;
   let config = RunConfig::<AppEvent, Error>::new(terminal);
