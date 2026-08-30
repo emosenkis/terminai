@@ -58,7 +58,7 @@ pub fn current_completion(
 mod tests {
   use super::*;
   use crate::agent_launcher::AgentLaunchMetadata;
-  use std::{collections::HashMap, path::PathBuf};
+  use std::collections::HashMap;
 
   #[test]
   fn detects_common_semantic_prompt_markers() {
@@ -94,11 +94,17 @@ mod tests {
 
   #[tokio::test]
   async fn runs_the_configured_single_prompt_process() {
+    #[cfg(windows)]
+    let (command, args) =
+      ("cmd.exe", vec!["/C".into(), "echo git status".into()]);
+    #[cfg(not(windows))]
+    let (command, args) =
+      ("sh", vec!["-c".into(), "printf 'git status\\n'".into()]);
     let plan = AgentLaunchPlan {
-      command: "sh".into(),
-      args: vec!["-c".into(), "printf 'git status\\n'".into()],
+      command: command.into(),
+      args,
       env: HashMap::new(),
-      cwd: PathBuf::from("/tmp"),
+      cwd: std::env::temp_dir(),
       metadata: AgentLaunchMetadata::default(),
     };
 
