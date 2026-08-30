@@ -29,7 +29,7 @@ id = "check-illegal-windows-names"
 
 [[repos.hooks]]
 id = "trailing-whitespace"
-exclude = "^vendor/"
+exclude = "^(vendor/|.*\\.snap$)"
 
 [[repos.hooks]]
 id = "end-of-file-fixer"

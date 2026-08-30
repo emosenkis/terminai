@@ -1,6 +1,48 @@
 # Testing Guide for Terminai
 
-This document describes the e2e testing infrastructure for Terminai using ratatui's TestBackend.
+This document describes Terminai's in-memory and real-terminal test infrastructure.
+
+## Terminal emulator snapshots
+
+`src/tests/terminal_snapshots/support.rs` runs one scripted scenario through
+Terminai's internal VT emulator, tmux, Zellij, or `libghostty-vt`. Each
+snapshot stores the emulator's ANSI-formatted final state. Set
+`Scenario::scrollback` only when history is part of the behavior under test.
+
+The internal emulator runs by default:
+
+```sh
+cargo test -p termin --features snapshot-tests --test terminal_snapshots
+```
+
+Select installed external emulators with a comma-separated environment
+variable:
+
+```sh
+TERMINAI_SNAPSHOT_EMULATORS=internal,tmux,zellij \
+  cargo test -p termin --features snapshot-tests --test terminal_snapshots
+```
+
+Ghostty builds `libghostty-vt` from source and therefore also needs Zig:
+
+```sh
+TERMINAI_SNAPSHOT_EMULATORS=ghostty-vt \
+  cargo test -p termin --features ghostty-snapshot-tests --test terminal_snapshots
+```
+
+Insta supplies the assertion, diff, and update workflow:
+
+```sh
+cargo insta review
+INSTA_UPDATE=always cargo test -p termin --features snapshot-tests --test terminal_snapshots
+```
+
+Scenarios use `Step::WaitFor` instead of fixed startup sleeps and `Step::Write`
+for byte-exact keyboard input. Zellij is launched inside a sized PTY and uses
+`dump-screen --ansi`; tmux uses `capture-pane -e`; both add full history only
+for scrollback scenarios. See
+[`docs/terminal-snapshot-cases.md`](docs/terminal-snapshot-cases.md) for the
+ordered test backlog.
 
 ## Overview
 
