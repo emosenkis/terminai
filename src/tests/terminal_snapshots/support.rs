@@ -2,7 +2,10 @@ use std::{
   io::{Read, Write},
   path::Path,
   process::Command,
-  sync::mpsc::{self, Receiver},
+  sync::{
+    Mutex,
+    mpsc::{self, Receiver},
+  },
   thread,
   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -11,6 +14,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use compact_str::CompactString;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use termin::vt100::{Parser, TermReplySender};
+
+static SNAPSHOT_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Emulator {
@@ -60,6 +65,8 @@ impl<'a> Scenario<'a> {
   }
 
   pub fn assert_snapshots(&self, name: &str) -> Result<()> {
+    // ponytail: serialize heavyweight emulator sessions; split by emulator if this becomes a bottleneck.
+    let _guard = SNAPSHOT_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let emulators = selected_emulators()?;
     let raw = emulators
       .iter()
@@ -106,6 +113,15 @@ impl TermReplySender for IgnoreReplies {
   fn reply(&self, _: CompactString) {}
 }
 
+#[derive(Clone)]
+struct LiveReplies(mpsc::Sender<CompactString>);
+
+impl TermReplySender for LiveReplies {
+  fn reply(&self, reply: CompactString) {
+    let _ = self.0.send(reply);
+  }
+}
+
 fn capture_internal(scenario: &Scenario<'_>, raw: &[u8]) -> Vec<u8> {
   let (cols, rows) = scenario.size;
   let mut parser = Parser::new(rows, cols, 100_000, IgnoreReplies);
@@ -126,7 +142,7 @@ fn capture_internal(scenario: &Scenario<'_>, raw: &[u8]) -> Vec<u8> {
 
 #[cfg(feature = "ghostty-snapshot-tests")]
 fn capture_ghostty(scenario: &Scenario<'_>, raw: &[u8]) -> Result<Vec<u8>> {
-  use libghostty_vt::{Terminal, TerminalOptions, fmt, selection};
+  use libghostty_vt::{Terminal, TerminalOptions, fmt};
 
   let (cols, rows) = scenario.size;
   let mut terminal = Terminal::new(TerminalOptions {
@@ -136,29 +152,22 @@ fn capture_ghostty(scenario: &Scenario<'_>, raw: &[u8]) -> Result<Vec<u8>> {
   })?;
   terminal.vt_write(raw);
 
-  if scenario.scrollback {
-    let selection = terminal.select_all()?.ok_or_else(|| {
+  let selection = if scenario.scrollback {
+    Some(terminal.select_all()?.ok_or_else(|| {
       anyhow!("ghostty-vt terminal has no selectable content")
-    })?;
-    let bytes = terminal
-      .format_selection_alloc(
-        None,
-        selection::FormatOptions::new()
-          .with_emit_format(fmt::Format::Vt)
-          .with_selection(&selection),
-      )?
-      .ok_or_else(|| anyhow!("ghostty-vt failed to format its selection"))?;
-    Ok(bytes.to_vec())
+    })?)
   } else {
-    let mut formatter = fmt::Formatter::new(
-      &terminal,
-      fmt::FormatterOptions::new()
-        .with_format(fmt::Format::Vt)
-        .with_cursor(true)
-        .with_style(true),
-    )?;
-    Ok(formatter.format_alloc(None)?.to_vec())
+    None
+  };
+  let mut options = fmt::FormatterOptions::new()
+    .with_format(fmt::Format::Vt)
+    .with_cursor(!scenario.scrollback)
+    .with_style(true);
+  if let Some(selection) = &selection {
+    options = options.with_selection(selection);
   }
+  let mut formatter = fmt::Formatter::new(&terminal, options)?;
+  Ok(formatter.format_alloc(None)?.to_vec())
 }
 
 #[cfg(not(feature = "ghostty-snapshot-tests"))]
@@ -183,6 +192,8 @@ fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
   let mut reader = pair.master.try_clone_reader()?;
   let mut writer = pair.master.take_writer()?;
   let (send, recv) = mpsc::channel();
+  let (reply_send, reply_recv) = mpsc::channel();
+  let mut responder = Parser::new(rows, cols, 0, LiveReplies(reply_send));
   thread::spawn(move || {
     let mut chunk = [0; 8192];
     while let Ok(count) = reader.read(&mut chunk) {
@@ -192,14 +203,32 @@ fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
     }
   });
 
-  let result = drive_steps(
-    scenario,
-    |needle, timeout| wait_for_raw(&recv, needle, timeout),
-    |bytes| {
-      writer.write_all(bytes)?;
-      writer.flush().map_err(Into::into)
-    },
-  );
+  let mut result = Ok(Vec::new());
+  for step in scenario.steps {
+    let step_result = match step {
+      Step::WaitFor(needle) => {
+        wait_for_raw(&recv, needle, scenario.timeout, |chunk| {
+          responder.process(chunk);
+          for reply in reply_recv.try_iter() {
+            writer.write_all(reply.as_bytes())?;
+          }
+          writer.flush().map_err(Into::into)
+        })
+      }
+      Step::Write(bytes) => writer
+        .write_all(bytes)
+        .and_then(|_| writer.flush())
+        .map(|_| Vec::new())
+        .map_err(Into::into),
+    };
+    match step_result {
+      Ok(output) => result.as_mut().unwrap().extend(output),
+      Err(err) => {
+        result = Err(err);
+        break;
+      }
+    }
+  }
   let _ = child.kill();
   let _ = child.wait();
   result
@@ -209,6 +238,7 @@ fn wait_for_raw(
   recv: &Receiver<Vec<u8>>,
   needle: &[u8],
   timeout: Duration,
+  mut process: impl FnMut(&[u8]) -> Result<()>,
 ) -> Result<Vec<u8>> {
   let start = Instant::now();
   let mut output = Vec::new();
@@ -219,16 +249,21 @@ fn wait_for_raw(
         String::from_utf8_lossy(needle)
       )
     })?;
-    output.extend(recv.recv_timeout(remaining).with_context(|| {
+    let chunk = recv.recv_timeout(remaining).with_context(|| {
       format!(
         "timed out waiting for {:?}; output was {:?}",
         String::from_utf8_lossy(needle),
         String::from_utf8_lossy(&output)
       )
-    })?);
+    })?;
+    process(&chunk)?;
+    output.extend(chunk);
   }
   thread::sleep(Duration::from_millis(50));
-  output.extend(recv.try_iter().flatten());
+  for chunk in recv.try_iter() {
+    process(&chunk)?;
+    output.extend(chunk);
+  }
   Ok(output)
 }
 

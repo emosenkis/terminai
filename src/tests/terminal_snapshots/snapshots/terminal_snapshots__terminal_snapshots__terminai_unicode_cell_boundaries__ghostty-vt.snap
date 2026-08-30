@@ -1,0 +1,6 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+combining: é | wide: 中文 | emoji: 👩‍💻
+unicode-ready[0m[3;1H

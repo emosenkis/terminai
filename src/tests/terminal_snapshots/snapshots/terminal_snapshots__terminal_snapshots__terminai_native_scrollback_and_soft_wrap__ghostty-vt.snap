@@ -1,0 +1,37 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+history-01
+history-02
+history-03
+history-04
+history-05
+history-06
+history-07
+history-08
+history-09
+history-10
+history-11
+history-12
+history-13
+history-14
+history-15
+history-16
+history-17
+history-18
+history-19
+history-20
+history-21
+history-22
+history-23
+history-24
+history-25
+history-26
+history-27
+history-28
+history-29
+history-30
+soft-wrap-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ-0123456789-abcde
+fghijklmnopqrstuvwxyz
+scrollback-ready[0m

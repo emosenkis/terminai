@@ -1,0 +1,6 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+primary-before 
+primary-restored[0m

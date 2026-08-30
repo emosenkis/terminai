@@ -23,9 +23,10 @@ TERMINAI_SNAPSHOT_EMULATORS=internal,tmux,zellij \
   cargo test -p termin --features snapshot-tests --test terminal_snapshots
 ```
 
-Ghostty builds `libghostty-vt` from source and therefore also needs Zig:
+Ghostty builds `libghostty-vt` from source and requires Zig 0.15.2:
 
 ```sh
+zig version # 0.15.2
 TERMINAI_SNAPSHOT_EMULATORS=ghostty-vt \
   cargo test -p termin --features ghostty-snapshot-tests --test terminal_snapshots
 ```

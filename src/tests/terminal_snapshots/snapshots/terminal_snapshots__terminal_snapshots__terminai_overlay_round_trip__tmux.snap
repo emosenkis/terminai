@@ -1,0 +1,6 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+hello-ready         
+guest:hello

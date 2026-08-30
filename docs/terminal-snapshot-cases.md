@@ -8,7 +8,7 @@ distinct value.
 | Priority | Case | Final assertion | Emulators | Scrollback |
 | --- | --- | --- | --- | --- |
 | P0 | Wrapped command happy path | Typed input, prompt, styled stdout/stderr, and cursor end in the expected cells | All | No |
-| P0 | Open and close the AI overlay | Guest contents survive `Ctrl+Space`, agent pane has the configured separator, and `Esc` restores the guest | All | No |
+| P0 | Open and close the AI overlay | Guest contents survive `Ctrl+Space`, agent pane has the configured separator, and the deactivate binding restores the guest | All | No |
 | P0 | Bottom resize split | Guest reflows above a 50% agent pane without stale cells | All | No |
 | P0 | Top move split | Unchanged guest rows are shifted/cropped below the agent pane | All | No |
 | P0 | Overlay and fullscreen layouts | Overlay leaves guest geometry unchanged; fullscreen fully replaces it | All | No |

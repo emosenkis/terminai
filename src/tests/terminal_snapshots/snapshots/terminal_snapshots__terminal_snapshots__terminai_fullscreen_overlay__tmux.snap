@@ -1,0 +1,5 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+agent-ready

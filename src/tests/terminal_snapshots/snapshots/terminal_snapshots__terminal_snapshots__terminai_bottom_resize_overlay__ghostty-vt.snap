@@ -1,0 +1,18 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready
+
+
+
+
+
+
+
+
+
+
+
+ ↓ agent.sh ────────────────────────────────────────────────────────────────────
+agent-ready[0m[15;1H

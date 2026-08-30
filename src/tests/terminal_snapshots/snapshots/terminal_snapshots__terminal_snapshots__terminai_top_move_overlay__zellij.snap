@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[magent-ready
+
+
+
+
+
+
+
+
+
+
+[m ↑ agent.sh ────────────────────────────────────────────────────────────────────
+[mguest-top
+
+
+
+
+
+
+
+
+
+
+[m
