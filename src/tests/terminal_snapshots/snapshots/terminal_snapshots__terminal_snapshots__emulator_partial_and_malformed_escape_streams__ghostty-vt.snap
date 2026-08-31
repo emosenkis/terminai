@@ -1,0 +1,9 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+split-utf8: €
+[0m[1m[38;5;2msplit-csi[0m
+[0m[4m[38;5;4msplit-link[0m
+��invalid-bytes
+[0m[1m[38;5;5mparser-recovered[0m[0m[6;1H

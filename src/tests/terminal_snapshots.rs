@@ -574,3 +574,15 @@ fn terminai_synchronized_update_paths() -> Result<()> {
     false,
   )
 }
+
+#[test]
+fn emulator_partial_and_malformed_escape_streams() -> Result<()> {
+  let steps = [Step::WaitFor(b"parser-recovered")];
+  let mut scenario = Scenario::new(
+    "printf 'split-utf8: \\342'; sleep 0.02; printf '\\202\\254\\r\\n\\033['; sleep 0.02; printf '1;32msplit-csi\\033[0m\\r\\n\\033]8;;https://example.test/split'; sleep 0.02; printf '\\033\\\\\\033[4;34msplit-link\\033[0m\\033]8;;\\033\\\\\\r\\n\\377\\376invalid-bytes\\r\\n\\033[999999999999999999999m\\033[1;35mparser-recovered\\033[0m\\r\\n'; sleep 30",
+    Path::new(env!("CARGO_MANIFEST_DIR")),
+  );
+  scenario.steps = &steps;
+  scenario.timeout = Duration::from_secs(5);
+  scenario.assert_snapshots("emulator_partial_and_malformed_escape_streams")
+}
