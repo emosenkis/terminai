@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready[m
+[2C[33m┌ Shell Input Approval ────────────────────────────────────────────────────┐[m
+[2C[33m│[97mThe AI suggests shell input:                                              [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97;48;5;237mspace tab[36;1m<Tab>[97;22mline[36;1m<Enter>[97;49;22m                                                 [33m│[m
+[2C[33m│[36;48;5;237;1m<Esc><C-c>[97;22mé[49m                                                               [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97mDescription:                                                              [33m│[m
+[2C[33m│[97mExercise encoded control input.                                           [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[36;40m ↓[33;49m│[97m                                                                          [33m│[36;40m──[m
+ag[33m│[97m                                                                          [33m│[m
+Qu[33m│[97m                                                                          [33m│[mé[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│[97m                                                                          [33m│[m
+[2C[33m│                                                                          │[m
+[2C[33m│                        [30;48;5;220m Approve (Y) [33;49m  [97;48;5;238m Deny (N) [33;49m                         │[m
+[2C[33m└──────────────────────────────────────────────────────────────────────────┘[m
+[m

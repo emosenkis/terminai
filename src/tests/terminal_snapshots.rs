@@ -399,6 +399,42 @@ fn terminai_agent_relaunch() -> Result<()> {
 }
 
 #[test]
+fn terminai_approval_text_encoding() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"Approve (Y)"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_approval_text_encoding",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    "#!/bin/sh\nprintf 'agent-ready\\r\\n'\nsleep 1\nterminai tool suggest_input 'space tab\\tline\\n\\u001b\\u0003é' --explanation 'Exercise encoded control input.'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_approval_writes_exact_bytes() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"Approve (Y)"),
+    Step::Write(b"y"),
+    Step::WaitFor(b"bytes-done"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_approval_writes_exact_bytes",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nstty raw -echo\nbytes=$(dd bs=1 count=19 2>/dev/null | od -An -tx1 | tr -s ' ' | tr -d '\\n')\nprintf '\\r\\nbytes:%s\\r\\nbytes-done\\r\\n' \"$bytes\"\nsleep 30\n",
+    "#!/bin/sh\nprintf 'agent-ready\\r\\n'\nsleep 1\nterminai tool suggest_input 'space tab\\tline\\n\\u001b\\u0003é' --explanation 'Exercise encoded control input.'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
 fn terminai_native_scrollback_and_soft_wrap() -> Result<()> {
   let steps = [Step::WaitFor(b"scrollback-ready")];
   assert_terminai(

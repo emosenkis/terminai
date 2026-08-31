@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready[m
+bytes: 73 70 61 63 65 20 74 61 62 09 6c 69 6e 65 0a 1b 03 c3 a9               [m
+bytes-done                                                                    [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+                                                                                [m
+                                                                              [m
+                                                                               [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[m
