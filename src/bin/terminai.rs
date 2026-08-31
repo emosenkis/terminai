@@ -34,7 +34,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc as std_mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use tui::Frame;
 
@@ -883,12 +883,27 @@ impl PollEvents<AppEvent, Error> for PollShell {
 use termin::ui_layer::TerminalWidget;
 
 const DEFAULT_STARTUP_TERMINAL_SIZE: (u16, u16) = (80, 24);
+const STARTUP_TERMINAL_SIZE_TIMEOUT: Duration = Duration::from_millis(250);
 
 fn startup_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
   if cols == 0 || rows == 0 {
     DEFAULT_STARTUP_TERMINAL_SIZE
   } else {
     (cols, rows)
+  }
+}
+
+fn wait_for_startup_terminal_size(
+  mut read_size: impl FnMut() -> std::io::Result<(u16, u16)>,
+  timeout: Duration,
+) -> std::io::Result<(u16, u16)> {
+  let deadline = Instant::now() + timeout;
+  loop {
+    let size = read_size()?;
+    if (size.0 != 0 && size.1 != 0) || Instant::now() >= deadline {
+      return Ok(size);
+    }
+    std::thread::sleep(Duration::from_millis(10));
   }
 }
 
@@ -909,7 +924,10 @@ async fn initialize_app_components(
   Option<String>,
 )> {
   // Get terminal size
-  let (reported_cols, reported_rows) = crossterm::terminal::size()?;
+  let (reported_cols, reported_rows) = wait_for_startup_terminal_size(
+    crossterm::terminal::size,
+    STARTUP_TERMINAL_SIZE_TIMEOUT,
+  )?;
   let (cols, rows) = startup_terminal_size(reported_cols, reported_rows);
   if (cols, rows) != (reported_cols, reported_rows) {
     log::warn!(
@@ -3483,6 +3501,20 @@ mod tests {
     assert_eq!(startup_terminal_size(0, 24), (80, 24));
     assert_eq!(startup_terminal_size(80, 0), (80, 24));
     assert_eq!(startup_terminal_size(120, 40), (120, 40));
+  }
+
+  #[test]
+  fn startup_terminal_size_retries_a_transient_zero_report() {
+    let mut reports = [(0, 0), (211, 56)].into_iter();
+
+    assert_eq!(
+      wait_for_startup_terminal_size(
+        || Ok(reports.next().unwrap()),
+        Duration::from_millis(50),
+      )
+      .unwrap(),
+      (211, 56),
+    );
   }
 
   #[test]
