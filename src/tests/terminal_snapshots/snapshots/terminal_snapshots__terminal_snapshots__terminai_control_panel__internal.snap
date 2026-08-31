@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready[m
+[m
+[m
+[m
+[m
+[m
+[11C[36;40m┌ Terminai Controls ─────────────────────────────────────┐[m
+[11C[36;40m│[30;46;1m› Approval mode: Always ask[36;40;22m                             │[m
+[11C[36;40m│[97m  Agent: snapshot[36m                                       │[m
+[11C[36;40m│[97m  Auto-completion: off[36m                                  │[m
+[11C[36;40m│[97m  Clear AI-readable history[36m                             │[m
+[11C[36;40m│[97m  Changelog[36m                                             │[m
+[36;40m ↓ agent.sh│[97m  Fullscreen: off[36m                                       │───────────[m
+[35;1magent-ready[36;40;22m│[97m  Layout…[36m                                               │[m
+[11C[36;40m│                                                        │[m
+[11C[36;40m│↑/↓ select  Enter open  Esc close                       │[m
+[11C[36;40m│                                                        │[m
+[11C[36;40m└────────────────────────────────────────────────────────┘[m
+[m
+[m
+[m
+[m
+[m
+[m

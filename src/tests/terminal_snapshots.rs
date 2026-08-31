@@ -43,11 +43,13 @@ fn assert_terminai_with_agent(
     serde_yaml::to_string(&serde_json::json!({
       "changelog": false,
       "interface": interface,
-      "agent": {
-        "kind": "custom",
-        "command": agent,
-        "uses-mcp": false,
-        "uses-tool-cli": false
+      "agent": { "preset": "snapshot" },
+      "agent-presets": {
+        "snapshot": {
+          "command": agent,
+          "uses-mcp": false,
+          "uses-tool-cli": false
+        }
       }
     }))?,
   )?;
@@ -272,6 +274,88 @@ fn terminai_layout_mode_controls() -> Result<()> {
   assert_terminai(
     "terminai_layout_mode_controls",
     "#!/bin/sh\ni=1\nwhile [ $i -le 22 ]; do printf 'guest-%02d\\r\\n' \"$i\"; i=$((i + 1)); done\nprintf 'guest-bottom\\r\\n'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_control_panel() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+  ];
+  assert_terminai(
+    "terminai_control_panel",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_auto_approval_confirmation() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+    Step::Write(b"\r"),
+    Step::WaitFor(b"Enable Auto-Approval?"),
+    Step::Write(b"\x1b[C"),
+    Step::Pause(Duration::from_millis(100)),
+  ];
+  assert_terminai(
+    "terminai_auto_approval_confirmation",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_agent_picker() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+    Step::Write(b"\x1b[B\r"),
+    Step::WaitFor(b"Switch Agent"),
+  ];
+  assert_terminai(
+    "terminai_agent_picker",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_clear_history_confirmation() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+    Step::Write(b"\x1b[B\x1b[B\x1b[B\r"),
+    Step::WaitFor(b"History?"),
+    Step::Write(b"\x1b[C"),
+    Step::Pause(Duration::from_millis(100)),
+  ];
+  assert_terminai(
+    "terminai_clear_history_confirmation",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
     &steps,
     default_interface(),
     false,

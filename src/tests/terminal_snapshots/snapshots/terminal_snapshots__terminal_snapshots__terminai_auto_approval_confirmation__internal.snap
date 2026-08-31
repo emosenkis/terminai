@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready[m
+[m
+[m
+[m
+[m
+[m
+[11C                                                          [m
+[11C                                                          [m
+[11C[36;40m┌ Enable Auto-Approval? ─────────────────────────────────┐[m
+[11C[36;40m│[33;1mDANGER: every AI suggestion will be sent immediately.[36;22m   │[m
+[11C[36;40m│The command risk classifier will not be consulted.      │[m
+[11C[36;40m│                                                        │[m
+[36;40m ↓ agent.sh│[30;41m Confirm [36;40m  [97m Cancel [36m                                     │───────────[m
+[35;1magent-ready[36;40;22m│                                                        │[m
+[11C[36;40m│                                                        │[m
+[11C[36;40m└────────────────────────────────────────────────────────┘[m
+[11C                                                          [m
+[11C                                                          [m
+[m
+[m
+[m
+[m
+[m
+[m
