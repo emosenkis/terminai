@@ -100,6 +100,7 @@ use termin::shell::{OutputWakeup, Shell, ShellEvent, ShellSpawnOptions};
 use termin::shell_resolution::{parent_shell, resolve_shell};
 
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
+const MAX_SCROLLBACK_ROWS_PER_FRAME: usize = 64;
 const CHANGELOG_ACK_FILE: &str = "changelog-version";
 type CompletionResult = (u64, std::result::Result<String, String>);
 
@@ -1654,8 +1655,8 @@ fn run_interactive(
     &mut global,
     &mut state,
     config
-      .poll(PollTimers::default())
       .poll(PollCrossterm)
+      .poll(PollTimers::default())
       .poll(poll_shell) // Phase 2: PollShell integrated into rat-salsa framework
       .poll(poll_agent)
       .poll(poll_config)
@@ -2852,14 +2853,20 @@ fn render(
     state.ai_visible
   );
 
-  // Push pending VT rows to the host terminal's native scrollback in one
-  // backend stream, instead of throttling to one viewport per render.
-  let scroll_snapshot = if let Ok(mut vt) = state.shell.vt.write() {
-    drain_pending_native_scrollback_snapshot(&mut vt, area.width)
-  } else {
-    log::error!("Failed to acquire write lock on VT");
-    None
-  };
+  // Bound each native-scrollback write so output cannot monopolize the event loop.
+  let (scroll_snapshot, scrollback_remains) =
+    if let Ok(mut vt) = state.shell.vt.write() {
+      let snapshot = drain_pending_native_scrollback_snapshot(
+        &mut vt,
+        area.width,
+        MAX_SCROLLBACK_ROWS_PER_FRAME.max(area.height as usize),
+      );
+      (snapshot, vt.pending_native_scrollback_len() > 0)
+    } else {
+      log::error!("Failed to acquire write lock on VT");
+      (None, false)
+    };
+  state.shell_output_pending |= scrollback_remains;
 
   if let Some((content, scroll_up_lines, row_wrapped)) = scroll_snapshot {
     log::trace!(
@@ -3071,15 +3078,6 @@ fn event(
   // Track if any state changed requiring re-render
   let mut shell_changed = state.process_agent_suggestions();
   state.process_auto_completions();
-
-  // Check for VT rows waiting to be pushed into native scrollback.
-  if let Ok(vt) = state.shell.vt.read() {
-    if vt.pending_native_scrollback_len() > 0 {
-      shell_changed = true;
-    }
-  } else {
-    log::warn!("Failed to get lock on VT")
-  }
 
   let result = match event {
     AppEvent::Crossterm(Event::Key(

@@ -163,7 +163,7 @@ fn test_pending_native_scrollback_is_bounded_under_output_burst() {
 }
 
 #[test]
-fn test_pending_native_scrollback_snapshot_drains_all_pending_rows() {
+fn test_pending_native_scrollback_snapshot_bounds_work_per_frame() {
   let mut parser = vt100::Parser::new(5, 8, 100, TestReplySender);
 
   for i in 0..20 {
@@ -177,10 +177,10 @@ fn test_pending_native_scrollback_snapshot_drains_all_pending_rows() {
   );
 
   let (_content, rows, _row_wrapped) =
-    drain_pending_native_scrollback_snapshot(&mut parser, 8).unwrap();
+    drain_pending_native_scrollback_snapshot(&mut parser, 8, 5).unwrap();
 
-  assert_eq!(rows, pending);
-  assert_eq!(parser.pending_native_scrollback_len(), 0);
+  assert_eq!(rows, 5);
+  assert_eq!(parser.pending_native_scrollback_len(), pending - 5);
 }
 
 #[test]
@@ -189,7 +189,7 @@ fn test_pending_native_scrollback_snapshot_preserves_soft_wraps() {
   parser.process(b"abcdefghi");
 
   let (_content, rows, row_wrapped) =
-    drain_pending_native_scrollback_snapshot(&mut parser, 4).unwrap();
+    drain_pending_native_scrollback_snapshot(&mut parser, 4, 2).unwrap();
 
   assert_eq!(rows, 1);
   assert_eq!(row_wrapped, vec![true]);
@@ -330,7 +330,7 @@ fn test_native_scrollback_redraw_preserves_new_tail_wrap() {
 
   parser.process(b"mnop");
   let (content, lines, row_wrapped) =
-    drain_pending_native_scrollback_snapshot(&mut parser, 4).unwrap();
+    drain_pending_native_scrollback_snapshot(&mut parser, 4, 3).unwrap();
   terminal
     .draw(|frame| {
       frame.set_scroll_snapshot(content, 4, lines, row_wrapped);
@@ -408,7 +408,7 @@ fn test_scrollback_redraw_forces_unchanged_soft_wrap_continuation() {
 
   parser.process(b"\x1b[2;4Hde\r\n");
   let (content, lines, row_wrapped) =
-    drain_pending_native_scrollback_snapshot(&mut parser, 4).unwrap();
+    drain_pending_native_scrollback_snapshot(&mut parser, 4, 3).unwrap();
   terminal
     .draw(|frame| {
       frame.set_scroll_snapshot(content, 4, lines, row_wrapped);

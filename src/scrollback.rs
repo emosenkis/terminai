@@ -277,8 +277,9 @@ pub fn process_pending_native_scrollback<T: TermReplySender + Clone>(
 pub fn drain_pending_native_scrollback_snapshot<T: TermReplySender + Clone>(
   parser: &mut vt100::Parser<T>,
   width: u16,
+  max_rows: usize,
 ) -> Option<(Vec<tui::buffer::Cell>, usize, Vec<bool>)> {
-  let rows_to_scroll = parser.pending_native_scrollback_len();
+  let rows_to_scroll = parser.pending_native_scrollback_len().min(max_rows);
   if rows_to_scroll == 0 || width == 0 {
     return None;
   }
@@ -341,6 +342,13 @@ pub fn process_scrollback<T: TermReplySender>(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[derive(Clone)]
+  struct TestReplySender;
+
+  impl TermReplySender for TestReplySender {
+    fn reply(&self, _: compact_str::CompactString) {}
+  }
 
   // ==========================================================================
   // ScrollbackTracker Unit Tests
@@ -549,5 +557,25 @@ mod tests {
     // Idle: no new content
     let detection = tracker.detect(60, 10);
     assert_eq!(detection.num_pending_lines, 0);
+  }
+
+  #[test]
+  fn snapshot_work_is_bounded() {
+    let mut parser = vt100::Parser::new(2, 4, 100, TestReplySender);
+    for _ in 0..10 {
+      parser.process(b"line\r\n");
+    }
+    let pending = parser.pending_native_scrollback_len();
+
+    let mut drained = 0;
+    while let Some((_, rows, _)) =
+      drain_pending_native_scrollback_snapshot(&mut parser, 4, 2)
+    {
+      assert!(rows <= 2);
+      drained += rows;
+    }
+
+    assert_eq!(drained, pending);
+    assert_eq!(parser.pending_native_scrollback_len(), 0);
   }
 }
