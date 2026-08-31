@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[36;40m ↓ agent.sh ────────────────────────────────────────────────────────────────────[m
+[35magent-before-exit[m
+[m
+[m
+AI[Cprocess[Cexited[Cwith[Cstatus[C7.[m
+[m
+Press[CEnter[Cto[Crelaunch.[m
+[m
+[m
+[m
+[m
+[m

@@ -363,6 +363,42 @@ fn terminai_clear_history_confirmation() -> Result<()> {
 }
 
 #[test]
+fn terminai_agent_exit_status() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"relaunch."),
+  ];
+  assert_terminai_with_agent(
+    "terminai_agent_exit_status",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    "#!/bin/sh\nprintf '\\033[35magent-before-exit\\033[0m\\r\\n'\nexit 7\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_agent_relaunch() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"relaunch."),
+    Step::Write(b"\r"),
+    Step::WaitFor(b"agent-relaunched"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_agent_relaunch",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    "#!/bin/sh\nmarker=\"$XDG_CACHE_HOME/agent-launched-$PPID\"\nif [ -e \"$marker\" ]; then\n  printf '\\033[32magent-relaunched\\033[0m\\r\\n'\n  sleep 30\nelse\n  mkdir -p \"$XDG_CACHE_HOME\"\n  : > \"$marker\"\n  printf '\\033[35magent-before-exit\\033[0m\\r\\n'\n  exit 7\nfi\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
 fn terminai_native_scrollback_and_soft_wrap() -> Result<()> {
   let steps = [Step::WaitFor(b"scrollback-ready")];
   assert_terminai(

@@ -1,0 +1,23 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready         
+
+
+
+
+
+
+
+
+
+
+
+[38;5;6m[48;5;0m ↓ agent.sh ────────────────────────────────────────────────────────────────────
+[38;5;5m[49magent-before-exit[39m   
+
+
+AI process exited with status 7.        
+
+Press Enter to relaunch.

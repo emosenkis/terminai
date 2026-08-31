@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[mguest-ready
+
+
+
+
+
+
+
+
+
+
+
+[38;5;6m[48;5;0m[29m[28m[27m[25m[25m[22m[24m[22m[23m ↓ agent.sh ────────────────────────────────────────────────────────────────────
+[38;5;5m[49m[29m[28m[27m[25m[25m[22m[24m[22m[23magent-before-exit
+
+
+[mAI process exited with status 7.
+
+[mPress Enter to relaunch.
+
+
+
+
+[m
