@@ -1,3 +1,10 @@
+## 0.1.24 - 2026-08-31
+
+- Replace eager command insertion with debounced, explicitly accepted ghost-text
+  completions, multiple candidates, and a configurable manual key sequence.
+- Document OSC 133/633 setup for Fish, Bash, Zsh, terminal shell integrations,
+  and Starship.
+
 ## 0.1.23 - 2026-08-31
 
 - Fix incorrect guest sizing when Terminai is the topmost program in a graphical
