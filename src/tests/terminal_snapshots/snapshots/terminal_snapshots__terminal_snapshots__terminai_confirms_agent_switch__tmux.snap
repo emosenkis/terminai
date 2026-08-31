@@ -1,0 +1,18 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+guest-ready         
+
+
+
+
+
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+[38;5;6m[48;5;0m ↓ second-agent.sh ─────────────────────────────────────────────────────────────
+[38;5;2m[49mnew-session[39m

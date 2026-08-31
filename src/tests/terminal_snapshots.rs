@@ -84,6 +84,56 @@ fn default_interface() -> serde_json::Value {
   serde_json::json!({ "terminal-sync": false })
 }
 
+fn assert_agent_switch(name: &str, steps: &[Step<'_>]) -> Result<()> {
+  let temp = tempfile::tempdir()?;
+  let config_dir = temp.path().join("terminai");
+  std::fs::create_dir_all(&config_dir)?;
+  let first = temp.path().join("first-agent.sh");
+  executable(
+    &first,
+    "#!/bin/sh\nprintf '\\033[35mold-session\\033[0m\\r\\n'\nsleep 2\nprintf 'old-still-running\\r\\n'\nsleep 30\n",
+  )?;
+  let second = temp.path().join("second-agent.sh");
+  executable(
+    &second,
+    "#!/bin/sh\nprintf '\\033[32mnew-session\\033[0m\\r\\n'\nsleep 30\n",
+  )?;
+  std::fs::write(
+    config_dir.join("terminai.yaml"),
+    serde_yaml::to_string(&serde_json::json!({
+      "changelog": false,
+      "interface": default_interface(),
+      "agent": { "preset": "snapshot" },
+      "agent-presets": {
+        "snapshot": {
+          "command": first,
+          "uses-mcp": false,
+          "uses-tool-cli": false
+        },
+        "z-switch": {
+          "command": second,
+          "uses-mcp": false,
+          "uses-tool-cli": false
+        }
+      }
+    }))?,
+  )?;
+  let guest = temp.path().join("guest.sh");
+  executable(&guest, "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n")?;
+  let command = format!(
+    "XDG_CONFIG_HOME={} XDG_CACHE_HOME={} {} -- {}",
+    quote(temp.path()),
+    quote(&temp.path().join("cache")),
+    quote(Path::new(env!("CARGO_BIN_EXE_terminai"))),
+    quote(&guest),
+  );
+  let mut scenario =
+    Scenario::new(&command, Path::new(env!("CARGO_MANIFEST_DIR")));
+  scenario.steps = steps;
+  scenario.timeout = Duration::from_secs(10);
+  scenario.assert_snapshots(name)
+}
+
 #[test]
 fn emulator_harness_preserves_formatting_and_scrollback() -> Result<()> {
   let steps = [
@@ -585,4 +635,40 @@ fn emulator_partial_and_malformed_escape_streams() -> Result<()> {
   scenario.steps = &steps;
   scenario.timeout = Duration::from_secs(5);
   scenario.assert_snapshots("emulator_partial_and_malformed_escape_streams")
+}
+
+#[test]
+fn terminai_cancels_agent_switch() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"old-session"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+    Step::Write(b"\x1b[B\r"),
+    Step::WaitFor(b"Switch Agent"),
+    Step::Write(b"\x1b[B\r"),
+    Step::WaitFor(b"z-switch?"),
+    Step::Write(b"\x1b"),
+    Step::WaitFor(b"old-still-running"),
+  ];
+  assert_agent_switch("terminai_cancels_agent_switch", &steps)
+}
+
+#[test]
+fn terminai_confirms_agent_switch() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"old-session"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+    Step::Write(b"\x1b[B\r"),
+    Step::WaitFor(b"Switch Agent"),
+    Step::Write(b"\x1b[B\r"),
+    Step::WaitFor(b"z-switch?"),
+    Step::Write(b"\x1b[C\r"),
+    Step::WaitFor(b"new-session"),
+  ];
+  assert_agent_switch("terminai_confirms_agent_switch", &steps)
 }
