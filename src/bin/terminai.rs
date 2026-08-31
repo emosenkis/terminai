@@ -7,7 +7,7 @@ use anyhow::{Context, Error, Result};
 use base64::Engine;
 use clap::{Parser, Subcommand};
 use crokey::{Combiner, KeyCombination};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::{
   cursor::MoveTo,
   execute,
@@ -67,8 +67,8 @@ use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
 use termin::completion::{
-  command_completion_prompt, current_completion, is_prompt_start_escape,
-  run_completion,
+  SemanticPromptMarker, command_completion_prompt, current_completion,
+  run_completion, semantic_prompt_marker,
 };
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
@@ -102,7 +102,7 @@ use termin::shell_resolution::{parent_shell, resolve_shell};
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const MAX_SCROLLBACK_ROWS_PER_FRAME: usize = 64;
 const CHANGELOG_ACK_FILE: &str = "changelog-version";
-type CompletionResult = (u64, std::result::Result<String, String>);
+type CompletionResult = (u64, std::result::Result<Vec<String>, String>);
 
 fn changelog_ack_path() -> Result<PathBuf> {
   Ok(termin::paths::cache_dir()?.join(CHANGELOG_ACK_FILE))
@@ -1609,11 +1609,13 @@ fn run_interactive(
     suggestion_rx,
     completion_tx,
     completion_rx,
-    completion_generation: 0,
+    completion: CompletionUiState {
+      automatic: config.auto_completion,
+      ..Default::default()
+    },
     completion_handle: Some(tokio_rt.handle().clone()),
     pending_command: None,
     approval_mode: config.approval_mode,
-    auto_completion_enabled: config.auto_completion,
     approval_scroll: 0,
     approval_focus: ApprovalAction::Approve,
     control_modal: None,
@@ -1675,6 +1677,48 @@ fn run_interactive(
 }
 
 /// Application state (previously App)
+#[derive(Default)]
+struct CompletionUiState {
+  generation: u64,
+  automatic: bool,
+  prompt_active: bool,
+  input: String,
+  due: Option<Instant>,
+  suggestions: Vec<String>,
+  selected: usize,
+  waiting_for_shell_echo: bool,
+  trigger_progress: usize,
+  trigger_at: Option<Instant>,
+  pending_trigger_keys: Vec<Key>,
+}
+
+impl CompletionUiState {
+  fn clear_suggestions(&mut self) {
+    self.suggestions.clear();
+    self.selected = 0;
+  }
+
+  fn reset(&mut self, prompt_active: bool) {
+    self.generation = self.generation.wrapping_add(1);
+    self.prompt_active = prompt_active;
+    self.input.clear();
+    self.due = None;
+    self.clear_suggestions();
+    self.waiting_for_shell_echo = false;
+    self.trigger_progress = 0;
+    self.trigger_at = None;
+    self.pending_trigger_keys.clear();
+  }
+
+  fn suffix(&self) -> Option<&str> {
+    self
+      .suggestions
+      .get(self.selected)
+      .and_then(|suggestion| suggestion.strip_prefix(&self.input))
+      .filter(|suffix| !suffix.is_empty())
+  }
+}
+
 struct AppState {
   shell_cwd: Option<PathBuf>,
   mcp_state: Option<TerminaiMcpState>,
@@ -1689,11 +1733,10 @@ struct AppState {
   suggestion_rx: UnboundedReceiver<PendingCommand>,
   completion_tx: mpsc::UnboundedSender<CompletionResult>,
   completion_rx: UnboundedReceiver<CompletionResult>,
-  completion_generation: u64,
+  completion: CompletionUiState,
   completion_handle: Option<tokio::runtime::Handle>,
   pending_command: Option<PendingCommand>,
   approval_mode: ApprovalMode,
-  auto_completion_enabled: bool,
   approval_scroll: usize,
   approval_focus: ApprovalAction,
   control_modal: Option<ControlModal>,
@@ -2131,12 +2174,26 @@ impl AppState {
   }
 
   fn invalidate_completion(&mut self) {
-    self.completion_generation = self.completion_generation.wrapping_add(1);
+    self.completion.generation = self.completion.generation.wrapping_add(1);
+    self.completion.due = None;
+    self.completion.clear_suggestions();
   }
 
-  fn request_auto_completion(&mut self) {
+  fn schedule_completion(&mut self) {
     self.invalidate_completion();
-    if !self.auto_completion_enabled {
+    if self.completion.automatic
+      && self.completion.prompt_active
+      && !self.completion.input.is_empty()
+    {
+      self.completion.due = Instant::now().checked_add(Duration::from_millis(
+        self.config.auto_completion_delay_ms,
+      ));
+    }
+  }
+
+  fn request_completion(&mut self) {
+    self.invalidate_completion();
+    if !self.completion.prompt_active || self.completion.input.is_empty() {
       return;
     }
     let (Some(handle), Some(mcp_state), Some(active_plan)) = (
@@ -2146,7 +2203,7 @@ impl AppState {
     ) else {
       return;
     };
-    let generation = self.completion_generation;
+    let generation = self.completion.generation;
     let tx = self.completion_tx.clone();
     let auto_completer = self.config.auto_completer.clone();
     let auto_completers = self.config.auto_completers.clone();
@@ -2185,29 +2242,170 @@ impl AppState {
     });
   }
 
-  fn process_auto_completions(&mut self) {
+  fn process_auto_completions(&mut self) -> bool {
+    let mut changed = false;
     while let Ok((generation, result)) = self.completion_rx.try_recv() {
       if let Err(err) = &result {
         log::warn!("AI command completion failed: {err}");
       }
-      if let Some(text) = current_completion(
-        self.completion_generation,
-        generation,
-        self.auto_completion_enabled,
-        result,
-      ) && let Err(err) = self.shell.send_paste(&text)
+      if let Some(suggestions) =
+        current_completion(self.completion.generation, generation, result)
       {
-        log::error!("Failed to insert AI command completion: {err}");
+        self.completion.suggestions = suggestions
+          .into_iter()
+          .filter(|suggestion| {
+            suggestion.starts_with(&self.completion.input)
+              && suggestion.len() > self.completion.input.len()
+          })
+          .collect();
+        self.completion.selected = 0;
+        changed = true;
+      }
+    }
+    changed
+  }
+
+  fn toggle_auto_completion(&mut self) {
+    self.completion.automatic = !self.completion.automatic;
+    if !self.completion.automatic {
+      self.invalidate_completion();
+    }
+    self.control_modal = None;
+  }
+
+  fn record_shell_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
+    if !self.completion.prompt_active {
+      self.invalidate_completion();
+      return;
+    }
+    match code {
+      KeyCode::Char(ch)
+        if !modifiers.intersects(
+          KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+        ) =>
+      {
+        self.completion.waiting_for_shell_echo = true;
+        let selected = self
+          .completion
+          .suggestions
+          .get(self.completion.selected)
+          .cloned();
+        self.completion.input.push(ch);
+        self
+          .completion
+          .suggestions
+          .retain(|suggestion| suggestion.starts_with(&self.completion.input));
+        self.completion.selected = selected
+          .and_then(|selected| {
+            self
+              .completion
+              .suggestions
+              .iter()
+              .position(|suggestion| suggestion == &selected)
+          })
+          .unwrap_or(0);
+        self.completion.generation = self.completion.generation.wrapping_add(1);
+        if self.completion.suggestions.is_empty() {
+          self.schedule_completion();
+        } else {
+          self.completion.due = None;
+        }
+      }
+      KeyCode::Backspace => {
+        self.completion.waiting_for_shell_echo = true;
+        self.completion.input.pop();
+        self.schedule_completion();
+      }
+      KeyCode::Enter => self.completion.reset(false),
+      _ => {
+        self.completion.waiting_for_shell_echo = true;
+        self.invalidate_completion();
+        // ponytail: stop after opaque shell editing; add shell-specific
+        // buffer-and-cursor reporting if same-prompt recovery is needed.
+        self.completion.prompt_active = false;
       }
     }
   }
 
-  fn toggle_auto_completion(&mut self) {
-    self.auto_completion_enabled = !self.auto_completion_enabled;
-    if !self.auto_completion_enabled {
+  fn record_shell_paste(&mut self, text: &str) {
+    if self.completion.prompt_active
+      && !text.is_empty()
+      && !text.chars().any(char::is_control)
+    {
+      self.completion.waiting_for_shell_echo = true;
+      self.completion.input.push_str(text);
+      self.schedule_completion();
+    } else {
       self.invalidate_completion();
     }
-    self.control_modal = None;
+  }
+
+  fn handle_semantic_prompt_marker(&mut self, marker: SemanticPromptMarker) {
+    self
+      .completion
+      .reset(matches!(marker, SemanticPromptMarker::CommandStart));
+  }
+
+  fn flush_pending_completion_keys(&mut self) -> Result<()> {
+    for key in std::mem::take(&mut self.completion.pending_trigger_keys) {
+      self.shell.send_key(key)?;
+      self.record_shell_key(key.code(), key.mods());
+    }
+    self.completion.trigger_progress = 0;
+    self.completion.trigger_at = None;
+    Ok(())
+  }
+
+  fn handle_completion_trigger(
+    &mut self,
+    combination: KeyCombination,
+    key: Key,
+  ) -> Result<bool> {
+    let now = Instant::now();
+    if self
+      .completion
+      .trigger_at
+      .is_some_and(|at| now.duration_since(at) > Duration::from_millis(600))
+    {
+      self.flush_pending_completion_keys()?;
+    }
+    let sequence = self
+      .config
+      .interface
+      .key_bindings
+      .request_completion
+      .0
+      .clone();
+    if sequence.is_empty() {
+      return Ok(false);
+    }
+    if sequence.get(self.completion.trigger_progress) == Some(&combination) {
+      self.completion.trigger_progress += 1;
+      self.completion.trigger_at = Some(now);
+      self.completion.pending_trigger_keys.push(key);
+      if self.completion.trigger_progress == sequence.len() {
+        self.completion.trigger_progress = 0;
+        self.completion.trigger_at = None;
+        self.completion.pending_trigger_keys.clear();
+        self.request_completion();
+      }
+      return Ok(true);
+    } else {
+      self.flush_pending_completion_keys()?;
+      if sequence.first() == Some(&combination) {
+        self.completion.trigger_progress = 1;
+        self.completion.trigger_at = Some(now);
+        self.completion.pending_trigger_keys.push(key);
+        if sequence.len() == 1 {
+          self.completion.trigger_progress = 0;
+          self.completion.trigger_at = None;
+          self.completion.pending_trigger_keys.clear();
+          self.request_completion();
+        }
+        return Ok(true);
+      }
+    }
+    Ok(false)
   }
 
   fn request_approval_mode_toggle(&mut self) {
@@ -2566,7 +2764,7 @@ impl AppState {
     self.chat_height_percent =
       config.interface.chat_height_percent.clamp(20, 80);
     self.guest_display = config.interface.guest_display;
-    self.auto_completion_enabled = config.auto_completion;
+    self.completion.automatic = config.auto_completion;
     self.invalidate_completion();
     self.config = config;
     if active_was_startup {
@@ -2840,6 +3038,29 @@ fn init(state: &mut AppState, ctx: &mut Global) -> Result<(), Error> {
   Ok(())
 }
 
+fn render_completion_ghost(
+  area: Rect,
+  buf: &mut tui::buffer::Buffer,
+  cursor: (u16, u16),
+  suffix: &str,
+) {
+  if !area.contains(cursor.into()) {
+    return;
+  }
+  let width = area.right().saturating_sub(cursor.0).saturating_sub(1) as usize;
+  if width > 0 {
+    buf.set_stringn(
+      cursor.0,
+      cursor.1,
+      suffix,
+      width,
+      Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::ITALIC),
+    );
+  }
+}
+
 /// rat-salsa render function - render the UI
 fn render(
   area: Rect,
@@ -2907,6 +3128,14 @@ fn render(
       let cursor_pos = (area.x + cursor.1, area.y + cursor.0);
       log::trace!("Setting cursor position: {:?}", cursor_pos);
       ctx.set_screen_cursor(Some(cursor_pos));
+      if !state.completion.waiting_for_shell_echo
+        && let Some(suffix) = state.completion.suffix()
+      {
+        // Paint only into the composed frame, after the native-scrollback
+        // snapshot was captured. Leave the final column untouched so a host
+        // terminal can never auto-wrap ghost text into native scrollback.
+        render_completion_ghost(area, buf, cursor_pos, suffix);
+      }
     } else if !state.ai_visible {
       // Hide cursor when AI overlay is not visible but cursor should be hidden
       ctx.set_screen_cursor(None);
@@ -3056,7 +3285,7 @@ fn render(
         buf,
         modal,
         state.approval_mode,
-        state.auto_completion_enabled,
+        state.completion.automatic,
         &state.active_agent_name,
         state.chat_position,
         state.chat_height_percent,
@@ -3077,7 +3306,7 @@ fn event(
 ) -> Result<Control<AppEvent>, Error> {
   // Track if any state changed requiring re-render
   let mut shell_changed = state.process_agent_suggestions();
-  state.process_auto_completions();
+  shell_changed |= state.process_auto_completions();
 
   let result = match event {
     AppEvent::Crossterm(Event::Key(
@@ -3109,6 +3338,7 @@ fn event(
           && !state.ai_visible
         {
           log::info!("Activate overlay key pressed: {:?}", key_combo);
+          state.flush_pending_completion_keys()?;
           state.show_ai_modal()?;
           log::info!("AI overlay shown");
           break 'm Control::Changed;
@@ -3132,12 +3362,51 @@ fn event(
       if !state.ai_visible {
         // TODO: Kitty enhanced keyboard capability mode support?
         if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-          // Route to shell when AI overlay not visible
-          state.invalidate_completion();
+          if !state.completion.suggestions.is_empty() {
+            match code {
+              KeyCode::Esc => {
+                state.invalidate_completion();
+                break 'm Control::Changed;
+              }
+              KeyCode::Right | KeyCode::End => {
+                if let Some(suffix) =
+                  state.completion.suffix().map(str::to_string)
+                {
+                  state.shell.send_paste(&suffix)?;
+                  state.completion.input.push_str(&suffix);
+                  state.invalidate_completion();
+                }
+                break 'm Control::Changed;
+              }
+              KeyCode::Tab | KeyCode::Down => {
+                state.completion.selected = (state.completion.selected + 1)
+                  % state.completion.suggestions.len();
+                break 'm Control::Changed;
+              }
+              KeyCode::BackTab | KeyCode::Up => {
+                state.completion.selected = state
+                  .completion
+                  .selected
+                  .checked_sub(1)
+                  .unwrap_or(state.completion.suggestions.len() - 1);
+                break 'm Control::Changed;
+              }
+              _ => {}
+            }
+          }
           let key = Key::new(*code, *modifiers);
+          if let Some(key_combo) = key_combo
+            && state.completion.prompt_active
+            && !state.completion.input.is_empty()
+            && state.handle_completion_trigger(key_combo, key)?
+          {
+            break 'm Control::Changed;
+          }
+          // Route to shell when AI overlay not visible
           state.shell.send_key(key)?;
+          state.record_shell_key(*code, *modifiers);
         }
-        break 'm Control::Continue;
+        break 'm Control::Changed;
       }
 
       if let Some(key_combo) = key_combo
@@ -3316,8 +3585,9 @@ fn event(
     AppEvent::Crossterm(Event::Paste(text)) => {
       if !state.ai_visible {
         // Send pasted text to shell, with bracketed paste if the shell wants it
-        state.invalidate_completion();
         state.shell.send_paste(text)?;
+        state.record_shell_paste(text);
+        return Ok(Control::Changed);
       } else if state.control_modal.is_none()
         && let Some(agent) = &mut state.agent_terminal
       {
@@ -3330,6 +3600,18 @@ fn event(
       Control::Continue
     }
     AppEvent::Timer(_) => {
+      if state.completion.trigger_at.is_some_and(|at| {
+        Instant::now().duration_since(at) > Duration::from_millis(600)
+      }) {
+        state.flush_pending_completion_keys()?;
+      }
+      if state
+        .completion
+        .due
+        .is_some_and(|due| Instant::now() >= due)
+      {
+        state.request_completion();
+      }
       if state.shell_output_pending || state.agent_output_pending {
         state.shell_output_pending = false;
         state.agent_output_pending = false;
@@ -3344,6 +3626,7 @@ fn event(
       // Shell produced output - set flag for batched rendering on next timer tick.
       log::trace!("Shell output event - marking pending");
       state.shell_output_pending = true;
+      state.completion.waiting_for_shell_echo = false;
       Control::Continue
     }
     AppEvent::ShellTermReply(reply) => {
@@ -3360,11 +3643,16 @@ fn event(
       if let Some(cwd) = cwd_from_osc7_escape(escape) {
         state.update_shell_cwd(cwd);
       }
-      if is_prompt_start_escape(escape) {
-        state.request_auto_completion();
+      let marker = semantic_prompt_marker(escape);
+      if let Some(marker) = marker {
+        state.handle_semantic_prompt_marker(marker);
       }
       log::trace!("Shell host escape forwarded");
-      Control::Continue
+      if marker.is_some() {
+        Control::Changed
+      } else {
+        Control::Continue
+      }
     }
     AppEvent::ShellExited(code) => {
       log::info!("Shell exited with code: {}", code);
@@ -3425,6 +3713,30 @@ impl Drop for AppState {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn completion_suffix_moves_with_matching_input() {
+    let mut completion = CompletionUiState {
+      input: "git ".into(),
+      suggestions: vec!["git status".into()],
+      ..Default::default()
+    };
+
+    assert_eq!(completion.suffix(), Some("status"));
+    completion.input.push('s');
+    assert_eq!(completion.suffix(), Some("tatus"));
+  }
+
+  #[test]
+  fn ghost_text_never_writes_the_terminal_last_column() {
+    let area = Rect::new(0, 0, 5, 2);
+    let mut buf = tui::buffer::Buffer::empty(area);
+
+    render_completion_ghost(area, &mut buf, (3, 1), "xy");
+
+    assert_eq!(buf[(3, 1)].symbol(), "x");
+    assert_eq!(buf[(4, 1)].symbol(), " ");
+  }
 
   #[test]
   fn auto_approval_does_not_treat_risk_classification_as_a_boundary() {
@@ -4001,11 +4313,10 @@ mod tests {
       suggestion_rx,
       completion_tx,
       completion_rx,
-      completion_generation: 0,
+      completion: CompletionUiState::default(),
       completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
-      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -4076,11 +4387,10 @@ mod tests {
       suggestion_rx,
       completion_tx,
       completion_rx,
-      completion_generation: 0,
+      completion: CompletionUiState::default(),
       completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
-      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -4141,11 +4451,10 @@ mod tests {
       suggestion_rx,
       completion_tx,
       completion_rx,
-      completion_generation: 0,
+      completion: CompletionUiState::default(),
       completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
-      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -4206,11 +4515,10 @@ mod tests {
       suggestion_rx,
       completion_tx,
       completion_rx,
-      completion_generation: 0,
+      completion: CompletionUiState::default(),
       completion_handle: None,
       pending_command: None,
       approval_mode: ApprovalMode::AutoApproval,
-      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,
@@ -4279,11 +4587,10 @@ mod tests {
       suggestion_rx,
       completion_tx,
       completion_rx,
-      completion_generation: 0,
+      completion: CompletionUiState::default(),
       completion_handle: None,
       pending_command: Some(pending),
       approval_mode: ApprovalMode::AlwaysAsk,
-      auto_completion_enabled: false,
       approval_scroll: 0,
       approval_focus: ApprovalAction::Approve,
       control_modal: None,

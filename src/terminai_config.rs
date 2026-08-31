@@ -66,6 +66,29 @@ pub enum OneOrMoreBindings {
   Multiple(Vec<KeyCombination>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct KeySequence(pub Vec<KeyCombination>);
+
+#[cfg(feature = "schema")]
+impl JsonSchema for KeySequence {
+  fn schema_name() -> Cow<'static, str> {
+    "KeySequence".into()
+  }
+
+  fn schema_id() -> Cow<'static, str> {
+    concat!(module_path!(), "::KeySequence").into()
+  }
+
+  fn json_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    })
+  }
+}
+
 #[cfg(feature = "schema")]
 impl JsonSchema for OneOrMoreBindings {
   fn schema_name() -> Cow<'static, str> {
@@ -125,6 +148,12 @@ pub struct KeyBindingsConfig {
     rename = "toggle-fullscreen"
   )]
   pub toggle_fullscreen: OneOrMoreBindings,
+  /// Request a command completion while typing in the guest shell.
+  #[serde(
+    default = "default_request_completion_binding",
+    rename = "request-completion"
+  )]
+  pub request_completion: KeySequence,
 }
 
 fn default_layout_mode_binding() -> OneOrMoreBindings {
@@ -139,6 +168,10 @@ fn default_toggle_fullscreen_binding() -> OneOrMoreBindings {
   OneOrMoreBindings::Single(key!(f11))
 }
 
+fn default_request_completion_binding() -> KeySequence {
+  KeySequence(vec![key!(tab), key!(tab)])
+}
+
 impl Default for KeyBindingsConfig {
   fn default() -> Self {
     Self {
@@ -149,6 +182,7 @@ impl Default for KeyBindingsConfig {
       layout_mode: default_layout_mode_binding(),
       control_panel: default_control_panel_binding(),
       toggle_fullscreen: default_toggle_fullscreen_binding(),
+      request_completion: default_request_completion_binding(),
     }
   }
 }
@@ -507,9 +541,15 @@ pub struct TerminaiConfig {
   /// Automatically show the changelog once after an upgrade.
   #[serde(default = "default_changelog")]
   pub changelog: bool,
-  /// Request a command completion when the shell reports a new prompt.
+  /// Request a command completion after input has been idle.
   #[serde(default, rename = "auto-completion")]
   pub auto_completion: bool,
+  /// Idle time before requesting an automatic command completion.
+  #[serde(
+    default = "default_auto_completion_delay_ms",
+    rename = "auto-completion-delay-ms"
+  )]
+  pub auto_completion_delay_ms: u64,
   /// Startup policy for agent-suggested shell input. `auto-approval` is
   /// dangerous and sends every suggestion without consulting the risk
   /// classifier.
@@ -544,11 +584,16 @@ fn default_changelog() -> bool {
   true
 }
 
+fn default_auto_completion_delay_ms() -> u64 {
+  750
+}
+
 impl Default for TerminaiConfig {
   fn default() -> Self {
     Self {
       changelog: true,
       auto_completion: false,
+      auto_completion_delay_ms: default_auto_completion_delay_ms(),
       approval_mode: ApprovalMode::default(),
       shell: ShellConfig::default(),
       interface: InterfaceConfig::default(),
@@ -615,6 +660,7 @@ agent:
 
     assert_eq!(config.approval_mode, ApprovalMode::AlwaysAsk);
     assert!(!config.auto_completion);
+    assert_eq!(config.auto_completion_delay_ms, 750);
     assert!(config.changelog);
     assert!(config.interface.key_bindings.layout_mode.matches(key!(f9)));
     assert!(
@@ -623,6 +669,10 @@ agent:
         .key_bindings
         .control_panel
         .matches(key!(f10))
+    );
+    assert_eq!(
+      config.interface.key_bindings.request_completion,
+      KeySequence(vec![key!(tab), key!(tab)])
     );
     assert!(
       config

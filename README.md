@@ -114,8 +114,11 @@ interface:
     layout-mode: F9
     control-panel: F10
     toggle-fullscreen: F11
+    request-completion: [Tab, Tab]
 
 approval-mode: always-ask
+auto-completion: false
+auto-completion-delay-ms: 750
 agent:
   preset: codex
 ```
@@ -135,12 +138,51 @@ for DEC mode 2026. Set it to `false` to disable the capability.
 `overlay` (draw AI over the unchanged guest), or `move` (shift/crop the
 unchanged guest away from AI). Runtime layout changes last for the session.
 
-`auto-completion` defaults to `false`. When enabled, an OSC 133 or OSC 633
-prompt-start marker requests one completion from the selected auto-completer
-and inserts its single-line response without Enter. Typing or pasting before
-the response arrives discards it. Toggle it for the current session in the F10
-control panel. The shell must have compatible semantic prompt integration
-enabled.
+`auto-completion` defaults to `false`. When enabled, Terminai waits until typed
+shell input has been idle for `auto-completion-delay-ms` (750 by default), then
+shows the best completion as gray ghost text at the shell cursor. It never
+inserts or runs the suggestion automatically. Press Right or End to accept,
+Esc to dismiss, Tab/Down for the next result, or Shift-Tab/Up for the previous
+one. Typing matching characters shortens the ghost text; other input dismisses
+it. The configured `request-completion` key sequence works even when automatic
+completion is off and defaults to `[Tab, Tab]`.
+
+#### Semantic prompt markers
+
+Terminai uses the standard OSC 133 or OSC 633 `A`/`B` markers to distinguish
+prompt text from editable shell input; `C`/`D` markers are also recognized. It
+does not add visible sentinel text to the guest shell.
+
+- [Fish 4.0 and newer](https://fishshell.com/docs/current/terminal-compatibility.html)
+  emits OSC 133 markers itself.
+- For Bash or Zsh, source one terminal shell-integration script from the shell's
+  rc file so the guest shell spawned by Terminai loads it. Ghostty documents the
+  exact Bash/Zsh paths under
+  [`$GHOSTTY_RESOURCES_DIR`](https://ghostty.org/docs/features/shell-integration#manual-shell-integration-setup);
+  [WezTerm provides a portable Bash/Zsh script](https://wezterm.org/shell-integration.html),
+  and iTerm2's normal shell-integration install also adds an rc-file hook.
+  Enable only one to avoid duplicate hooks.
+- [Starship does not currently add OSC 133 by itself](https://github.com/starship/starship/discussions/4221).
+  Load one of those shell-integration hooks, then keep the normal Starship
+  initialization; the two are compatible because prompt marking belongs to the
+  shell integration layer, not `starship.toml`.
+
+For example, Ghostty plus Starship in Bash uses this order:
+
+```bash
+[[ -n ${GHOSTTY_RESOURCES_DIR:-} ]] && \
+  source "$GHOSTTY_RESOURCES_DIR/shell-integration/bash/ghostty.bash"
+eval "$(starship init bash)"
+```
+
+For Zsh, source
+`$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration` before
+`eval "$(starship init zsh)"`.
+
+For a shell without built-in or terminal-provided integration, use an existing
+OSC 133 shell-integration script (for example WezTerm's Bash/Zsh script) rather
+than adding prompt text. The required boundary sequences are invisible:
+`OSC 133;A ST` before the prompt and `OSC 133;B ST` immediately after it.
 
 The same session settings can override `terminai.yaml` at startup:
 

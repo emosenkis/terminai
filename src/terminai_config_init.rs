@@ -15,9 +15,9 @@ pub const DEFAULT_TERMINAI_YAML: &str = concat!(
 # Show release notes once after each upgrade.
 changelog: true
 
-# Request one AI command completion when the shell emits an OSC 133/633
-# prompt-start marker. The completion is inserted without pressing Enter.
+# Request AI command completions after typed input has been idle.
 auto-completion: false
+auto-completion-delay-ms: 750
 
 interface:
   terminal-sync: true
@@ -32,6 +32,7 @@ interface:
     layout-mode: "F9"
     control-panel: "F10"
     toggle-fullscreen: "F11"
+    request-completion: ["Tab", "Tab"]
 
 # DANGER: auto-approval sends every AI suggestion directly to the shell
 # without consulting the command risk classifier.

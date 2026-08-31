@@ -12,10 +12,12 @@ interface:
     layout-mode: F9
     control-panel: F10
     toggle-fullscreen: F11
+    request-completion: [Tab, Tab]
 # DANGER: auto-approval sends every AI suggestion directly to the shell.
 approval-mode: always-ask
-# Insert an AI-generated command without Enter at OSC 133/633 prompt markers.
+# Show AI ghost-text suggestions after typed input has been idle.
 auto-completion: false
+auto-completion-delay-ms: 750
 agent:
   preset: codex
   # extra-args:
