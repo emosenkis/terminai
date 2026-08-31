@@ -66,7 +66,7 @@ fn assert_terminai_with_agent(
     Scenario::new(&command, Path::new(env!("CARGO_MANIFEST_DIR")));
   scenario.scrollback = scrollback;
   scenario.steps = steps;
-  scenario.timeout = Duration::from_secs(10);
+  scenario.timeout = Duration::from_secs(30);
   scenario.assert_snapshots(name)
 }
 
@@ -431,6 +431,29 @@ fn terminai_approval_writes_exact_bytes() -> Result<()> {
     &steps,
     default_interface(),
     false,
+  )
+}
+
+#[test]
+fn terminai_clears_ai_readable_history_only() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"before-has-old-history"),
+    Step::Write(b"\x1b[21~"),
+    Step::WaitFor(b"Terminai Controls"),
+    Step::Write(b"\x1b[B\x1b[B\x1b[B\r"),
+    Step::WaitFor(b"History?"),
+    Step::Write(b"\x1b[C\r"),
+    Step::WaitFor(b"after-history-cleared"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_clears_ai_readable_history_only",
+    "#!/bin/sh\ni=1\nwhile [ $i -le 40 ]; do printf 'history-%02d\\r\\n' \"$i\"; i=$((i + 1)); done\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    "#!/bin/sh\nprintf 'agent-ready\\r\\n'\nbefore=$(terminai tool read_terminal --max-lines 100 2>&1)\ncase $before in *history-01*) printf 'before-has-old-history\\r\\n';; *) printf 'before-missing-old-history\\r\\n';; esac\nsleep 3\nafter=$(terminai tool read_terminal --max-lines 100 2>&1)\ncase $after in *history-01*) printf 'after-still-has-old-history\\r\\n';; *) printf '\\033[32mafter-history-cleared\\033[0m\\r\\n';; esac\nsleep 30\n",
+    &steps,
+    default_interface(),
+    true,
   )
 }
 

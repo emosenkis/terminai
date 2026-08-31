@@ -1,0 +1,47 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+
+[mhistory-01
+[mhistory-02
+[mhistory-03
+[mhistory-04
+[mhistory-05
+[mhistory-06
+[mhistory-07
+[mhistory-08
+[mhistory-09
+[mhistory-10
+[mhistory-11
+[mhistory-12
+[mhistory-13
+[mhistory-14
+[mhistory-15
+[mhistory-16
+[mhistory-17
+[mhistory-18[m
+[mhistory-31
+[mhistory-32
+[mhistory-33
+[mhistory-34
+[mhistory-35
+[mhistory-36
+[mhistory-37
+[mhistory-38
+[mhistory-39
+[mhistory-40
+[mguest-ready
+
+[38;5;6m[48;5;0m[29m[28m[27m[25m[25m[22m[24m[22m[23m ↓ agent.sh ────────────────────────────────────────────────────────────────────
+[magent-ready
+[mbefore-has-old-history
+[38;5;2m[49m[29m[28m[27m[25m[25m[22m[24m[22m[23mafter-history-cleared
+
+
+
+
+
+
+
+[m
