@@ -496,3 +496,16 @@ fn terminai_unicode_cell_boundaries() -> Result<()> {
     false,
   )
 }
+
+#[test]
+fn emulator_osc_state_changes() -> Result<()> {
+  let steps = [Step::WaitFor(b"osc-ready")];
+  let mut scenario = Scenario::new(
+    "i=1; while [ $i -le 30 ]; do printf 'old-%02d\\r\\n' \"$i\"; i=$((i + 1)); done; printf '\\033]1337;ClearScrollback\\007\\033[2J\\033[H\\033]7;file://localhost/tmp/terminai-osc\\007\\033]8;;https://example.test/terminai\\033\\\\\\033[4;34mlink-label\\033[0m\\033]8;;\\033\\\\\\r\\n\\033]4;1;rgb:ff/80/00\\007\\033[31mpalette-one\\033[0m\\r\\n'; i=1; while [ $i -le 30 ]; do printf 'new-%02d\\r\\n' \"$i\"; i=$((i + 1)); done; printf 'osc-ready\\r\\n'; sleep 30",
+    Path::new(env!("CARGO_MANIFEST_DIR")),
+  );
+  scenario.scrollback = true;
+  scenario.steps = &steps;
+  scenario.timeout = Duration::from_secs(5);
+  scenario.assert_snapshots("emulator_osc_state_changes")
+}
