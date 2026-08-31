@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[35;1magent-ready[m
+        [m
+        [m
+        [m
+        [m
+        [m
+        [m
+        [3C[36;40m┌ Layout Mode ───────────────────────────────────────────┐[m
+        [3C[36;40m│[30;46;1m› AI height: 50%  (-/+)[36;40;22m                                 │[m
+        [3C[36;40m│[97m  Position: Fullscreen  (p)[36m                             │[m
+           [36;40m│[97m  Guest: Overlay  (g)[36m                                   │[m
+           [36;40m│[97m  Fullscreen: on  (f)[36m                                   │[m           [m
+           [36;40m│                                                        │[m           [m
+           [36;40m│↑/↓ select  ←/→ change  Esc done                        │[m
+        [3C[36;40m│                                                        │[m
+        [3C[36;40m│                                                        │[m
+        [3C[36;40m└────────────────────────────────────────────────────────┘[m
+        [m
+        [m
+        [m
+        [m
+        [m
+            [m
+            [m

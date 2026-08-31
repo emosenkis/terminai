@@ -251,6 +251,34 @@ fn terminai_overlay_round_trip() -> Result<()> {
 }
 
 #[test]
+fn terminai_layout_mode_controls() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-bottom"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\x1b[20~"),
+    Step::WaitFor(b"AI height: 50%"),
+    Step::Write(b"+"),
+    Step::Pause(Duration::from_millis(100)),
+    Step::Write(b"-"),
+    Step::Pause(Duration::from_millis(100)),
+    Step::Write(b"p"),
+    Step::Pause(Duration::from_millis(100)),
+    Step::Write(b"g"),
+    Step::Pause(Duration::from_millis(100)),
+    Step::Write(b"f"),
+    Step::Pause(Duration::from_millis(100)),
+  ];
+  assert_terminai(
+    "terminai_layout_mode_controls",
+    "#!/bin/sh\ni=1\nwhile [ $i -le 22 ]; do printf 'guest-%02d\\r\\n' \"$i\"; i=$((i + 1)); done\nprintf 'guest-bottom\\r\\n'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
 fn terminai_native_scrollback_and_soft_wrap() -> Result<()> {
   let steps = [Step::WaitFor(b"scrollback-ready")];
   assert_terminai(

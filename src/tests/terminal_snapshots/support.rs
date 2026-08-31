@@ -40,6 +40,7 @@ impl Emulator {
 pub enum Step<'a> {
   WaitFor(&'a [u8]),
   Write(&'a [u8]),
+  Pause(Duration),
 }
 
 #[derive(Debug)]
@@ -221,6 +222,19 @@ fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
         .and_then(|_| writer.flush())
         .map(|_| Vec::new())
         .map_err(Into::into),
+      Step::Pause(duration) => {
+        thread::sleep(*duration);
+        let mut output = Vec::new();
+        for chunk in recv.try_iter() {
+          responder.process(&chunk);
+          for reply in reply_recv.try_iter() {
+            writer.write_all(reply.as_bytes())?;
+          }
+          writer.flush()?;
+          output.extend(chunk);
+        }
+        Ok(output)
+      }
     };
     match step_result {
       Ok(output) => result.as_mut().unwrap().extend(output),
@@ -278,6 +292,7 @@ fn drive_steps(
     match step {
       Step::WaitFor(needle) => output.extend(wait(needle, scenario.timeout)?),
       Step::Write(bytes) => write(bytes)?,
+      Step::Pause(duration) => thread::sleep(*duration),
     }
   }
   Ok(output)
