@@ -883,16 +883,14 @@ impl PollEvents<AppEvent, Error> for PollShell {
 use termin::ui_layer::TerminalWidget;
 
 const HOST_SIZE_QUERY_TIMEOUT: Duration = Duration::from_millis(100);
-const STARTUP_TERMINAL_SIZE_TIMEOUT: Duration = Duration::from_millis(900);
+const STARTUP_TERMINAL_SIZE_TIMEOUT: Duration = Duration::from_millis(150);
+const DEFAULT_STARTUP_TERMINAL_SIZE: (u16, u16) = (80, 24);
 
-fn startup_terminal_size(cols: u16, rows: u16) -> std::io::Result<(u16, u16)> {
+fn startup_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
   if cols == 0 || rows == 0 {
-    Err(std::io::Error::new(
-      std::io::ErrorKind::InvalidData,
-      format!("terminal reported invalid size {cols}x{rows}"),
-    ))
+    DEFAULT_STARTUP_TERMINAL_SIZE
   } else {
-    Ok((cols, rows))
+    (cols, rows)
   }
 }
 
@@ -910,20 +908,22 @@ fn wait_for_startup_terminal_size(
   }
 }
 
-fn detect_host_terminal_size() -> std::io::Result<(u16, u16)> {
-  let reported = crossterm::terminal::size()?;
+fn detect_host_terminal_size() -> Option<(u16, u16)> {
+  let reported = crossterm::terminal::size().unwrap_or_default();
   if reported.0 != 0 && reported.1 != 0 {
-    return Ok(reported);
+    return Some(reported);
   }
   if let Some(queried) =
     termin::terminai_init::query_host_terminal_size(HOST_SIZE_QUERY_TIMEOUT)
   {
-    return Ok(queried);
+    return Some(queried);
   }
   wait_for_startup_terminal_size(
     crossterm::terminal::size,
     STARTUP_TERMINAL_SIZE_TIMEOUT,
   )
+  .ok()
+  .filter(|(cols, rows)| *cols != 0 && *rows != 0)
 }
 
 /// Helper to initialize shell and prepare AI integration asynchronously
@@ -943,8 +943,9 @@ async fn initialize_app_components(
   Option<String>,
 )> {
   // Get terminal size
-  let (reported_cols, reported_rows) = detect_host_terminal_size()?;
-  let (cols, rows) = startup_terminal_size(reported_cols, reported_rows)?;
+  let (reported_cols, reported_rows) =
+    detect_host_terminal_size().unwrap_or_default();
+  let (cols, rows) = startup_terminal_size(reported_cols, reported_rows);
 
   // Spawn shell or command (returns Shell and event receiver)
   let config_for_shell = TerminaiConfig::load().ok();
@@ -1555,20 +1556,14 @@ fn run_interactive(
   let poll_config = PollConfigWatcher::new(config_watch_paths());
 
   // Reconcile once after spawning in case the host changed during startup.
-  let (reported_cols, reported_rows) = detect_host_terminal_size()?;
   let shell_size = shell
     .vt
     .read()
     .map_err(|_| anyhow::anyhow!("shell terminal lock is poisoned"))?
     .screen()
     .size();
-  let (cols, rows) = match startup_terminal_size(reported_cols, reported_rows) {
-    Ok(size) => size,
-    Err(err) => {
-      log::warn!("Could not recheck host terminal size: {err}");
-      (shell_size.cols, shell_size.rows)
-    }
-  };
+  let (cols, rows) =
+    detect_host_terminal_size().unwrap_or((shell_size.cols, shell_size.rows));
   if shell_size.cols != cols || shell_size.rows != rows {
     shell.resize(rows, cols)?;
   }
@@ -3519,11 +3514,15 @@ mod tests {
   }
 
   #[test]
-  fn startup_terminal_size_rejects_unknown_dimensions() {
-    assert!(startup_terminal_size(0, 0).is_err());
-    assert!(startup_terminal_size(0, 24).is_err());
-    assert!(startup_terminal_size(80, 0).is_err());
-    assert_eq!(startup_terminal_size(120, 40).unwrap(), (120, 40));
+  fn startup_terminal_size_falls_back_after_the_bounded_detection_window() {
+    assert!(
+      HOST_SIZE_QUERY_TIMEOUT + STARTUP_TERMINAL_SIZE_TIMEOUT
+        <= Duration::from_millis(250)
+    );
+    assert_eq!(startup_terminal_size(0, 0), (80, 24));
+    assert_eq!(startup_terminal_size(0, 24), (80, 24));
+    assert_eq!(startup_terminal_size(80, 0), (80, 24));
+    assert_eq!(startup_terminal_size(120, 40), (120, 40));
   }
 
   #[test]
