@@ -17,13 +17,16 @@ use crossterm::terminal::{
 };
 use flexi_logger::{Cleanup, Criterion, FileSpec, Naming};
 use rat_salsa::terminal::{CrosstermTerminal, SalsaOptions};
-use std::io::{IsTerminal, stdout};
 #[cfg(unix)]
 use std::{
   fs::OpenOptions,
   io::{Read, Write},
   os::fd::AsRawFd,
-  time::{Duration, Instant},
+  time::Instant,
+};
+use std::{
+  io::{IsTerminal, stdout},
+  time::Duration,
 };
 use tui::{
   Terminal, TerminalOptions, Viewport,
