@@ -1,0 +1,27 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+printf approved
+guest:printf approved                                                         
+guest-done                                                                    
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                                
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              [0m[4;1H

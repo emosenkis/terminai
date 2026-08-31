@@ -15,14 +15,29 @@ fn assert_terminai(
   interface: serde_json::Value,
   scrollback: bool,
 ) -> Result<()> {
+  assert_terminai_with_agent(
+    name,
+    guest,
+    "#!/bin/sh\nprintf '\\033[1;35magent-ready\\033[0m\\r\\n'\nsleep 30\n",
+    steps,
+    interface,
+    scrollback,
+  )
+}
+
+fn assert_terminai_with_agent(
+  name: &str,
+  guest: &str,
+  agent_script: &str,
+  steps: &[Step<'_>],
+  interface: serde_json::Value,
+  scrollback: bool,
+) -> Result<()> {
   let temp = tempfile::tempdir()?;
   let config_dir = temp.path().join("terminai");
   std::fs::create_dir_all(&config_dir)?;
   let agent = temp.path().join("agent.sh");
-  executable(
-    &agent,
-    "#!/bin/sh\nprintf '\\033[1;35magent-ready\\033[0m\\r\\n'\nsleep 30\n",
-  )?;
+  executable(&agent, agent_script)?;
   std::fs::write(
     config_dir.join("terminai.yaml"),
     serde_yaml::to_string(&serde_json::json!({
@@ -94,6 +109,42 @@ fn terminai_wrapped_command_happy_path() -> Result<()> {
   assert_terminai(
     "terminai_wrapped_command_happy_path",
     "#!/bin/sh\nprintf '\\033[1;32mguest-ready\\033[0m\\r\\n'\nIFS= read -r line\nprintf 'guest:%s\\r\\n' \"$line\"\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_suggested_input_approval_dialog() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"Approve (Y)"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_suggested_input_approval_dialog",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nsleep 30\n",
+    "#!/bin/sh\nprintf 'agent-ready\\r\\n'\nsleep 1\nterminai tool suggest_input 'printf approved\\n' --explanation 'Print a marker.'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
+fn terminai_approves_suggested_input() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"Approve (Y)"),
+    Step::Write(b"y"),
+    Step::WaitFor(b"guest-done"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_approves_suggested_input",
+    "#!/bin/sh\nprintf 'guest-ready\\r\\n'\nIFS= read -r line\nprintf 'guest:%s\\r\\nguest-done\\r\\n' \"$line\"\nsleep 30\n",
+    "#!/bin/sh\nprintf 'agent-ready\\r\\n'\nsleep 1\nterminai tool suggest_input 'printf approved\\n' --explanation 'Print a marker.'\nsleep 30\n",
     &steps,
     default_interface(),
     false,

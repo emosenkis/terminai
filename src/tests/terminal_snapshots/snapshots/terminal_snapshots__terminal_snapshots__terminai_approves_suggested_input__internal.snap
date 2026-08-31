@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+printf approved[m
+guest:printf approved                                                         [m
+guest-done                                                                    [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+                                                                                [m
+                                                                              [m
+                                                                              [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[2C                                                                            [m
+[m
