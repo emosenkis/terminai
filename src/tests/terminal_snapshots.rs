@@ -152,6 +152,25 @@ fn terminai_approves_suggested_input() -> Result<()> {
 }
 
 #[test]
+fn terminai_denies_suggested_input() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"guest-prompt"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"Deny (N)"),
+    Step::Write(b"n"),
+    Step::WaitFor(b"denial-observed"),
+  ];
+  assert_terminai_with_agent(
+    "terminai_denies_suggested_input",
+    "#!/bin/sh\nprintf '\\033[32mguest-prompt>\\033[0m '\n(sleep 2; printf '\\r\\ndenial-observed\\r\\n') &\nIFS= read -r line\nprintf 'unexpected-input:%s\\r\\n' \"$line\"\nsleep 30\n",
+    "#!/bin/sh\nprintf 'agent-ready\\r\\n'\nsleep 1\nterminai tool suggest_input 'printf denied\\n' --explanation 'This must not reach the guest.'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
+
+#[test]
 fn terminai_bottom_resize_overlay() -> Result<()> {
   let steps = [
     Step::WaitFor(b"guest-ready"),

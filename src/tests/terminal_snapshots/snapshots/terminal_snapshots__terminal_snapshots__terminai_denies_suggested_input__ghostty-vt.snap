@@ -1,0 +1,27 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[0m[38;5;2mguest-prompt>[0m
+denial-observed                                                               
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+[0m[38;5;6m[48;5;0m ↓ agent.sh ────────────────────────────────────────────────────────────────────[0m
+agent-ready                                                                   
+Queued shell input suggestion for user approval: printf denied\n              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              
+                                                                              [0m[16;1H
