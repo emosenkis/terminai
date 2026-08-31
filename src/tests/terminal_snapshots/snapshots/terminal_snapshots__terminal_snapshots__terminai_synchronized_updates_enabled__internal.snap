@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[36;1msynchronized[m
+[m
+[4C[38;2;255;128;0mstyled-final[m
+[m
+sync-ready[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m

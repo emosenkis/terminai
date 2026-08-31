@@ -1,0 +1,9 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[1m[38;5;6msynchronized[0m        
+
+    [38;2;255;128;0mstyled-final[39m    
+
+sync-ready

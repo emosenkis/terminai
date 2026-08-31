@@ -554,3 +554,23 @@ fn terminai_rapid_output_during_overlay_changes() -> Result<()> {
     false,
   )
 }
+
+#[test]
+fn terminai_synchronized_update_paths() -> Result<()> {
+  let steps = [Step::WaitFor(b"sync-ready")];
+  let guest = "#!/bin/sh\nprintf '\\033[2J\\033[H\\033[1;36msynchronized\\033[0m\\r\\n\\033[3;5H\\033[38;2;255;128;0mstyled-final\\033[0m\\r\\n\\033[5;1Hsync-ready'\nsleep 30\n";
+  assert_terminai(
+    "terminai_synchronized_updates_enabled",
+    guest,
+    &steps,
+    serde_json::json!({ "terminal-sync": true }),
+    false,
+  )?;
+  assert_terminai(
+    "terminai_synchronized_updates_disabled",
+    guest,
+    &steps,
+    default_interface(),
+    false,
+  )
+}
