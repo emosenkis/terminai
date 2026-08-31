@@ -1,3 +1,11 @@
+## 0.1.23 - 2026-08-31
+
+- Fix incorrect guest sizing when Terminai is the topmost program in a graphical
+  terminal by querying the host, reconciling after PTY startup, and answering
+  guest size queries locally.
+- Bound pre-launch terminal-size detection to 250 ms and always launch the guest
+  with a safe fallback if the host does not answer.
+
 ## 0.1.22 - 2026-08-31
 
 - Configure command completion independently from the interactive agent with
