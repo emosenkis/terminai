@@ -1,0 +1,27 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[38;5;1m burst-49 [39m          
+[38;5;2m burst-50 [39m          
+[38;5;3m burst-51 [39m          
+[38;5;4m burst-52 [39m          
+[38;5;5m burst-53 [39m          
+[38;5;6m burst-54 [39m          
+[38;5;7m burst-55 [39m          
+[38;5;1m burst-56 [39m          
+[38;5;2m burst-57 [39m          
+[38;5;3m burst-58 [39m          
+[38;5;4m burst-59 [39m          
+[38;5;5m burst-60 [39m          
+[38;5;6m burst-61 [39m          
+[38;5;7m burst-62 [39m          
+[38;5;1m burst-63 [39m          
+[38;5;2m burst-64 [39m          
+[38;5;3m burst-65 [39m          
+[38;5;4m burst-66 [39m          
+[38;5;5m burst-67 [39m          
+[38;5;6m burst-68 [39m          
+[38;5;7m burst-69 [39m          
+[38;5;1m burst-70 [39m          
+burst-done

@@ -531,3 +531,26 @@ fn terminai_terminal_mode_input_after_overlay() -> Result<()> {
     false,
   )
 }
+
+#[test]
+fn terminai_rapid_output_during_overlay_changes() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"burst-05"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\x1b[20~"),
+    Step::WaitFor(b"AI height: 50%"),
+    Step::Write(b"+pg"),
+    Step::Pause(Duration::from_millis(100)),
+    Step::Write(b"\x1b[20~"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"burst-done"),
+  ];
+  assert_terminai(
+    "terminai_rapid_output_during_overlay_changes",
+    "#!/bin/sh\ni=1\nwhile [ $i -le 70 ]; do printf '\\033[3%dm burst-%02d \\033[0m\\r\\n' $((i % 7 + 1)) \"$i\"; i=$((i + 1)); sleep 0.03; done\nprintf 'burst-done\\r\\n'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}
