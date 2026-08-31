@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+input-ready[m
+input-bytes:[C1b[C4f[C41[C1b[C5b[C32[C30[C30[C7e[C70[C61[C73[C74[C65[C64[C20[C74[C65[C78[C74[C1b[C5b[C3[m
+2[C30[C31[C7e[C1b[C5b[C49[C1b[C5b[C3c[C30[C3b[C33[C3b[C34[C4d[m
+input-done[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+                                                                                [m
+           [m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m
+[m

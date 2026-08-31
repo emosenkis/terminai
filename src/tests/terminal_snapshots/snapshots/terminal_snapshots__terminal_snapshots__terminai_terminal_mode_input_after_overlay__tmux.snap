@@ -1,0 +1,8 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+input-ready         
+input-bytes: 1b 4f 41 1b 5b 32 30 30 7e 70 61 73 74 65 64 20 74 65 78 74 1b 5b 3
+2 30 31 7e 1b 5b 49 1b 5b 3c 30 3b 33 3b 34 4d                                  
+input-done

@@ -249,10 +249,35 @@ impl Shell {
   }
 
   pub fn send_key(&mut self, key: Key) -> Result<()> {
-    // Encode key using mprocs' encoder
-    let encoded = encode_key(&key, KeyCodeEncodeModes::default())?;
+    let application_cursor_keys = self
+      .vt
+      .read()
+      .map(|vt| vt.screen().application_cursor())
+      .unwrap_or(false);
+    let encoded = encode_key(
+      &key,
+      KeyCodeEncodeModes {
+        application_cursor_keys,
+        ..KeyCodeEncodeModes::default()
+      },
+    )?;
     self.writer.write_all(encoded.as_bytes())?;
     self.writer.flush()?;
+    Ok(())
+  }
+
+  pub fn send_focus(&mut self, focused: bool) -> Result<()> {
+    let enabled = self
+      .vt
+      .read()
+      .map(|vt| vt.screen().focus_reporting())
+      .unwrap_or(false);
+    if enabled {
+      self
+        .writer
+        .write_all(if focused { b"\x1b[I" } else { b"\x1b[O" })?;
+      self.writer.flush()?;
+    }
     Ok(())
   }
 

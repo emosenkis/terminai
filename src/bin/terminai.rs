@@ -3595,10 +3595,19 @@ fn event(
       }
       Control::Continue
     }
-    AppEvent::Crossterm(_) => {
-      // Ignore other crossterm events (focus, etc.) for now
+    AppEvent::Crossterm(Event::FocusGained) => {
+      if !state.ai_visible {
+        state.shell.send_focus(true)?;
+      }
       Control::Continue
     }
+    AppEvent::Crossterm(Event::FocusLost) => {
+      if !state.ai_visible {
+        state.shell.send_focus(false)?;
+      }
+      Control::Continue
+    }
+    AppEvent::Crossterm(_) => Control::Continue,
     AppEvent::Timer(_) => {
       if state.completion.trigger_at.is_some_and(|at| {
         Instant::now().duration_since(at) > Duration::from_millis(600)

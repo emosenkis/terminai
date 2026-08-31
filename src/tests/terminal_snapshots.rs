@@ -509,3 +509,25 @@ fn emulator_osc_state_changes() -> Result<()> {
   scenario.timeout = Duration::from_secs(5);
   scenario.assert_snapshots("emulator_osc_state_changes")
 }
+
+#[test]
+fn terminai_terminal_mode_input_after_overlay() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"input-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Write(b"\0"),
+    Step::Write(b"\x1b[A"),
+    Step::Write(b"\x1b[200~pasted text\x1b[201~"),
+    Step::Write(b"\x1b[I"),
+    Step::Write(b"\x1b[<0;3;4M"),
+    Step::WaitFor(b"input-done"),
+  ];
+  assert_terminai(
+    "terminai_terminal_mode_input_after_overlay",
+    "#!/bin/sh\nprintf '\\033[?1h\\033[?2004h\\033[?1004h\\033[?1000h\\033[?1006hinput-ready\\r\\n'\nstty raw -echo min 0 time 10\nbytes=$(while byte=$(dd bs=1 count=1 2>/dev/null); do [ -n \"$byte\" ] || break; printf %s \"$byte\"; done | od -An -tx1 | tr -s ' ' | tr -d '\\n')\nstty sane\nprintf '\\r\\ninput-bytes:%s\\r\\ninput-done\\r\\n' \"$bytes\"\nsleep 30\n",
+    &steps,
+    default_interface(),
+    false,
+  )
+}

@@ -20,6 +20,7 @@ const MODE_APPLICATION_CURSOR: u8 = 0b0000_0010;
 const MODE_HIDE_CURSOR: u8 = 0b0000_0100;
 const MODE_ALTERNATE_SCREEN: u8 = 0b0000_1000;
 const MODE_BRACKETED_PASTE: u8 = 0b0001_0000;
+const MODE_FOCUS_REPORTING: u8 = 0b0010_0000;
 
 #[derive(Clone, Debug)]
 pub enum CharSet {
@@ -297,6 +298,11 @@ impl<Reply: TermReplySender> Screen<Reply> {
   #[must_use]
   pub fn bracketed_paste(&self) -> bool {
     self.mode(MODE_BRACKETED_PASTE)
+  }
+
+  #[must_use]
+  pub fn focus_reporting(&self) -> bool {
+    self.mode(MODE_FOCUS_REPORTING)
   }
 
   /// Returns the currently active `MouseProtocolMode`
@@ -1087,7 +1093,9 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
             DecPrivateModeCode::AnyEventMouse => {
               self.set_mouse_mode(MouseProtocolMode::AnyMotion)
             }
-            DecPrivateModeCode::FocusTracking => skip!("FocusTracking"),
+            DecPrivateModeCode::FocusTracking => {
+              self.set_mode(MODE_FOCUS_REPORTING)
+            }
             DecPrivateModeCode::Utf8Mouse => {
               self.set_mouse_encoding(MouseProtocolEncoding::Utf8)
             }
@@ -1181,7 +1189,9 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
             DecPrivateModeCode::AnyEventMouse => {
               self.clear_mouse_mode(MouseProtocolMode::AnyMotion)
             }
-            DecPrivateModeCode::FocusTracking => skip!("FocusTracking"),
+            DecPrivateModeCode::FocusTracking => {
+              self.clear_mode(MODE_FOCUS_REPORTING)
+            }
             DecPrivateModeCode::Utf8Mouse => {
               self.clear_mouse_encoding(MouseProtocolEncoding::Utf8)
             }
