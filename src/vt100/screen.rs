@@ -1432,7 +1432,10 @@ impl<Reply: TermReplySender + Clone> Screen<Reply> {
           skip!("ReportCellSizePixelsResponse")
         }
         Window::ReportTextAreaSizeCells => {
-          skip!("ReportTextAreaSizeCells")
+          let size = self.size();
+          self
+            .reply_sender
+            .reply(format!("\x1b[8;{};{}t", size.rows, size.cols).into())
         }
         Window::ReportScreenSizeCells => skip!("ReportScreenSizeCells"),
         Window::ReportIconLabel => skip!("ReportIconLabel"),

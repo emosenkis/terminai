@@ -101,12 +101,38 @@ impl<Reply: TermReplySender + Clone> std::io::Write for Parser<Reply> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use std::sync::{Arc, Mutex};
 
   #[derive(Clone)]
   struct TestReplySender;
 
   impl TermReplySender for TestReplySender {
     fn reply(&self, _reply: compact_str::CompactString) {}
+  }
+
+  #[derive(Clone)]
+  struct CapturingReplySender(Arc<Mutex<Vec<String>>>);
+
+  impl TermReplySender for CapturingReplySender {
+    fn reply(&self, reply: compact_str::CompactString) {
+      self.0.lock().unwrap().push(reply.to_string());
+    }
+  }
+
+  #[test]
+  fn text_area_size_query_reports_the_guest_size() {
+    let replies = Arc::new(Mutex::new(Vec::new()));
+    let mut parser =
+      Parser::new(24, 80, 0, CapturingReplySender(replies.clone()));
+
+    parser.process(b"\x1b[18t");
+    parser.set_size(40, 120);
+    parser.process(b"\x1b[18t");
+
+    assert_eq!(
+      replies.lock().unwrap().as_slice(),
+      ["\x1b[8;24;80t", "\x1b[8;40;120t"],
+    );
   }
 
   #[test]

@@ -146,6 +146,32 @@ pub fn supports_synchronized_output() -> bool {
 }
 
 #[cfg(unix)]
+pub fn query_host_terminal_size(timeout: Duration) -> Option<(u16, u16)> {
+  let was_raw = is_raw_mode_enabled().unwrap_or(false);
+  if !was_raw && enable_raw_mode().is_err() {
+    return None;
+  }
+
+  let result = OpenOptions::new()
+    .read(true)
+    .write(true)
+    .open("/dev/tty")
+    .and_then(|mut tty| query_terminal_size_on(&mut tty, timeout))
+    .ok()
+    .flatten();
+
+  if !was_raw {
+    let _ = disable_raw_mode();
+  }
+  result
+}
+
+#[cfg(not(unix))]
+pub fn query_host_terminal_size(_: Duration) -> Option<(u16, u16)> {
+  None
+}
+
+#[cfg(unix)]
 fn query_synchronized_output_on<T>(
   tty: &mut T,
   timeout: Duration,
@@ -153,9 +179,38 @@ fn query_synchronized_output_on<T>(
 where
   T: Read + Write + AsRawFd,
 {
-  const QUERY: &[u8] = b"\x1b[?2026$p\x1b[c";
+  Ok(
+    query_terminal_on(tty, b"\x1b[?2026$p\x1b[c", timeout, |response| {
+      synchronized_output_report(response).or_else(|| {
+        has_primary_device_attributes_report(response).then_some(false)
+      })
+    })?
+    .unwrap_or(false),
+  )
+}
 
-  tty.write_all(QUERY)?;
+#[cfg(unix)]
+fn query_terminal_size_on<T>(
+  tty: &mut T,
+  timeout: Duration,
+) -> std::io::Result<Option<(u16, u16)>>
+where
+  T: Read + Write + AsRawFd,
+{
+  query_terminal_on(tty, b"\x1b[18t", timeout, terminal_size_report)
+}
+
+#[cfg(unix)]
+fn query_terminal_on<T, R>(
+  tty: &mut T,
+  query: &[u8],
+  timeout: Duration,
+  mut parse: impl FnMut(&[u8]) -> Option<R>,
+) -> std::io::Result<Option<R>>
+where
+  T: Read + Write + AsRawFd,
+{
+  tty.write_all(query)?;
   tty.flush()?;
 
   let deadline = Instant::now() + timeout;
@@ -164,7 +219,7 @@ where
   loop {
     let remaining = deadline.saturating_duration_since(Instant::now());
     if remaining.is_zero() {
-      return Ok(false);
+      return Ok(None);
     }
     let mut descriptor = libc::pollfd {
       fd: tty.as_raw_fd(),
@@ -182,22 +237,31 @@ where
       return Err(std::io::Error::last_os_error());
     }
     if ready == 0 {
-      return Ok(false);
+      return Ok(None);
     }
 
     let read = tty.read(&mut chunk)?;
     if read == 0 {
-      return Ok(false);
+      return Ok(None);
     }
     response.extend_from_slice(&chunk[..read]);
 
-    if let Some(supported) = synchronized_output_report(&response) {
-      return Ok(supported);
-    }
-    if has_primary_device_attributes_report(&response) {
-      return Ok(false);
+    if let Some(value) = parse(&response) {
+      return Ok(Some(value));
     }
   }
+}
+
+fn terminal_size_report(response: &[u8]) -> Option<(u16, u16)> {
+  csi_sequences(response).find_map(|sequence| {
+    let parameters = sequence.strip_suffix(b"t")?.strip_prefix(b"8;")?;
+    let separator = parameters.iter().position(|byte| *byte == b';')?;
+    let (rows, cols) = parameters.split_at(separator);
+    let cols = &cols[1..];
+    let rows = std::str::from_utf8(rows).ok()?.parse().ok()?;
+    let cols = std::str::from_utf8(cols).ok()?.parse().ok()?;
+    (rows != 0 && cols != 0).then_some((cols, rows))
+  })
 }
 
 fn synchronized_output_report(response: &[u8]) -> Option<bool> {
@@ -315,6 +379,17 @@ mod tests {
     assert_eq!(synchronized_output_report(b"\x1b[?2026;2$"), None);
   }
 
+  #[test]
+  fn terminal_size_reports_are_parsed() {
+    assert_eq!(terminal_size_report(b"\x1b[8;56;211t"), Some((211, 56)));
+    assert_eq!(
+      terminal_size_report(b"noise\x1b[8;24;80tmore"),
+      Some((80, 24)),
+    );
+    assert_eq!(terminal_size_report(b"\x1b[8;0;211t"), None);
+    assert_eq!(terminal_size_report(b"\x1b[8;56;211"), None);
+  }
+
   #[cfg(unix)]
   #[test]
   fn synchronized_output_query_uses_the_host_report() {
@@ -340,5 +415,26 @@ mod tests {
       );
       responder.join().unwrap();
     }
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn terminal_size_query_uses_the_host_report() {
+    use std::os::unix::net::UnixStream;
+    use std::thread;
+
+    let (mut client, mut host) = UnixStream::pair().unwrap();
+    let responder = thread::spawn(move || {
+      let mut query = [0; 5];
+      host.read_exact(&mut query).unwrap();
+      assert_eq!(&query, b"\x1b[18t");
+      host.write_all(b"\x1b[8;56;211t").unwrap();
+    });
+
+    assert_eq!(
+      query_terminal_size_on(&mut client, Duration::from_secs(1)).unwrap(),
+      Some((211, 56)),
+    );
+    responder.join().unwrap();
   }
 }

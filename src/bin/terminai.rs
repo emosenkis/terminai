@@ -882,14 +882,17 @@ impl PollEvents<AppEvent, Error> for PollShell {
 // Use TerminalWidget from ui_layer module
 use termin::ui_layer::TerminalWidget;
 
-const DEFAULT_STARTUP_TERMINAL_SIZE: (u16, u16) = (80, 24);
-const STARTUP_TERMINAL_SIZE_TIMEOUT: Duration = Duration::from_millis(250);
+const HOST_SIZE_QUERY_TIMEOUT: Duration = Duration::from_millis(100);
+const STARTUP_TERMINAL_SIZE_TIMEOUT: Duration = Duration::from_millis(900);
 
-fn startup_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
+fn startup_terminal_size(cols: u16, rows: u16) -> std::io::Result<(u16, u16)> {
   if cols == 0 || rows == 0 {
-    DEFAULT_STARTUP_TERMINAL_SIZE
+    Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      format!("terminal reported invalid size {cols}x{rows}"),
+    ))
   } else {
-    (cols, rows)
+    Ok((cols, rows))
   }
 }
 
@@ -905,6 +908,22 @@ fn wait_for_startup_terminal_size(
     }
     std::thread::sleep(Duration::from_millis(10));
   }
+}
+
+fn detect_host_terminal_size() -> std::io::Result<(u16, u16)> {
+  let reported = crossterm::terminal::size()?;
+  if reported.0 != 0 && reported.1 != 0 {
+    return Ok(reported);
+  }
+  if let Some(queried) =
+    termin::terminai_init::query_host_terminal_size(HOST_SIZE_QUERY_TIMEOUT)
+  {
+    return Ok(queried);
+  }
+  wait_for_startup_terminal_size(
+    crossterm::terminal::size,
+    STARTUP_TERMINAL_SIZE_TIMEOUT,
+  )
 }
 
 /// Helper to initialize shell and prepare AI integration asynchronously
@@ -924,20 +943,8 @@ async fn initialize_app_components(
   Option<String>,
 )> {
   // Get terminal size
-  let (reported_cols, reported_rows) = wait_for_startup_terminal_size(
-    crossterm::terminal::size,
-    STARTUP_TERMINAL_SIZE_TIMEOUT,
-  )?;
-  let (cols, rows) = startup_terminal_size(reported_cols, reported_rows);
-  if (cols, rows) != (reported_cols, reported_rows) {
-    log::warn!(
-      "Terminal reported invalid startup size {}x{}; using {}x{} until the first resize event",
-      reported_cols,
-      reported_rows,
-      cols,
-      rows
-    );
-  }
+  let (reported_cols, reported_rows) = detect_host_terminal_size()?;
+  let (cols, rows) = startup_terminal_size(reported_cols, reported_rows)?;
 
   // Spawn shell or command (returns Shell and event receiver)
   let config_for_shell = TerminaiConfig::load().ok();
@@ -1521,7 +1528,7 @@ fn run_interactive(
   // Initialize shell and prepare AI integration asynchronously
   log::debug!("Initializing shell and AI components");
   let (
-    shell,
+    mut shell,
     shell_event_rx,
     agent_event_rx,
     mcp_server,
@@ -1547,8 +1554,24 @@ fn run_interactive(
   let poll_agent = PollAgent::new(Arc::clone(&agent_event_rx));
   let poll_config = PollConfigWatcher::new(config_watch_paths());
 
-  // Get terminal size for initial state
-  let (_, rows) = crossterm::terminal::size()?;
+  // Reconcile once after spawning in case the host changed during startup.
+  let (reported_cols, reported_rows) = detect_host_terminal_size()?;
+  let shell_size = shell
+    .vt
+    .read()
+    .map_err(|_| anyhow::anyhow!("shell terminal lock is poisoned"))?
+    .screen()
+    .size();
+  let (cols, rows) = match startup_terminal_size(reported_cols, reported_rows) {
+    Ok(size) => size,
+    Err(err) => {
+      log::warn!("Could not recheck host terminal size: {err}");
+      (shell_size.cols, shell_size.rows)
+    }
+  };
+  if shell_size.cols != cols || shell_size.rows != rows {
+    shell.resize(rows, cols)?;
+  }
   log::debug!("Terminal size: rows={}", rows);
 
   // Create theme
@@ -3496,11 +3519,11 @@ mod tests {
   }
 
   #[test]
-  fn startup_terminal_size_uses_default_when_any_dimension_is_zero() {
-    assert_eq!(startup_terminal_size(0, 0), (80, 24));
-    assert_eq!(startup_terminal_size(0, 24), (80, 24));
-    assert_eq!(startup_terminal_size(80, 0), (80, 24));
-    assert_eq!(startup_terminal_size(120, 40), (120, 40));
+  fn startup_terminal_size_rejects_unknown_dimensions() {
+    assert!(startup_terminal_size(0, 0).is_err());
+    assert!(startup_terminal_size(0, 24).is_err());
+    assert!(startup_terminal_size(80, 0).is_err());
+    assert_eq!(startup_terminal_size(120, 40).unwrap(), (120, 40));
   }
 
   #[test]
