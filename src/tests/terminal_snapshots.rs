@@ -156,11 +156,11 @@ fn terminai_wrapped_command_happy_path() -> Result<()> {
   let steps = [
     Step::WaitFor(b"guest-ready"),
     Step::Write(b"hello\n"),
-    Step::WaitFor(b"guest:hello"),
+    Step::WaitFor(b"cursor-end>"),
   ];
   assert_terminai(
     "terminai_wrapped_command_happy_path",
-    "#!/bin/sh\nprintf '\\033[1;32mguest-ready\\033[0m\\r\\n'\nIFS= read -r line\nprintf 'guest:%s\\r\\n' \"$line\"\nsleep 30\n",
+    "#!/bin/sh\nprintf '\\033[1;32mguest-ready\\033[0m\\r\\n'\nIFS= read -r line\nprintf 'guest:%s\\r\\n\\033[36mstyled-stdout\\033[0m\\r\\n' \"$line\"\nprintf '\\033[31mstyled-stderr\\033[0m\\r\\n' >&2\nprintf 'cursor-end>'\nsleep 30\n",
     &steps,
     default_interface(),
     false,

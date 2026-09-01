@@ -5,9 +5,9 @@ expression: snapshot
 [32;1mguest-ready[m
 hello[m
 guest:hello[m
-[m
-[m
-[m
+[36mstyled-stdout[m
+[31mstyled-stderr[m
+cursor-end>[m
 [m
 [m
 [m
