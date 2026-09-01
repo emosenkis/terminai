@@ -1,0 +1,44 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[0m[38;5;6mresize-history-01 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-02 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-03 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-04 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-05 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-06 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-07 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-08 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-09 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-10 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-11 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-12 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-25 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-26 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-27 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-28 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-29 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-30 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-31 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-32 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-33 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-34 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-35 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m
+[0m[38;5;6mresize-history-22 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-23 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-24 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-25 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-26 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-27 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-28 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-29 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-30 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-31 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-32 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-33 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-34 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+[0m[38;5;6mresize-history-35 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[0m                             
+resize-ready>                                                                                       
+[0m[38;5;6m[48;5;0m ↓ agent.sh ────────────────────────────────────────────────────────────────────────────────────────[0m
+[0m[1m[38;5;5magent-ready[0m[0m

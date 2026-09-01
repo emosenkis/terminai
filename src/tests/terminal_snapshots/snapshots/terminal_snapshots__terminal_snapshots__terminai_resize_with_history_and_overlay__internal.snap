@@ -1,0 +1,45 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[36mresize-history-01 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-02 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-03 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-04 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-05 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-06 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-07 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-08 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-09 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-10 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-11 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m
+[36mresize-history-22 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-23 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-24 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-25 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-26 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-27 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-28 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-29 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-30 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-31 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-32 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-33 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-34 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+[36mresize-history-35 abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ[m                             [m
+resize-ready>                                                                                       [m
+[36;40m ↓ agent.sh ────────────────────────────────────────────────────────────────────────────────────────[m
+[35;1magent-ready[m                                                                                         [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m
+                                                                                                    [m

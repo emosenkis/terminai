@@ -41,6 +41,13 @@ pub enum Step<'a> {
   WaitFor(&'a [u8]),
   Write(&'a [u8]),
   Pause(Duration),
+  Resize(u16, u16),
+}
+
+#[derive(Debug)]
+enum RawEvent {
+  Output(Vec<u8>),
+  Resize(u16, u16),
 }
 
 #[derive(Debug)]
@@ -123,10 +130,19 @@ impl TermReplySender for LiveReplies {
   }
 }
 
-fn capture_internal(scenario: &Scenario<'_>, raw: &[u8]) -> Vec<u8> {
+fn capture_internal(scenario: &Scenario<'_>, raw: &[RawEvent]) -> Vec<u8> {
   let (cols, rows) = scenario.size;
   let mut parser = Parser::new(rows, cols, 100_000, IgnoreReplies);
-  parser.process(raw);
+  let mut cols = cols;
+  for event in raw {
+    match event {
+      RawEvent::Output(bytes) => parser.process(bytes),
+      RawEvent::Resize(new_cols, new_rows) => {
+        cols = *new_cols;
+        parser.set_size(*new_rows, *new_cols);
+      }
+    }
+  }
   let screen = parser.screen();
   let rows: Box<dyn Iterator<Item = _>> = if scenario.scrollback {
     Box::new(screen.all_rows())
@@ -142,7 +158,10 @@ fn capture_internal(scenario: &Scenario<'_>, raw: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(feature = "ghostty-snapshot-tests")]
-fn capture_ghostty(scenario: &Scenario<'_>, raw: &[u8]) -> Result<Vec<u8>> {
+fn capture_ghostty(
+  scenario: &Scenario<'_>,
+  raw: &[RawEvent],
+) -> Result<Vec<u8>> {
   use libghostty_vt::{Terminal, TerminalOptions, fmt};
 
   let (cols, rows) = scenario.size;
@@ -151,7 +170,12 @@ fn capture_ghostty(scenario: &Scenario<'_>, raw: &[u8]) -> Result<Vec<u8>> {
     rows,
     max_scrollback: 100_000,
   })?;
-  terminal.vt_write(raw);
+  for event in raw {
+    match event {
+      RawEvent::Output(bytes) => terminal.vt_write(bytes),
+      RawEvent::Resize(cols, rows) => terminal.resize(*cols, *rows, 0, 0)?,
+    }
+  }
 
   let selection = if scenario.scrollback {
     Some(terminal.select_all()?.ok_or_else(|| {
@@ -172,11 +196,11 @@ fn capture_ghostty(scenario: &Scenario<'_>, raw: &[u8]) -> Result<Vec<u8>> {
 }
 
 #[cfg(not(feature = "ghostty-snapshot-tests"))]
-fn capture_ghostty(_: &Scenario<'_>, _: &[u8]) -> Result<Vec<u8>> {
+fn capture_ghostty(_: &Scenario<'_>, _: &[RawEvent]) -> Result<Vec<u8>> {
   bail!("ghostty-vt requires --features ghostty-snapshot-tests and Zig")
 }
 
-fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
+fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<RawEvent>> {
   let (cols, rows) = scenario.size;
   let pair = native_pty_system().openpty(PtySize {
     rows,
@@ -216,11 +240,12 @@ fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
           }
           writer.flush().map_err(Into::into)
         })
+        .map(|bytes| Some(RawEvent::Output(bytes)))
       }
       Step::Write(bytes) => writer
         .write_all(bytes)
         .and_then(|_| writer.flush())
-        .map(|_| Vec::new())
+        .map(|_| None)
         .map_err(Into::into),
       Step::Pause(duration) => {
         thread::sleep(*duration);
@@ -233,11 +258,21 @@ fn capture_raw(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
           writer.flush()?;
           output.extend(chunk);
         }
-        Ok(output)
+        Ok(Some(RawEvent::Output(output)))
       }
+      Step::Resize(cols, rows) => pair
+        .master
+        .resize(PtySize {
+          rows: *rows,
+          cols: *cols,
+          pixel_width: 0,
+          pixel_height: 0,
+        })
+        .map(|_| Some(RawEvent::Resize(*cols, *rows))),
     };
     match step_result {
-      Ok(output) => result.as_mut().unwrap().extend(output),
+      Ok(Some(event)) => result.as_mut().unwrap().push(event),
+      Ok(None) => {}
       Err(err) => {
         result = Err(err);
         break;
@@ -286,6 +321,7 @@ fn drive_steps(
   scenario: &Scenario<'_>,
   mut wait: impl FnMut(&[u8], Duration) -> Result<Vec<u8>>,
   mut write: impl FnMut(&[u8]) -> Result<()>,
+  mut resize: impl FnMut(u16, u16) -> Result<()>,
 ) -> Result<Vec<u8>> {
   let mut output = Vec::new();
   for step in scenario.steps {
@@ -293,6 +329,7 @@ fn drive_steps(
       Step::WaitFor(needle) => output.extend(wait(needle, scenario.timeout)?),
       Step::Write(bytes) => write(bytes)?,
       Step::Pause(duration) => thread::sleep(*duration),
+      Step::Resize(cols, rows) => resize(*cols, *rows)?,
     }
   }
   Ok(output)
@@ -337,6 +374,19 @@ fn capture_tmux(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
       let mut args = vec!["send-keys", "-H", "-t", &session.target];
       args.extend(hex.iter().map(String::as_str));
       session.run(args).map(|_| ())
+    },
+    |cols, rows| {
+      session
+        .run([
+          "resize-window",
+          "-t",
+          &session.target,
+          "-x",
+          &cols.to_string(),
+          "-y",
+          &rows.to_string(),
+        ])
+        .map(|_| ())
     },
   )?;
   session.capture(true, scenario.scrollback)
@@ -431,6 +481,14 @@ fn capture_zellij(scenario: &Scenario<'_>) -> Result<Vec<u8>> {
           .args(values),
       )
       .map(|_| ())
+    },
+    |cols, rows| {
+      session._pty.resize(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+      })
     },
   )?;
   session.capture(&pane, true, scenario.scrollback)

@@ -168,6 +168,26 @@ fn terminai_wrapped_command_happy_path() -> Result<()> {
 }
 
 #[test]
+fn terminai_resize_with_history_and_overlay() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"resize-ready"),
+    Step::Write(b"\0"),
+    Step::WaitFor(b"agent-ready"),
+    Step::Resize(50, 18),
+    Step::Pause(Duration::from_millis(200)),
+    Step::Resize(100, 30),
+    Step::Pause(Duration::from_millis(200)),
+  ];
+  assert_terminai(
+    "terminai_resize_with_history_and_overlay",
+    "#!/bin/sh\ni=1\nwhile [ $i -le 35 ]; do printf '\\033[36mresize-history-%02d abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ\\033[0m\\r\\n' \"$i\"; i=$((i + 1)); done\nprintf 'resize-ready>'\nsleep 30\n",
+    &steps,
+    default_interface(),
+    true,
+  )
+}
+
+#[test]
 fn terminai_suggested_input_approval_dialog() -> Result<()> {
   let steps = [
     Step::WaitFor(b"guest-ready"),
