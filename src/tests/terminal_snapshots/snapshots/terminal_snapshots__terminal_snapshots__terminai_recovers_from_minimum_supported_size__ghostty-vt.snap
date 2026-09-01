@@ -1,0 +1,6 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+recovered-size:24 80                                                            
+size-recovered[0m

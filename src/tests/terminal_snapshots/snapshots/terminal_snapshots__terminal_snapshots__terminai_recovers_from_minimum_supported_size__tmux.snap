@@ -1,0 +1,13 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+size-ready          
+small-size:6 20     
+small-done          
+                    
+                    
+                    
+                    
+recovered-size:24 80                                                            
+size-recovered

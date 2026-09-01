@@ -188,6 +188,28 @@ fn terminai_resize_with_history_and_overlay() -> Result<()> {
 }
 
 #[test]
+fn terminai_recovers_from_minimum_supported_size() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"size-ready"),
+    Step::Resize(20, 6),
+    Step::Pause(Duration::from_millis(200)),
+    Step::Write(b"small\n"),
+    Step::WaitFor(b"small-done"),
+    Step::Resize(80, 24),
+    Step::Pause(Duration::from_millis(200)),
+    Step::Write(b"recovered\n"),
+    Step::WaitFor(b"ize-recovered"),
+  ];
+  assert_terminai(
+    "terminai_recovers_from_minimum_supported_size",
+    "#!/bin/sh\nstty -echo\nprintf 'size-ready\\r\\n'\nIFS= read -r _\nprintf 'small-size:%s\\r\\nsmall-done\\r\\n' \"$(stty size)\"\nIFS= read -r _\nprintf 'recovered-size:%s\\r\\nsize-recovered\\r\\n' \"$(stty size)\"\nsleep 30\n",
+    &steps,
+    default_interface(),
+    true,
+  )
+}
+
+#[test]
 fn terminai_suggested_input_approval_dialog() -> Result<()> {
   let steps = [
     Step::WaitFor(b"guest-ready"),
