@@ -134,6 +134,59 @@ fn assert_agent_switch(name: &str, steps: &[Step<'_>]) -> Result<()> {
   scenario.assert_snapshots(name)
 }
 
+fn assert_completion(name: &str, steps: &[Step<'_>]) -> Result<()> {
+  let temp = tempfile::tempdir()?;
+  let config_dir = temp.path().join("terminai");
+  std::fs::create_dir_all(&config_dir)?;
+  let agent = temp.path().join("agent.sh");
+  executable(&agent, "#!/bin/sh\nsleep 30\n")?;
+  let completer = temp.path().join("completer.sh");
+  executable(
+    &completer,
+    "#!/bin/sh\nsleep 1\nprintf '[\"git status\"]\\n'\n",
+  )?;
+  std::fs::write(
+    config_dir.join("terminai.yaml"),
+    serde_yaml::to_string(&serde_json::json!({
+      "changelog": false,
+      "auto-completion": true,
+      "auto-completion-delay-ms": 50,
+      "privacy": { "patterns": [] },
+      "interface": default_interface(),
+      "agent": { "preset": "snapshot" },
+      "agent-presets": {
+        "snapshot": {
+          "command": agent,
+          "uses-mcp": false,
+          "uses-tool-cli": false
+        }
+      },
+      "auto-completer": {
+        "command": completer,
+        "uses-mcp": false,
+        "uses-tool-cli": false
+      }
+    }))?,
+  )?;
+  let guest = temp.path().join("guest.sh");
+  executable(
+    &guest,
+    "#!/bin/sh\nstty raw -echo\nprintf '\\033]133;A\\007$ \\033]133;B\\007'\nwhile byte=$(dd bs=1 count=1 2>/dev/null); do [ -n \"$byte\" ] || continue; printf %s \"$byte\"; done\n",
+  )?;
+  let command = format!(
+    "XDG_CONFIG_HOME={} XDG_CACHE_HOME={} {} -- {}",
+    quote(temp.path()),
+    quote(&temp.path().join("cache")),
+    quote(Path::new(env!("CARGO_BIN_EXE_terminai"))),
+    quote(&guest),
+  );
+  let mut scenario =
+    Scenario::new(&command, Path::new(env!("CARGO_MANIFEST_DIR")));
+  scenario.steps = steps;
+  scenario.timeout = Duration::from_secs(10);
+  scenario.assert_snapshots(name)
+}
+
 #[test]
 fn emulator_harness_preserves_formatting_and_scrollback() -> Result<()> {
   let steps = [
@@ -713,4 +766,39 @@ fn terminai_confirms_agent_switch() -> Result<()> {
     Step::WaitFor(b"new-session"),
   ];
   assert_agent_switch("terminai_confirms_agent_switch", &steps)
+}
+
+#[test]
+fn terminai_completion_appears_once() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"$"),
+    Step::Write(b"git s"),
+    Step::Pause(Duration::from_millis(200)),
+    Step::WaitFor(b"tatus"),
+  ];
+  assert_completion("terminai_completion_appears_once", &steps)
+}
+
+#[test]
+fn terminai_discards_completion_after_typing() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"$"),
+    Step::Write(b"git s"),
+    Step::Pause(Duration::from_millis(200)),
+    Step::Write(b"x"),
+    Step::Pause(Duration::from_millis(1500)),
+  ];
+  assert_completion("terminai_discards_completion_after_typing", &steps)
+}
+
+#[test]
+fn terminai_discards_completion_after_paste() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"$"),
+    Step::Write(b"git s"),
+    Step::Pause(Duration::from_millis(200)),
+    Step::Write(b"\x1b[200~x\x1b[201~"),
+    Step::Pause(Duration::from_millis(1500)),
+  ];
+  assert_completion("terminai_discards_completion_after_paste", &steps)
 }

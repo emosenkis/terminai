@@ -1,0 +1,28 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+[m$ git s[38;5;8m[49m[29m[28m[27m[25m[25m[22m[24m[22m[3mtatus
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[m

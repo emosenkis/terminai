@@ -1,0 +1,5 @@
+---
+source: src/tests/terminal_snapshots/support.rs
+expression: snapshot
+---
+$ git s[0m[3m[38;5;8mtatus[0m[0m[1;8H

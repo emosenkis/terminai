@@ -25,7 +25,9 @@ impl PrivacyFilter {
 
   pub fn from_config(config: &PrivacyConfig) -> Result<Self> {
     let entity_types = resolve_patterns(&config.patterns)?;
-    start_engine_warmup();
+    if !entity_types.is_empty() {
+      start_engine_warmup();
+    }
     Ok(Self {
       entity_types,
       anonymizer_config: AnonymizerConfig {
@@ -56,6 +58,9 @@ impl PrivacyFilter {
 
   /// Filter text. Fail closed if Redact cannot process a matching request.
   pub async fn filter(&self, text: &str) -> String {
+    if self.entity_types.is_empty() {
+      return text.to_string();
+    }
     let engine = self.engine().await;
     let Ok(analysis) =
       engine.analyze_with_entities(text, &self.entity_types, None)
@@ -278,6 +283,17 @@ mod tests {
     let address = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
 
     assert_eq!(filter.filter(address).await, address);
+  }
+
+  #[tokio::test]
+  async fn empty_patterns_leave_text_unchanged() {
+    let filter = PrivacyFilter::from_config(&PrivacyConfig {
+      patterns: Vec::new(),
+      ..Default::default()
+    })
+    .unwrap();
+
+    assert_eq!(filter.filter("user@example.com").await, "user@example.com");
   }
 
   #[tokio::test]
