@@ -540,7 +540,7 @@ fn terminai_unicode_cell_boundaries() -> Result<()> {
   let steps = [Step::WaitFor(b"unicode-ready")];
   assert_terminai(
     "terminai_unicode_cell_boundaries",
-    "#!/bin/sh\nprintf 'combining: e\\314\\201 | wide: \\344\\270\\255\\346\\226\\207 | emoji: \\360\\237\\221\\251\\342\\200\\215\\360\\237\\222\\273\\r\\nunicode-ready\\r\\n'\nsleep 30\n",
+    "#!/bin/sh\nprintf 'combining: e\\314\\201 | wide: \\344\\270\\255\\346\\226\\207 | emoji: \\360\\237\\221\\251\\342\\200\\215\\360\\237\\222\\273\\r\\nlast-column:'\ni=1\nwhile [ $i -le 67 ]; do printf x; i=$((i + 1)); done\nprintf '\\344\\270\\255\\r\\nunicode-ready\\r\\n'\nsleep 30\n",
     &steps,
     default_interface(),
     false,

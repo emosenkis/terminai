@@ -3,9 +3,9 @@ source: src/tests/terminal_snapshots/support.rs
 expression: snapshot
 ---
 combining:[Cé[C|[Cwide:[C中文[C|[Cemoji:[C👩‍💻[m
+last-column:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx[m
+中[m
 unicode-ready[m
-[m
-[m
 [m
 [m
 [m

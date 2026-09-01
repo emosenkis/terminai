@@ -3,9 +3,9 @@ source: src/tests/terminal_snapshots/support.rs
 expression: snapshot
 ---
 [mcombining: e | wide: 中文 | emoji: 👩💻
+[mlast-column:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+[m中
 [municode-ready
-
-
 
 
 
