@@ -267,7 +267,7 @@ Custom templates can extend the bundled prompt and override individual blocks:
 {% block introduction %}Your customized introduction.{% endblock %}
 ```
 
-The generated [configuration reference](https://terminai.app/config.html) documents every field, and versioned JSON Schemas are published at `https://terminai.app/schema-v<version>.json`.
+The generated [configuration reference](https://terminai.app/config.html) documents every field. The current JSON Schema is published at `https://terminai.app/schema.json`, with versioned copies at `https://terminai.app/schema-v<version>.json`.
 
 The agent picker includes bundled presets and user presets unless a user
 preset sets `show-in-switcher: false`. Switching terminates the current agent

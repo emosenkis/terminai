@@ -32,6 +32,8 @@ If the user did not specify major, minor, or patch, ask for that one missing det
    - `src/Cargo.toml`
    - `Cargo.lock`
    - any other tracked references to the package version that are intentionally versioned
+   - Run `cargo run --manifest-path src/Cargo.toml --features schema --bin dump-config-schema`
+     and include both the new versioned schema and `docs/schema.json`.
 4. Add a `CHANGELOG.md` entry for the new version with the current date and the *user-visible* changes.
    - If changelog validation rejects new Markdown syntax, decide deliberately
      whether that formatting is valuable enough to become supported syntax.
