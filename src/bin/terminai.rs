@@ -1687,9 +1687,6 @@ struct CompletionUiState {
   suggestions: Vec<String>,
   selected: usize,
   waiting_for_shell_echo: bool,
-  trigger_progress: usize,
-  trigger_at: Option<Instant>,
-  pending_trigger_keys: Vec<Key>,
 }
 
 impl CompletionUiState {
@@ -1705,9 +1702,6 @@ impl CompletionUiState {
     self.due = None;
     self.clear_suggestions();
     self.waiting_for_shell_echo = false;
-    self.trigger_progress = 0;
-    self.trigger_at = None;
-    self.pending_trigger_keys.clear();
   }
 
   fn suffix(&self) -> Option<&str> {
@@ -2193,7 +2187,7 @@ impl AppState {
 
   fn request_completion(&mut self) {
     self.invalidate_completion();
-    if !self.completion.prompt_active || self.completion.input.is_empty() {
+    if self.completion.input.is_empty() {
       return;
     }
     let (Some(handle), Some(mcp_state), Some(active_plan)) = (
@@ -2274,10 +2268,6 @@ impl AppState {
   }
 
   fn record_shell_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-    if !self.completion.prompt_active {
-      self.invalidate_completion();
-      return;
-    }
     match code {
       KeyCode::Char(ch)
         if !modifiers.intersects(
@@ -2320,6 +2310,7 @@ impl AppState {
       _ => {
         self.completion.waiting_for_shell_echo = true;
         self.invalidate_completion();
+        self.completion.input.clear();
         // ponytail: stop after opaque shell editing; add shell-specific
         // buffer-and-cursor reporting if same-prompt recovery is needed.
         self.completion.prompt_active = false;
@@ -2328,10 +2319,7 @@ impl AppState {
   }
 
   fn record_shell_paste(&mut self, text: &str) {
-    if self.completion.prompt_active
-      && !text.is_empty()
-      && !text.chars().any(char::is_control)
-    {
+    if !text.is_empty() && !text.chars().any(char::is_control) {
       self.completion.waiting_for_shell_echo = true;
       self.completion.input.push_str(text);
       self.schedule_completion();
@@ -2344,68 +2332,6 @@ impl AppState {
     self
       .completion
       .reset(matches!(marker, SemanticPromptMarker::CommandStart));
-  }
-
-  fn flush_pending_completion_keys(&mut self) -> Result<()> {
-    for key in std::mem::take(&mut self.completion.pending_trigger_keys) {
-      self.shell.send_key(key)?;
-      self.record_shell_key(key.code(), key.mods());
-    }
-    self.completion.trigger_progress = 0;
-    self.completion.trigger_at = None;
-    Ok(())
-  }
-
-  fn handle_completion_trigger(
-    &mut self,
-    combination: KeyCombination,
-    key: Key,
-  ) -> Result<bool> {
-    let now = Instant::now();
-    if self
-      .completion
-      .trigger_at
-      .is_some_and(|at| now.duration_since(at) > Duration::from_millis(600))
-    {
-      self.flush_pending_completion_keys()?;
-    }
-    let sequence = self
-      .config
-      .interface
-      .key_bindings
-      .request_completion
-      .0
-      .clone();
-    if sequence.is_empty() {
-      return Ok(false);
-    }
-    if sequence.get(self.completion.trigger_progress) == Some(&combination) {
-      self.completion.trigger_progress += 1;
-      self.completion.trigger_at = Some(now);
-      self.completion.pending_trigger_keys.push(key);
-      if self.completion.trigger_progress == sequence.len() {
-        self.completion.trigger_progress = 0;
-        self.completion.trigger_at = None;
-        self.completion.pending_trigger_keys.clear();
-        self.request_completion();
-      }
-      return Ok(true);
-    } else {
-      self.flush_pending_completion_keys()?;
-      if sequence.first() == Some(&combination) {
-        self.completion.trigger_progress = 1;
-        self.completion.trigger_at = Some(now);
-        self.completion.pending_trigger_keys.push(key);
-        if sequence.len() == 1 {
-          self.completion.trigger_progress = 0;
-          self.completion.trigger_at = None;
-          self.completion.pending_trigger_keys.clear();
-          self.request_completion();
-        }
-        return Ok(true);
-      }
-    }
-    Ok(false)
   }
 
   fn request_approval_mode_toggle(&mut self) {
@@ -3338,7 +3264,6 @@ fn event(
           && !state.ai_visible
         {
           log::info!("Activate overlay key pressed: {:?}", key_combo);
-          state.flush_pending_completion_keys()?;
           state.show_ai_modal()?;
           log::info!("AI overlay shown");
           break 'm Control::Changed;
@@ -3396,10 +3321,15 @@ fn event(
           }
           let key = Key::new(*code, *modifiers);
           if let Some(key_combo) = key_combo
-            && state.completion.prompt_active
             && !state.completion.input.is_empty()
-            && state.handle_completion_trigger(key_combo, key)?
+            && state
+              .config
+              .interface
+              .key_bindings
+              .request_completion
+              .matches(key_combo)
           {
+            state.request_completion();
             break 'm Control::Changed;
           }
           // Route to shell when AI overlay not visible
@@ -3609,11 +3539,6 @@ fn event(
     }
     AppEvent::Crossterm(_) => Control::Continue,
     AppEvent::Timer(_) => {
-      if state.completion.trigger_at.is_some_and(|at| {
-        Instant::now().duration_since(at) > Duration::from_millis(600)
-      }) {
-        state.flush_pending_completion_keys()?;
-      }
       if state
         .completion
         .due

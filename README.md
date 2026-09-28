@@ -114,7 +114,7 @@ interface:
     layout-mode: F9
     control-panel: F10
     toggle-fullscreen: F11
-    request-completion: [Tab, Tab]
+    request-completion: BackTab # Shift-Tab
 
 approval-mode: always-ask
 auto-completion: false
@@ -144,14 +144,17 @@ shows the best completion as gray ghost text at the shell cursor. It never
 inserts or runs the suggestion automatically. Press Right or End to accept,
 Esc to dismiss, Tab/Down for the next result, or Shift-Tab/Up for the previous
 one. Typing matching characters shortens the ghost text; other input dismisses
-it. The configured `request-completion` key sequence works even when automatic
-completion is off and defaults to `[Tab, Tab]`.
+it. The configured `request-completion` shortcut works even when automatic
+completion is off, defaults to Shift-Tab (`BackTab` in configuration), and does
+not require semantic prompt markers.
 
 #### Semantic prompt markers
 
-Terminai uses the standard OSC 133 or OSC 633 `A`/`B` markers to distinguish
-prompt text from editable shell input; `C`/`D` markers are also recognized. It
-does not add visible sentinel text to the guest shell.
+Automatic completion uses the standard OSC 133 or OSC 633 `A`/`B` markers to
+distinguish prompt text from editable shell input; `C`/`D` markers are also
+recognized. Manual completion does not need them. These are invisible shell
+integration signals, unrelated to the `\\r`, `\\u0003`, and `\\u001b` escapes
+that an AI agent may use when suggesting keystrokes.
 
 - [Fish 4.0 and newer](https://fishshell.com/docs/current/terminal-compatibility.html)
   emits OSC 133 markers itself.

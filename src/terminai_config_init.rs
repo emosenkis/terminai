@@ -32,7 +32,7 @@ interface:
     layout-mode: "F9"
     control-panel: "F10"
     toggle-fullscreen: "F11"
-    request-completion: ["Tab", "Tab"]
+    request-completion: "BackTab"
 
 # DANGER: auto-approval sends every AI suggestion directly to the shell
 # without consulting the command risk classifier.

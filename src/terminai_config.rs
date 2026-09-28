@@ -66,29 +66,6 @@ pub enum OneOrMoreBindings {
   Multiple(Vec<KeyCombination>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(transparent)]
-pub struct KeySequence(pub Vec<KeyCombination>);
-
-#[cfg(feature = "schema")]
-impl JsonSchema for KeySequence {
-  fn schema_name() -> Cow<'static, str> {
-    "KeySequence".into()
-  }
-
-  fn schema_id() -> Cow<'static, str> {
-    concat!(module_path!(), "::KeySequence").into()
-  }
-
-  fn json_schema(_: &mut SchemaGenerator) -> Schema {
-    json_schema!({
-      "type": "array",
-      "items": { "type": "string" },
-      "minItems": 1
-    })
-  }
-}
-
 #[cfg(feature = "schema")]
 impl JsonSchema for OneOrMoreBindings {
   fn schema_name() -> Cow<'static, str> {
@@ -153,7 +130,7 @@ pub struct KeyBindingsConfig {
     default = "default_request_completion_binding",
     rename = "request-completion"
   )]
-  pub request_completion: KeySequence,
+  pub request_completion: OneOrMoreBindings,
 }
 
 fn default_layout_mode_binding() -> OneOrMoreBindings {
@@ -168,8 +145,8 @@ fn default_toggle_fullscreen_binding() -> OneOrMoreBindings {
   OneOrMoreBindings::Single(key!(f11))
 }
 
-fn default_request_completion_binding() -> KeySequence {
-  KeySequence(vec![key!(tab), key!(tab)])
+fn default_request_completion_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(shift - backtab))
 }
 
 impl Default for KeyBindingsConfig {
@@ -672,7 +649,7 @@ agent:
     );
     assert_eq!(
       config.interface.key_bindings.request_completion,
-      KeySequence(vec![key!(tab), key!(tab)])
+      OneOrMoreBindings::Single(key!(shift - backtab))
     );
     assert!(
       config

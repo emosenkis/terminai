@@ -134,7 +134,12 @@ fn assert_agent_switch(name: &str, steps: &[Step<'_>]) -> Result<()> {
   scenario.assert_snapshots(name)
 }
 
-fn assert_completion(name: &str, steps: &[Step<'_>]) -> Result<()> {
+fn assert_completion(
+  name: &str,
+  automatic: bool,
+  markers: bool,
+  steps: &[Step<'_>],
+) -> Result<()> {
   let temp = tempfile::tempdir()?;
   let config_dir = temp.path().join("terminai");
   std::fs::create_dir_all(&config_dir)?;
@@ -149,7 +154,7 @@ fn assert_completion(name: &str, steps: &[Step<'_>]) -> Result<()> {
     config_dir.join("terminai.yaml"),
     serde_yaml::to_string(&serde_json::json!({
       "changelog": false,
-      "auto-completion": true,
+      "auto-completion": automatic,
       "auto-completion-delay-ms": 50,
       "privacy": { "patterns": [] },
       "interface": default_interface(),
@@ -171,7 +176,11 @@ fn assert_completion(name: &str, steps: &[Step<'_>]) -> Result<()> {
   let guest = temp.path().join("guest.sh");
   executable(
     &guest,
-    "#!/bin/sh\nstty raw -echo\nprintf '\\033]133;A\\007$ \\033]133;B\\007'\nwhile byte=$(dd bs=1 count=1 2>/dev/null); do [ -n \"$byte\" ] || continue; printf %s \"$byte\"; done\n",
+    if markers {
+      "#!/bin/sh\nstty raw -echo\nprintf '\\033]133;A\\007$ \\033]133;B\\007'\nwhile byte=$(dd bs=1 count=1 2>/dev/null); do [ -n \"$byte\" ] || continue; printf %s \"$byte\"; done\n"
+    } else {
+      "#!/bin/sh\nstty raw -echo\nprintf '$ '\nwhile byte=$(dd bs=1 count=1 2>/dev/null); do [ -n \"$byte\" ] || continue; printf %s \"$byte\"; done\n"
+    },
   )?;
   let command = format!(
     "XDG_CONFIG_HOME={} XDG_CACHE_HOME={} {} -- {}",
@@ -776,7 +785,7 @@ fn terminai_completion_appears_once() -> Result<()> {
     Step::Pause(Duration::from_millis(200)),
     Step::WaitFor(b"tatus"),
   ];
-  assert_completion("terminai_completion_appears_once", &steps)
+  assert_completion("terminai_completion_appears_once", true, true, &steps)
 }
 
 #[test]
@@ -788,7 +797,12 @@ fn terminai_discards_completion_after_typing() -> Result<()> {
     Step::Write(b"x"),
     Step::Pause(Duration::from_millis(1500)),
   ];
-  assert_completion("terminai_discards_completion_after_typing", &steps)
+  assert_completion(
+    "terminai_discards_completion_after_typing",
+    true,
+    true,
+    &steps,
+  )
 }
 
 #[test]
@@ -800,5 +814,26 @@ fn terminai_discards_completion_after_paste() -> Result<()> {
     Step::Write(b"\x1b[200~x\x1b[201~"),
     Step::Pause(Duration::from_millis(1500)),
   ];
-  assert_completion("terminai_discards_completion_after_paste", &steps)
+  assert_completion(
+    "terminai_discards_completion_after_paste",
+    true,
+    true,
+    &steps,
+  )
+}
+
+#[test]
+fn terminai_manually_requests_completion_without_prompt_markers() -> Result<()>
+{
+  let steps = [
+    Step::WaitFor(b"$"),
+    Step::Write(b"git s\x1b[Z"),
+    Step::WaitFor(b"tatus"),
+  ];
+  assert_completion(
+    "terminai_manually_requests_completion_without_prompt_markers",
+    false,
+    false,
+    &steps,
+  )
 }

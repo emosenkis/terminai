@@ -1,3 +1,8 @@
+## 0.1.25 - 2026-09-28
+
+- Make manual command completion work without OSC prompt markers and replace
+  Tab-Tab sequence buffering with the native Shift-Tab shortcut.
+
 ## 0.1.24 - 2026-08-31
 
 - Replace eager command insertion with debounced, explicitly accepted ghost-text

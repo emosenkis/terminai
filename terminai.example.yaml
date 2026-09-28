@@ -12,7 +12,7 @@ interface:
     layout-mode: F9
     control-panel: F10
     toggle-fullscreen: F11
-    request-completion: [Tab, Tab]
+    request-completion: BackTab
 # DANGER: auto-approval sends every AI suggestion directly to the shell.
 approval-mode: always-ask
 # Show AI ghost-text suggestions after typed input has been idle.
