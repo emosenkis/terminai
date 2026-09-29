@@ -147,8 +147,9 @@ for DEC mode 2026. Set it to `false` to disable the capability.
 unchanged guest away from AI). Runtime layout changes last for the session.
 
 `auto-completion.on-prompt-pause` defaults to `false`. When enabled, Terminai
-waits until typed shell input has been idle for `delay-ms` (750 by default), then
-shows the best completion as gray ghost text at the shell cursor. It never
+waits until the prompt or typed shell input has been idle for `delay-ms` (750 by
+default), then shows the best completion as gray ghost text at the shell cursor.
+This includes a newly displayed empty prompt. It never
 inserts or runs the suggestion automatically. Press Right or End to accept,
 Esc to dismiss, Tab/Down for the next result, or Shift-Tab/Up for the previous
 one. Typing matching characters shortens the ghost text; other input dismisses

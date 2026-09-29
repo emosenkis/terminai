@@ -68,8 +68,8 @@ use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
 use termin::completion::{
   SemanticPromptMarker, command_completion_prompt,
-  command_completion_suffix_prompt, current_completion, run_completion,
-  semantic_prompt_marker,
+  command_completion_suffix_prompt, completion_with_prefix, current_completion,
+  run_completion, semantic_prompt_marker,
 };
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
@@ -2182,10 +2182,7 @@ impl AppState {
 
   fn schedule_completion(&mut self) {
     self.invalidate_completion();
-    if self.completion.automatic
-      && self.completion.prompt_active
-      && !self.completion.input.is_empty()
-    {
+    if self.completion.automatic && self.completion.prompt_active {
       self.completion.due = Instant::now()
         .checked_add(Duration::from_millis(self.config.completion_delay_ms()));
     }
@@ -2281,21 +2278,23 @@ impl AppState {
         current_completion(self.completion.generation, generation, result)
       {
         let received = suggestions.len();
-        let mut prefix_mismatch = 0;
+        let mut normalized_repeated_prefix = 0;
         let mut no_suffix = 0;
         self.completion.suggestions = suggestions
           .into_iter()
-          .filter(|suggestion| {
+          .filter_map(|suggestion| {
             if suffixes_only {
-              true
-            } else if !suggestion.starts_with(&self.completion.input) {
-              prefix_mismatch += 1;
-              false
-            } else if suggestion.len() <= self.completion.input.len() {
-              no_suffix += 1;
-              false
+              Some(suggestion)
             } else {
-              true
+              let appended = format!("{}{}", self.completion.input, suggestion);
+              let normalized =
+                completion_with_prefix(&self.completion.input, &suggestion);
+              if normalized.is_none() {
+                no_suffix += 1;
+              } else if normalized.as_ref() != Some(&appended) {
+                normalized_repeated_prefix += 1;
+              }
+              normalized
             }
           })
           .collect();
@@ -2303,7 +2302,7 @@ impl AppState {
         let usable = self.completion.suggestions.len();
         if usable == 0 {
           log::warn!(
-            "AI command completion produced no usable suggestions: generation={generation}, source={}, received={received}, prefix_mismatch={prefix_mismatch}, no_appendable_suffix={no_suffix}, tracked_input_chars={}",
+            "AI command completion produced no usable suggestions: generation={generation}, source={}, received={received}, normalized_repeated_prefix={normalized_repeated_prefix}, no_appendable_suffix={no_suffix}, tracked_input_chars={}",
             if suffixes_only {
               "terminal-snapshot"
             } else {
@@ -2313,7 +2312,7 @@ impl AppState {
           );
         } else {
           log::info!(
-            "AI command completion finished: generation={generation}, source={}, received={received}, usable={usable}",
+            "AI command completion finished: generation={generation}, source={}, received={received}, usable={usable}, normalized_repeated_prefix={normalized_repeated_prefix}",
             if suffixes_only {
               "terminal-snapshot"
             } else {
@@ -2409,9 +2408,11 @@ impl AppState {
   }
 
   fn handle_semantic_prompt_marker(&mut self, marker: SemanticPromptMarker) {
-    self
-      .completion
-      .reset(matches!(marker, SemanticPromptMarker::CommandStart));
+    let prompt_active = matches!(marker, SemanticPromptMarker::CommandStart);
+    self.completion.reset(prompt_active);
+    if prompt_active {
+      self.schedule_completion();
+    }
   }
 
   fn request_approval_mode_toggle(&mut self) {

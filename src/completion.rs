@@ -35,12 +35,20 @@ pub fn command_completion_prompt(terminal: &str, input: &str) -> String {
   let input_json = serde_json::to_string(input)
     .expect("serializing a string as JSON cannot fail");
   render_completion_prompt(
-    context! { mode => "full-command", terminal, input_json },
+    context! { mode => "tracked-input", terminal, input_json },
   )
 }
 
 pub fn command_completion_suffix_prompt(terminal: &str) -> String {
-  render_completion_prompt(context! { mode => "append-only-suffix", terminal })
+  render_completion_prompt(context! { mode => "terminal-snapshot", terminal })
+}
+
+pub fn completion_with_prefix(input: &str, suggestion: &str) -> Option<String> {
+  let suffix = suggestion
+    .strip_prefix(input)
+    .or_else(|| suggestion.trim_start().strip_prefix(input.trim_start()));
+  let suffix = suffix.unwrap_or(suggestion);
+  (!suffix.is_empty()).then(|| format!("{input}{suffix}"))
 }
 
 fn render_completion_prompt(context: minijinja::Value) -> String {
@@ -152,19 +160,47 @@ mod tests {
   }
 
   #[test]
-  fn prompt_requests_only_exact_non_executing_shell_input() {
+  fn prompt_requests_append_only_non_executing_shell_input() {
     let prompt = command_completion_prompt(
       "$ cargo test\nerror: failed\n$ git s",
       "git s",
     );
     assert!(prompt.contains("$ cargo test\nerror: failed"));
     assert!(prompt.contains("$ git s"));
+    assert!(prompt.contains("<mode>tracked-input</mode>"));
     assert!(prompt.contains("<editable-input-json>\"git s\""));
-    assert!(prompt.contains("Do not return only the missing suffix"));
+    assert!(prompt.contains("exactly the characters to append"));
+    assert!(prompt.contains("<example>"));
+    assert!(!prompt.contains("<example "));
 
     let prompt = command_completion_suffix_prompt("$ git");
-    assert!(prompt.contains("mode=\"append-only-suffix\""));
-    assert!(prompt.contains(r#"valid='[" status"]'"#));
+    assert!(prompt.contains("<mode>terminal-snapshot</mode>"));
+    assert!(prompt.contains("<good>[\"tatus\",\"witch \"]</good>"));
+  }
+
+  #[test]
+  fn suffix_results_tolerate_repeated_prefix_and_leading_whitespace() {
+    assert_eq!(
+      completion_with_prefix("git s", "tatus"),
+      Some("git status".into())
+    );
+    assert_eq!(
+      completion_with_prefix("git s", "git status"),
+      Some("git status".into())
+    );
+    assert_eq!(
+      completion_with_prefix("  git s", "git status"),
+      Some("  git status".into())
+    );
+    assert_eq!(
+      completion_with_prefix("git s", "   git status"),
+      Some("git status".into())
+    );
+    assert_eq!(completion_with_prefix("git s", "git s"), None);
+    assert_eq!(
+      completion_with_prefix("", "git status"),
+      Some("git status".into())
+    );
   }
 
   #[tokio::test]

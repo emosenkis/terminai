@@ -138,6 +138,7 @@ fn assert_completion(
   name: &str,
   automatic: bool,
   markers: bool,
+  response: &str,
   steps: &[Step<'_>],
 ) -> Result<()> {
   let temp = tempfile::tempdir()?;
@@ -148,7 +149,9 @@ fn assert_completion(
   let completer = temp.path().join("completer.sh");
   executable(
     &completer,
-    "#!/bin/sh\nsleep 1\nprintf '[\"git status\"]\\n'\n",
+    &format!(
+      "#!/bin/sh\nsleep 1\ncase \"$1\" in *'\"git sx\"'*) printf '%s\\n' '[]';; *) printf '%s\\n' '{response}';; esac\n"
+    ),
   )?;
   std::fs::write(
     config_dir.join("terminai.yaml"),
@@ -159,6 +162,7 @@ fn assert_completion(
         "delay-ms": 50,
         "agent": {
           "command": completer,
+          "args": ["{{ prompt }}"],
           "uses-mcp": false,
           "uses-tool-cli": false
         }
@@ -787,7 +791,13 @@ fn terminai_completion_appears_once() -> Result<()> {
     Step::Pause(Duration::from_millis(200)),
     Step::WaitFor(b"tatus"),
   ];
-  assert_completion("terminai_completion_appears_once", true, true, &steps)
+  assert_completion(
+    "terminai_completion_appears_once",
+    true,
+    true,
+    r#"["tatus"]"#,
+    &steps,
+  )
 }
 
 #[test]
@@ -803,6 +813,7 @@ fn terminai_discards_completion_after_typing() -> Result<()> {
     "terminai_discards_completion_after_typing",
     true,
     true,
+    r#"["tatus"]"#,
     &steps,
   )
 }
@@ -820,6 +831,7 @@ fn terminai_discards_completion_after_paste() -> Result<()> {
     "terminai_discards_completion_after_paste",
     true,
     true,
+    r#"["tatus"]"#,
     &steps,
   )
 }
@@ -836,6 +848,39 @@ fn terminai_manually_requests_completion_without_prompt_markers() -> Result<()>
     "terminai_manually_requests_completion_without_prompt_markers",
     false,
     false,
+    r#"["tatus"]"#,
+    &steps,
+  )
+}
+
+#[test]
+fn terminai_automatically_completes_empty_prompt() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"$"),
+    Step::Pause(Duration::from_millis(200)),
+    Step::WaitFor(b"ls"),
+  ];
+  assert_completion(
+    "terminai_automatically_completes_empty_prompt",
+    true,
+    true,
+    r#"["ls"]"#,
+    &steps,
+  )
+}
+
+#[test]
+fn terminai_manually_completes_empty_prompt() -> Result<()> {
+  let steps = [
+    Step::WaitFor(b"$"),
+    Step::Write(b"\x1b[Z"),
+    Step::WaitFor(b"ls"),
+  ];
+  assert_completion(
+    "terminai_manually_completes_empty_prompt",
+    false,
+    false,
+    r#"["ls"]"#,
     &steps,
   )
 }
