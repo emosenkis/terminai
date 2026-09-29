@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, bail};
+use minijinja::{Environment, UndefinedBehavior, context};
 
 use crate::agent_launcher::AgentLaunchPlan;
+
+const COMPLETION_PROMPT: &str = include_str!("../config/completion.jinja");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemanticPromptMarker {
@@ -28,10 +31,24 @@ pub fn semantic_prompt_marker(escape: &str) -> Option<SemanticPromptMarker> {
   }
 }
 
-pub fn command_completion_prompt(terminal: &str) -> String {
-  format!(
-    "Complete the editable input at the final shell prompt. Return a JSON array containing up to three likely full command lines, best first. Return only the JSON array with no Markdown or explanation. Do not include Enter, a newline, or any control character inside a command. Every result must begin exactly with the current input.\n\nTerminal:\n{terminal}"
+pub fn command_completion_prompt(terminal: &str, input: &str) -> String {
+  let input_json = serde_json::to_string(input)
+    .expect("serializing a string as JSON cannot fail");
+  render_completion_prompt(
+    context! { mode => "full-command", terminal, input_json },
   )
+}
+
+pub fn command_completion_suffix_prompt(terminal: &str) -> String {
+  render_completion_prompt(context! { mode => "append-only-suffix", terminal })
+}
+
+fn render_completion_prompt(context: minijinja::Value) -> String {
+  let mut environment = Environment::new();
+  environment.set_undefined_behavior(UndefinedBehavior::Strict);
+  environment
+    .render_str(COMPLETION_PROMPT, context)
+    .expect("bundled completion prompt template must render")
 }
 
 pub async fn run_completion(plan: AgentLaunchPlan) -> Result<Vec<String>> {
@@ -61,12 +78,11 @@ pub fn completion_texts(output: &str) -> Option<Vec<String>> {
     .unwrap_or_else(|_| vec![text.to_string()]);
   let mut safe = Vec::new();
   for value in values {
-    let value = value.trim();
-    if !value.is_empty()
+    if !value.trim().is_empty()
       && !value.chars().any(char::is_control)
-      && !safe.iter().any(|existing| existing == value)
+      && !safe.contains(&value)
     {
-      safe.push(value.to_string());
+      safe.push(value);
     }
     if safe.len() == 3 {
       break;
@@ -125,6 +141,10 @@ mod tests {
       completion_texts(" git status \n"),
       Some(vec!["git status".into()])
     );
+    assert_eq!(
+      completion_texts("[\" status\"]"),
+      Some(vec![" status".into()])
+    );
     assert_eq!(completion_texts("```sh\ngit status\n```"), None);
     assert_eq!(completion_texts("git status\rwhoami"), None);
     assert_eq!(completion_texts("\x1b[31mrm -rf /"), None);
@@ -133,11 +153,18 @@ mod tests {
 
   #[test]
   fn prompt_requests_only_exact_non_executing_shell_input() {
-    let prompt =
-      command_completion_prompt("$ cargo test\nerror: failed\n$ git s");
+    let prompt = command_completion_prompt(
+      "$ cargo test\nerror: failed\n$ git s",
+      "git s",
+    );
     assert!(prompt.contains("$ cargo test\nerror: failed"));
     assert!(prompt.contains("$ git s"));
-    assert!(prompt.contains("Do not include Enter"));
+    assert!(prompt.contains("<editable-input-json>\"git s\""));
+    assert!(prompt.contains("Do not return only the missing suffix"));
+
+    let prompt = command_completion_suffix_prompt("$ git");
+    assert!(prompt.contains("mode=\"append-only-suffix\""));
+    assert!(prompt.contains(r#"valid='[" status"]'"#));
   }
 
   #[tokio::test]

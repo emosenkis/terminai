@@ -67,8 +67,9 @@ use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
 use termin::completion::{
-  SemanticPromptMarker, command_completion_prompt, current_completion,
-  run_completion, semantic_prompt_marker,
+  SemanticPromptMarker, command_completion_prompt,
+  command_completion_suffix_prompt, current_completion, run_completion,
+  semantic_prompt_marker,
 };
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
@@ -102,7 +103,7 @@ use termin::shell_resolution::{parent_shell, resolve_shell};
 const RENDER_INTERVAL: Duration = Duration::from_millis(16);
 const MAX_SCROLLBACK_ROWS_PER_FRAME: usize = 64;
 const CHANGELOG_ACK_FILE: &str = "changelog-version";
-type CompletionResult = (u64, std::result::Result<Vec<String>, String>);
+type CompletionResult = (u64, bool, std::result::Result<Vec<String>, String>);
 
 fn changelog_ack_path() -> Result<PathBuf> {
   Ok(termin::paths::cache_dir()?.join(CHANGELOG_ACK_FILE))
@@ -1686,6 +1687,8 @@ struct CompletionUiState {
   due: Option<Instant>,
   suggestions: Vec<String>,
   selected: usize,
+  suggestions_are_suffixes: bool,
+  pending_since: Option<Instant>,
   waiting_for_shell_echo: bool,
 }
 
@@ -1693,6 +1696,7 @@ impl CompletionUiState {
   fn clear_suggestions(&mut self) {
     self.suggestions.clear();
     self.selected = 0;
+    self.suggestions_are_suffixes = false;
   }
 
   fn reset(&mut self, prompt_active: bool) {
@@ -1705,11 +1709,13 @@ impl CompletionUiState {
   }
 
   fn suffix(&self) -> Option<&str> {
-    self
-      .suggestions
-      .get(self.selected)
-      .and_then(|suggestion| suggestion.strip_prefix(&self.input))
-      .filter(|suffix| !suffix.is_empty())
+    let suggestion = self.suggestions.get(self.selected)?;
+    (if self.suggestions_are_suffixes {
+      Some(suggestion.as_str())
+    } else {
+      suggestion.strip_prefix(&self.input)
+    })
+    .filter(|suffix| !suffix.is_empty())
   }
 }
 
@@ -2170,6 +2176,7 @@ impl AppState {
   fn invalidate_completion(&mut self) {
     self.completion.generation = self.completion.generation.wrapping_add(1);
     self.completion.due = None;
+    self.completion.pending_since = None;
     self.completion.clear_suggestions();
   }
 
@@ -2187,14 +2194,20 @@ impl AppState {
 
   fn request_completion(&mut self) {
     self.invalidate_completion();
-    if self.completion.input.is_empty() {
+    let input = self.completion.input.clone();
+    let tracked_input = !self.completion.input.is_empty();
+    let Some(handle) = self.completion_handle.clone() else {
+      log::warn!("AI command completion skipped: async runtime unavailable");
       return;
-    }
-    let (Some(handle), Some(mcp_state), Some(active_plan)) = (
-      self.completion_handle.clone(),
-      self.mcp_state.clone(),
-      self.agent_launch_plan.as_ref(),
-    ) else {
+    };
+    let Some(mcp_state) = self.mcp_state.clone() else {
+      log::warn!("AI command completion skipped: terminal state unavailable");
+      return;
+    };
+    let Some(active_plan) = self.agent_launch_plan.as_ref() else {
+      log::warn!(
+        "AI command completion skipped: agent launch plan unavailable"
+      );
       return;
     };
     let generation = self.completion.generation;
@@ -2207,13 +2220,26 @@ impl AppState {
       .clone()
       .unwrap_or_else(|| active_plan.cwd.clone());
 
+    self.completion.pending_since = Some(Instant::now());
+    log::info!(
+      "AI command completion requested: generation={generation}, source={}",
+      if tracked_input {
+        "tracked-input"
+      } else {
+        "terminal-snapshot"
+      }
+    );
     handle.spawn(async move {
       let result = async {
         let terminal = mcp_state
           .filtered_terminal_text(120)
           .await
           .map_err(|err| format!("{err:?}"))?;
-        let prompt = command_completion_prompt(&terminal);
+        let prompt = if tracked_input {
+          command_completion_prompt(&terminal, &input)
+        } else {
+          command_completion_suffix_prompt(&terminal)
+        };
         let context = AgentLaunchContext::new(
           cwd,
           metadata.mcp_url,
@@ -2232,28 +2258,77 @@ impl AppState {
         run_completion(plan).await.map_err(|err| err.to_string())
       }
       .await;
-      let _ = tx.send((generation, result));
+      if tx.send((generation, !tracked_input, result)).is_err() {
+        log::warn!(
+          "AI command completion result dropped: receiver unavailable"
+        );
+      }
     });
   }
 
   fn process_auto_completions(&mut self) -> bool {
     let mut changed = false;
-    while let Ok((generation, result)) = self.completion_rx.try_recv() {
+    while let Ok((generation, suffixes_only, result)) =
+      self.completion_rx.try_recv()
+    {
+      if generation == self.completion.generation {
+        self.completion.pending_since = None;
+        changed = true;
+      }
       if let Err(err) = &result {
         log::warn!("AI command completion failed: {err}");
       }
       if let Some(suggestions) =
         current_completion(self.completion.generation, generation, result)
       {
+        let received = suggestions.len();
+        let mut prefix_mismatch = 0;
+        let mut no_suffix = 0;
         self.completion.suggestions = suggestions
           .into_iter()
           .filter(|suggestion| {
-            suggestion.starts_with(&self.completion.input)
-              && suggestion.len() > self.completion.input.len()
+            if suffixes_only {
+              true
+            } else if !suggestion.starts_with(&self.completion.input) {
+              prefix_mismatch += 1;
+              false
+            } else if suggestion.len() <= self.completion.input.len() {
+              no_suffix += 1;
+              false
+            } else {
+              true
+            }
           })
           .collect();
+        self.completion.suggestions_are_suffixes = suffixes_only;
+        let usable = self.completion.suggestions.len();
+        if usable == 0 {
+          log::warn!(
+            "AI command completion produced no usable suggestions: generation={generation}, source={}, received={received}, prefix_mismatch={prefix_mismatch}, no_appendable_suffix={no_suffix}, tracked_input_chars={}",
+            if suffixes_only {
+              "terminal-snapshot"
+            } else {
+              "tracked-input"
+            },
+            self.completion.input.chars().count()
+          );
+        } else {
+          log::info!(
+            "AI command completion finished: generation={generation}, source={}, received={received}, usable={usable}",
+            if suffixes_only {
+              "terminal-snapshot"
+            } else {
+              "tracked-input"
+            }
+          );
+        }
         self.completion.selected = 0;
         changed = true;
+      } else if generation != self.completion.generation {
+        log::debug!(
+          "AI command completion discarded as stale: generation={generation}, current_generation={}",
+          self.completion.generation
+        );
       }
     }
     changed
@@ -2307,7 +2382,13 @@ impl AppState {
         self.schedule_completion();
       }
       KeyCode::Enter => self.completion.reset(false),
+      KeyCode::Modifier(_) => {}
       _ => {
+        if !self.completion.input.is_empty() {
+          log::info!(
+            "AI command completion input tracking cleared by shell editing key: code={code:?}, modifiers={modifiers:?}"
+          );
+        }
         self.completion.waiting_for_shell_echo = true;
         self.invalidate_completion();
         self.completion.input.clear();
@@ -2987,6 +3068,24 @@ fn render_completion_ghost(
   }
 }
 
+fn render_completion_spinner(
+  area: Rect,
+  buf: &mut tui::buffer::Buffer,
+  cursor: (u16, u16),
+  pending_since: Instant,
+) {
+  if area.contains(cursor.into()) {
+    let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    let frame = (pending_since.elapsed().as_millis() / 80) as usize;
+    buf.set_string(
+      cursor.0,
+      cursor.1,
+      frames[frame % frames.len()],
+      Style::default().fg(Color::DarkGray),
+    );
+  }
+}
+
 /// rat-salsa render function - render the UI
 fn render(
   area: Rect,
@@ -3054,6 +3153,9 @@ fn render(
       let cursor_pos = (area.x + cursor.1, area.y + cursor.0);
       log::trace!("Setting cursor position: {:?}", cursor_pos);
       ctx.set_screen_cursor(Some(cursor_pos));
+      if let Some(pending_since) = state.completion.pending_since {
+        render_completion_spinner(area, buf, cursor_pos, pending_since);
+      }
       if !state.completion.waiting_for_shell_echo
         && let Some(suffix) = state.completion.suffix()
       {
@@ -3298,7 +3400,9 @@ fn event(
                   state.completion.suffix().map(str::to_string)
                 {
                   state.shell.send_paste(&suffix)?;
-                  state.completion.input.push_str(&suffix);
+                  if !state.completion.suggestions_are_suffixes {
+                    state.completion.input.push_str(&suffix);
+                  }
                   state.invalidate_completion();
                 }
                 break 'm Control::Changed;
@@ -3321,7 +3425,6 @@ fn event(
           }
           let key = Key::new(*code, *modifiers);
           if let Some(key_combo) = key_combo
-            && !state.completion.input.is_empty()
             && state
               .config
               .interface
@@ -3329,6 +3432,11 @@ fn event(
               .request_completion
               .matches(key_combo)
           {
+            log::info!(
+              "Request completion key pressed: {:?}, tracked_input={}",
+              key_combo,
+              !state.completion.input.is_empty()
+            );
             state.request_completion();
             break 'm Control::Changed;
           }
@@ -3546,7 +3654,10 @@ fn event(
       {
         state.request_completion();
       }
-      if state.shell_output_pending || state.agent_output_pending {
+      if state.shell_output_pending
+        || state.agent_output_pending
+        || state.completion.pending_since.is_some()
+      {
         state.shell_output_pending = false;
         state.agent_output_pending = false;
         Control::Changed
@@ -3659,6 +3770,30 @@ mod tests {
     assert_eq!(completion.suffix(), Some("status"));
     completion.input.push('s');
     assert_eq!(completion.suffix(), Some("tatus"));
+  }
+
+  #[test]
+  fn snapshot_completion_uses_append_only_suffixes() {
+    let completion = CompletionUiState {
+      suggestions: vec![" status".into()],
+      suggestions_are_suffixes: true,
+      ..Default::default()
+    };
+
+    assert_eq!(completion.suffix(), Some(" status"));
+  }
+
+  #[test]
+  fn pending_completion_renders_at_the_cursor() {
+    let area = Rect::new(0, 0, 5, 2);
+    let mut buf = tui::buffer::Buffer::empty(area);
+
+    render_completion_spinner(area, &mut buf, (2, 0), Instant::now());
+
+    assert!(
+      ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        .contains(&buf[(2, 0)].symbol())
+    );
   }
 
   #[test]
