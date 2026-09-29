@@ -39,6 +39,10 @@ interface:
     control-panel: "F10"
     toggle-fullscreen: "F11"
     request-completion: "BackTab"
+    accept-completion: ["Right", "End"]
+    dismiss-completion: "Esc"
+    next-completion: ["Tab", "Down"]
+    previous-completion: ["BackTab", "Up"]
 
 # DANGER: auto-approval sends every AI suggestion directly to the shell
 # without consulting the command risk classifier.

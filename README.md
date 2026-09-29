@@ -115,6 +115,10 @@ interface:
     control-panel: F10
     toggle-fullscreen: F11
     request-completion: BackTab # Shift-Tab
+    accept-completion: [Right, End]
+    dismiss-completion: Esc
+    next-completion: [Tab, Down]
+    previous-completion: [BackTab, Up]
 
 approval-mode: always-ask
 auto-completion:
@@ -152,6 +156,20 @@ it. When `auto-completion.on-hotkey` is enabled (the default), the configured
 `request-completion` shortcut works even when prompt-pause completion is off,
 defaults to Shift-Tab (`BackTab` in configuration), and does not require
 semantic prompt markers.
+
+Every completion key is configurable under `interface.key_bindings`. Each
+accepts either one key string or a list:
+
+| Setting | Default | Action |
+| --- | --- | --- |
+| `request-completion` | `BackTab` | Request a completion |
+| `accept-completion` | `Right`, `End` | Insert the selected suggestion |
+| `dismiss-completion` | `Esc` | Hide suggestions |
+| `next-completion` | `Tab`, `Down` | Select the next suggestion |
+| `previous-completion` | `BackTab`, `Up` | Select the previous suggestion |
+
+When suggestions are visible, `previous-completion` takes precedence over
+`request-completion`, so the shared default `BackTab` cycles backward.
 
 #### Semantic prompt markers
 

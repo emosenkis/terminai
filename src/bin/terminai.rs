@@ -3389,12 +3389,12 @@ fn event(
         // TODO: Kitty enhanced keyboard capability mode support?
         if matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat) {
           if !state.completion.suggestions.is_empty() {
-            match code {
-              KeyCode::Esc => {
+            if let Some(key_combo) = key_combo {
+              let bindings = &state.config.interface.key_bindings;
+              if bindings.dismiss_completion.matches(key_combo) {
                 state.invalidate_completion();
                 break 'm Control::Changed;
-              }
-              KeyCode::Right | KeyCode::End => {
+              } else if bindings.accept_completion.matches(key_combo) {
                 if let Some(suffix) =
                   state.completion.suffix().map(str::to_string)
                 {
@@ -3405,13 +3405,11 @@ fn event(
                   state.invalidate_completion();
                 }
                 break 'm Control::Changed;
-              }
-              KeyCode::Tab | KeyCode::Down => {
+              } else if bindings.next_completion.matches(key_combo) {
                 state.completion.selected = (state.completion.selected + 1)
                   % state.completion.suggestions.len();
                 break 'm Control::Changed;
-              }
-              KeyCode::BackTab | KeyCode::Up => {
+              } else if bindings.previous_completion.matches(key_combo) {
                 state.completion.selected = state
                   .completion
                   .selected
@@ -3419,7 +3417,6 @@ fn event(
                   .unwrap_or(state.completion.suggestions.len() - 1);
                 break 'm Control::Changed;
               }
-              _ => {}
             }
           }
           let key = Key::new(*code, *modifiers);

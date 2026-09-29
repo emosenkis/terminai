@@ -131,6 +131,30 @@ pub struct KeyBindingsConfig {
     rename = "request-completion"
   )]
   pub request_completion: OneOrMoreBindings,
+  /// Accept the selected command completion.
+  #[serde(
+    default = "default_accept_completion_binding",
+    rename = "accept-completion"
+  )]
+  pub accept_completion: OneOrMoreBindings,
+  /// Dismiss command completions.
+  #[serde(
+    default = "default_dismiss_completion_binding",
+    rename = "dismiss-completion"
+  )]
+  pub dismiss_completion: OneOrMoreBindings,
+  /// Select the next command completion.
+  #[serde(
+    default = "default_next_completion_binding",
+    rename = "next-completion"
+  )]
+  pub next_completion: OneOrMoreBindings,
+  /// Select the previous command completion.
+  #[serde(
+    default = "default_previous_completion_binding",
+    rename = "previous-completion"
+  )]
+  pub previous_completion: OneOrMoreBindings,
 }
 
 fn default_layout_mode_binding() -> OneOrMoreBindings {
@@ -149,6 +173,22 @@ fn default_request_completion_binding() -> OneOrMoreBindings {
   OneOrMoreBindings::Single(key!(shift - backtab))
 }
 
+fn default_accept_completion_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Multiple(vec![key!(right), key!(end)])
+}
+
+fn default_dismiss_completion_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Single(key!(esc))
+}
+
+fn default_next_completion_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Multiple(vec![key!(tab), key!(down)])
+}
+
+fn default_previous_completion_binding() -> OneOrMoreBindings {
+  OneOrMoreBindings::Multiple(vec![key!(shift - backtab), key!(up)])
+}
+
 impl Default for KeyBindingsConfig {
   fn default() -> Self {
     Self {
@@ -160,6 +200,10 @@ impl Default for KeyBindingsConfig {
       control_panel: default_control_panel_binding(),
       toggle_fullscreen: default_toggle_fullscreen_binding(),
       request_completion: default_request_completion_binding(),
+      accept_completion: default_accept_completion_binding(),
+      dismiss_completion: default_dismiss_completion_binding(),
+      next_completion: default_next_completion_binding(),
+      previous_completion: default_previous_completion_binding(),
     }
   }
 }
@@ -771,6 +815,34 @@ agent:
       config
         .interface
         .key_bindings
+        .accept_completion
+        .matches(key!(right))
+    );
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .dismiss_completion
+        .matches(key!(esc))
+    );
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .next_completion
+        .matches(key!(tab))
+    );
+    assert!(
+      config
+        .interface
+        .key_bindings
+        .previous_completion
+        .matches(key!(shift - backtab))
+    );
+    assert!(
+      config
+        .interface
+        .key_bindings
         .toggle_fullscreen
         .matches(key!(f11))
     );
@@ -778,6 +850,33 @@ agent:
     assert_eq!(config.interface.guest_display, GuestDisplayMode::Resize);
     assert!(config.interface.terminal_sync);
     assert!(AgentPresetConfig::default().show_in_switcher);
+  }
+
+  #[test]
+  fn completion_key_bindings_are_configurable() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+interface:
+  key_bindings:
+    activate-overlay: Ctrl-Space
+    deactivate-overlay: Ctrl-Space
+    approve: Y
+    deny: N
+    request-completion: Ctrl-R
+    accept-completion: Ctrl-A
+    dismiss-completion: Ctrl-D
+    next-completion: Ctrl-N
+    previous-completion: Ctrl-P
+"#,
+    )
+    .unwrap();
+    let bindings = config.interface.key_bindings;
+
+    assert!(bindings.request_completion.matches(key!(ctrl - r)));
+    assert!(bindings.accept_completion.matches(key!(ctrl - a)));
+    assert!(bindings.dismiss_completion.matches(key!(ctrl - d)));
+    assert!(bindings.next_completion.matches(key!(ctrl - n)));
+    assert!(bindings.previous_completion.matches(key!(ctrl - p)));
   }
 
   #[test]
