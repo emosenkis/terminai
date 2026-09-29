@@ -1,3 +1,11 @@
+## 0.1.27 - 2026-09-30
+
+- Make tracked-input and terminal-snapshot completion reliably return append-only
+  suggestions, including at empty prompts, with clearer mode-specific examples.
+- Accept agent responses that repeat the input prefix despite leading whitespace
+  differences.
+- Trigger prompt-pause completion when a newly displayed shell prompt is empty.
+
 ## 0.1.26 - 2026-09-29
 
 - Show a cursor-cell spinner while requesting command completion and reliably
