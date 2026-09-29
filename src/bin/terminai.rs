@@ -1611,7 +1611,7 @@ fn run_interactive(
     completion_tx,
     completion_rx,
     completion: CompletionUiState {
-      automatic: config.auto_completion,
+      automatic: config.completion_on_prompt_pause(),
       ..Default::default()
     },
     completion_handle: Some(tokio_rt.handle().clone()),
@@ -2186,9 +2186,8 @@ impl AppState {
       && self.completion.prompt_active
       && !self.completion.input.is_empty()
     {
-      self.completion.due = Instant::now().checked_add(Duration::from_millis(
-        self.config.auto_completion_delay_ms,
-      ));
+      self.completion.due = Instant::now()
+        .checked_add(Duration::from_millis(self.config.completion_delay_ms()));
     }
   }
 
@@ -2212,8 +2211,8 @@ impl AppState {
     };
     let generation = self.completion.generation;
     let tx = self.completion_tx.clone();
-    let auto_completer = self.config.auto_completer.clone();
-    let auto_completers = self.config.auto_completers.clone();
+    let auto_completer = self.config.completion_agent().clone();
+    let auto_completers = self.config.completion_agents().clone();
     let metadata = active_plan.metadata.clone();
     let cwd = self
       .shell_cwd
@@ -2771,7 +2770,7 @@ impl AppState {
     self.chat_height_percent =
       config.interface.chat_height_percent.clamp(20, 80);
     self.guest_display = config.interface.guest_display;
-    self.completion.automatic = config.auto_completion;
+    self.completion.automatic = config.completion_on_prompt_pause();
     self.invalidate_completion();
     self.config = config;
     if active_was_startup {
@@ -3425,6 +3424,7 @@ fn event(
           }
           let key = Key::new(*code, *modifiers);
           if let Some(key_combo) = key_combo
+            && state.config.auto_completion.on_hotkey
             && state
               .config
               .interface

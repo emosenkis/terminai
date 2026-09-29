@@ -15,9 +15,14 @@ interface:
     request-completion: BackTab
 # DANGER: auto-approval sends every AI suggestion directly to the shell.
 approval-mode: always-ask
-# Show AI ghost-text suggestions after typed input has been idle.
-auto-completion: false
-auto-completion-delay-ms: 750
+# Configure manual and prompt-pause AI ghost-text suggestions.
+auto-completion:
+  on-hotkey: true
+  on-prompt-pause: false
+  delay-ms: 750
+  agent:
+    preset: codex
+  agents: {}
 agent:
   preset: codex
   # extra-args:
@@ -33,11 +38,11 @@ agent-presets: {}
 #     - --model
 #     - gpt-5
 
-auto-completer:
-  preset: codex
-auto-completers: {}
-
 # Example: choose a separate model for command completion.
-# codex-fast:
-#   extends: codex
-#   extra-args: [--model, gpt-5-mini]
+# auto-completion:
+#   agent:
+#     preset: codex-fast
+#   agents:
+#     codex-fast:
+#       extends: codex
+#       extra-args: [--model, gpt-5-mini]

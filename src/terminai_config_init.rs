@@ -15,9 +15,15 @@ pub const DEFAULT_TERMINAI_YAML: &str = concat!(
 # Show release notes once after each upgrade.
 changelog: true
 
-# Request AI command completions after typed input has been idle.
-auto-completion: false
-auto-completion-delay-ms: 750
+# Configure manual and prompt-pause command completion.
+auto-completion:
+  on-hotkey: true
+  on-prompt-pause: false
+  delay-ms: 750
+  agent:
+    preset: codex
+  # Built-ins: codex, claude, and opencode. `args` supports {{ prompt }}.
+  agents: {}
 
 interface:
   terminal-sync: true
@@ -71,17 +77,14 @@ agent:
 # Set show-in-switcher: false on a user preset to hide it from the picker.
 agent-presets: {}
 
-# Select command completion independently from the interactive agent.
-auto-completer:
-  preset: codex
-
-# Built-ins: codex, claude, and opencode. `args` supports {{ prompt }}.
 # Example model-specific preset:
-# auto-completers:
-#   codex-fast:
-#     extends: codex
-#     extra-args: [--model, gpt-5-mini]
-auto-completers: {}
+# auto-completion:
+#   agent:
+#     preset: codex-fast
+#   agents:
+#     codex-fast:
+#       extends: codex
+#       extra-args: [--model, gpt-5-mini]
 "#,
 );
 
@@ -231,7 +234,7 @@ mod tests {
       serde_yaml::from_str(DEFAULT_TERMINAI_YAML).unwrap();
 
     assert_eq!(config.agent.preset.as_deref(), Some("codex"));
-    assert_eq!(config.auto_completer.preset.as_deref(), Some("codex"));
+    assert_eq!(config.completion_agent().preset.as_deref(), Some("codex"));
   }
 
   #[test]

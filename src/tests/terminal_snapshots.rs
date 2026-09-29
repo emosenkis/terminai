@@ -154,8 +154,15 @@ fn assert_completion(
     config_dir.join("terminai.yaml"),
     serde_yaml::to_string(&serde_json::json!({
       "changelog": false,
-      "auto-completion": automatic,
-      "auto-completion-delay-ms": 50,
+      "auto-completion": {
+        "on-prompt-pause": automatic,
+        "delay-ms": 50,
+        "agent": {
+          "command": completer,
+          "uses-mcp": false,
+          "uses-tool-cli": false
+        }
+      },
       "privacy": { "patterns": [] },
       "interface": default_interface(),
       "agent": { "preset": "snapshot" },
@@ -165,11 +172,6 @@ fn assert_completion(
           "uses-mcp": false,
           "uses-tool-cli": false
         }
-      },
-      "auto-completer": {
-        "command": completer,
-        "uses-mcp": false,
-        "uses-tool-cli": false
       }
     }))?,
   )?;

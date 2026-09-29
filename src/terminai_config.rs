@@ -323,7 +323,7 @@ pub struct AgentConfig {
   /// General:
   /// - `{{ cwd }}`: the working directory where the agent starts.
   /// - `{{ prompt }}`: the command-completion request when this shape is used
-  ///   by `auto-completer` or `auto-completers`.
+  ///   by `auto-completion.agent` or `auto-completion.agents`.
   /// - `{{ context_prompt }}`: the rendered Terminai context prompt for the
   ///   resolved agent config.
   /// - `{{ uses_mcp }}`: whether the resolved agent config enables
@@ -437,7 +437,7 @@ pub struct AgentPresetConfig {
   /// General:
   /// - `{{ cwd }}`: the working directory where the agent starts.
   /// - `{{ prompt }}`: the command-completion request when this shape is used
-  ///   by `auto-completer` or `auto-completers`.
+  ///   by `auto-completion.agent` or `auto-completion.agents`.
   /// - `{{ context_prompt }}`: the rendered Terminai context prompt for the
   ///   resolved agent config.
   /// - `{{ uses_mcp }}`: whether the resolved agent config enables
@@ -505,6 +505,84 @@ impl Default for AgentPresetConfig {
   }
 }
 
+/// Command-completion behavior and agent configuration.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct AutoCompletionConfig {
+  /// Allow command completion requests from the configured hotkey.
+  #[serde(default = "default_true")]
+  pub on_hotkey: bool,
+  /// Request a command completion after shell input has been idle.
+  #[serde(default)]
+  pub on_prompt_pause: bool,
+  /// Idle time before requesting a prompt-pause completion.
+  #[serde(default = "default_auto_completion_delay_ms")]
+  pub delay_ms: u64,
+  /// CLI agent used for command completion.
+  #[serde(default)]
+  pub agent: AgentConfig,
+  /// User-defined completion-agent presets.
+  #[serde(default)]
+  pub agents: HashMap<String, AgentPresetConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+struct AutoCompletionSettings {
+  #[serde(default = "default_true")]
+  on_hotkey: bool,
+  #[serde(default)]
+  on_prompt_pause: bool,
+  #[serde(default = "default_auto_completion_delay_ms")]
+  delay_ms: u64,
+  #[serde(default)]
+  agent: AgentConfig,
+  #[serde(default)]
+  agents: HashMap<String, AgentPresetConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AutoCompletionValue {
+  Legacy(bool),
+  Settings(AutoCompletionSettings),
+}
+
+impl<'de> Deserialize<'de> for AutoCompletionConfig {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    Ok(match AutoCompletionValue::deserialize(deserializer)? {
+      AutoCompletionValue::Legacy(on_prompt_pause) => Self {
+        on_prompt_pause,
+        ..Self::default()
+      },
+      AutoCompletionValue::Settings(settings) => Self {
+        on_hotkey: settings.on_hotkey,
+        on_prompt_pause: settings.on_prompt_pause,
+        delay_ms: settings.delay_ms,
+        agent: settings.agent,
+        agents: settings.agents,
+      },
+    })
+  }
+}
+
+impl Default for AutoCompletionConfig {
+  fn default() -> Self {
+    Self {
+      on_hotkey: true,
+      on_prompt_pause: false,
+      delay_ms: default_auto_completion_delay_ms(),
+      agent: AgentConfig::default(),
+      agents: HashMap::new(),
+    }
+  }
+}
+
 /// Top-level Terminai configuration loaded from
 /// `$XDG_CONFIG_HOME/terminai/terminai.yaml`, falling back to
 /// `~/.config/terminai/terminai.yaml` when `XDG_CONFIG_HOME` is unset. On
@@ -518,15 +596,18 @@ pub struct TerminaiConfig {
   /// Automatically show the changelog once after an upgrade.
   #[serde(default = "default_changelog")]
   pub changelog: bool,
-  /// Request a command completion after input has been idle.
+  /// Command-completion behavior and agent configuration.
   #[serde(default, rename = "auto-completion")]
-  pub auto_completion: bool,
-  /// Idle time before requesting an automatic command completion.
+  pub auto_completion: AutoCompletionConfig,
+  /// Legacy idle delay; use `auto-completion.delay-ms`.
+  #[cfg_attr(feature = "schema", schemars(skip))]
   #[serde(
-    default = "default_auto_completion_delay_ms",
-    rename = "auto-completion-delay-ms"
+    default,
+    rename = "auto-completion-delay-ms",
+    skip_serializing_if = "Option::is_none"
   )]
-  pub auto_completion_delay_ms: u64,
+  #[doc(hidden)]
+  pub legacy_auto_completion_delay_ms: Option<u64>,
   /// Startup policy for agent-suggested shell input. `auto-approval` is
   /// dangerous and sends every suggestion without consulting the risk
   /// classifier.
@@ -547,14 +628,24 @@ pub struct TerminaiConfig {
   /// User-defined CLI agent presets. Built-in presets include codex and claude.
   #[serde(default, rename = "agent-presets")]
   pub agent_presets: HashMap<String, AgentPresetConfig>,
-  /// CLI agent used for automatic command completion. Its `args` support the
-  /// `{{ prompt }}` template variable.
-  #[serde(default, rename = "auto-completer")]
-  pub auto_completer: AgentConfig,
-  /// User-defined auto-completer presets. Built-ins include codex, claude, and
-  /// opencode.
-  #[serde(default, rename = "auto-completers")]
-  pub auto_completers: HashMap<String, AgentPresetConfig>,
+  /// Legacy completion agent; use `auto-completion.agent`.
+  #[cfg_attr(feature = "schema", schemars(skip))]
+  #[serde(
+    default,
+    rename = "auto-completer",
+    skip_serializing_if = "Option::is_none"
+  )]
+  #[doc(hidden)]
+  pub legacy_auto_completer: Option<AgentConfig>,
+  /// Legacy completion presets; use `auto-completion.agents`.
+  #[cfg_attr(feature = "schema", schemars(skip))]
+  #[serde(
+    default,
+    rename = "auto-completers",
+    skip_serializing_if = "Option::is_none"
+  )]
+  #[doc(hidden)]
+  pub legacy_auto_completers: Option<HashMap<String, AgentPresetConfig>>,
 }
 
 fn default_changelog() -> bool {
@@ -569,21 +660,45 @@ impl Default for TerminaiConfig {
   fn default() -> Self {
     Self {
       changelog: true,
-      auto_completion: false,
-      auto_completion_delay_ms: default_auto_completion_delay_ms(),
+      auto_completion: AutoCompletionConfig::default(),
+      legacy_auto_completion_delay_ms: None,
       approval_mode: ApprovalMode::default(),
       shell: ShellConfig::default(),
       interface: InterfaceConfig::default(),
       privacy: PrivacyConfig::default(),
       agent: AgentConfig::default(),
       agent_presets: HashMap::new(),
-      auto_completer: AgentConfig::default(),
-      auto_completers: HashMap::new(),
+      legacy_auto_completer: None,
+      legacy_auto_completers: None,
     }
   }
 }
 
 impl TerminaiConfig {
+  pub fn completion_on_prompt_pause(&self) -> bool {
+    self.auto_completion.on_prompt_pause
+  }
+
+  pub fn completion_delay_ms(&self) -> u64 {
+    self
+      .legacy_auto_completion_delay_ms
+      .unwrap_or(self.auto_completion.delay_ms)
+  }
+
+  pub fn completion_agent(&self) -> &AgentConfig {
+    self
+      .legacy_auto_completer
+      .as_ref()
+      .unwrap_or(&self.auto_completion.agent)
+  }
+
+  pub fn completion_agents(&self) -> &HashMap<String, AgentPresetConfig> {
+    self
+      .legacy_auto_completers
+      .as_ref()
+      .unwrap_or(&self.auto_completion.agents)
+  }
+
   pub fn path() -> Result<PathBuf> {
     let expected = crate::paths::config_dir()?.join("terminai.yaml");
     if !expected.exists() {
@@ -636,8 +751,9 @@ agent:
     let config: TerminaiConfig = serde_yaml::from_str("{}").unwrap();
 
     assert_eq!(config.approval_mode, ApprovalMode::AlwaysAsk);
-    assert!(!config.auto_completion);
-    assert_eq!(config.auto_completion_delay_ms, 750);
+    assert!(!config.auto_completion.on_prompt_pause);
+    assert!(config.auto_completion.on_hotkey);
+    assert_eq!(config.auto_completion.delay_ms, 750);
     assert!(config.changelog);
     assert!(config.interface.key_bindings.layout_mode.matches(key!(f9)));
     assert!(
@@ -681,13 +797,71 @@ auto-completers:
     )
     .unwrap();
 
-    assert!(config.auto_completion);
+    assert!(config.completion_on_prompt_pause());
     assert_eq!(config.agent.preset.as_deref(), Some("claude"));
-    assert_eq!(config.auto_completer.preset.as_deref(), Some("codex-fast"));
     assert_eq!(
-      config.auto_completers["codex-fast"].extra_args,
+      config.completion_agent().preset.as_deref(),
+      Some("codex-fast")
+    );
+    assert_eq!(
+      config.completion_agents()["codex-fast"].extra_args,
       vec![AgentArg::from("--model"), AgentArg::from("gpt-5-mini")]
     );
+  }
+
+  #[test]
+  fn auto_completion_uses_consolidated_configuration() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+auto-completion:
+  on-hotkey: false
+  on-prompt-pause: true
+  delay-ms: 125
+  agent:
+    preset: codex-fast
+  agents:
+    codex-fast:
+      extends: codex
+      extra-args: [--model, gpt-5-mini]
+"#,
+    )
+    .unwrap();
+
+    assert!(!config.auto_completion.on_hotkey);
+    assert!(config.auto_completion.on_prompt_pause);
+    assert_eq!(config.auto_completion.delay_ms, 125);
+    assert_eq!(
+      config.auto_completion.agent.preset.as_deref(),
+      Some("codex-fast")
+    );
+    assert_eq!(
+      config.auto_completion.agents["codex-fast"].extra_args,
+      vec![AgentArg::from("--model"), AgentArg::from("gpt-5-mini")]
+    );
+  }
+
+  #[test]
+  fn legacy_auto_completion_configuration_still_loads() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+auto-completion: true
+auto-completion-delay-ms: 125
+auto-completer:
+  preset: codex-fast
+auto-completers:
+  codex-fast:
+    extends: codex
+"#,
+    )
+    .unwrap();
+
+    assert!(config.completion_on_prompt_pause());
+    assert_eq!(config.completion_delay_ms(), 125);
+    assert_eq!(
+      config.completion_agent().preset.as_deref(),
+      Some("codex-fast")
+    );
+    assert!(config.completion_agents().contains_key("codex-fast"));
   }
 
   #[test]

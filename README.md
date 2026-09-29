@@ -117,8 +117,12 @@ interface:
     request-completion: BackTab # Shift-Tab
 
 approval-mode: always-ask
-auto-completion: false
-auto-completion-delay-ms: 750
+auto-completion:
+  on-hotkey: true
+  on-prompt-pause: false
+  delay-ms: 750
+  agent:
+    preset: codex
 agent:
   preset: codex
 ```
@@ -138,15 +142,16 @@ for DEC mode 2026. Set it to `false` to disable the capability.
 `overlay` (draw AI over the unchanged guest), or `move` (shift/crop the
 unchanged guest away from AI). Runtime layout changes last for the session.
 
-`auto-completion` defaults to `false`. When enabled, Terminai waits until typed
-shell input has been idle for `auto-completion-delay-ms` (750 by default), then
+`auto-completion.on-prompt-pause` defaults to `false`. When enabled, Terminai
+waits until typed shell input has been idle for `delay-ms` (750 by default), then
 shows the best completion as gray ghost text at the shell cursor. It never
 inserts or runs the suggestion automatically. Press Right or End to accept,
 Esc to dismiss, Tab/Down for the next result, or Shift-Tab/Up for the previous
 one. Typing matching characters shortens the ghost text; other input dismisses
-it. The configured `request-completion` shortcut works even when automatic
-completion is off, defaults to Shift-Tab (`BackTab` in configuration), and does
-not require semantic prompt markers.
+it. When `auto-completion.on-hotkey` is enabled (the default), the configured
+`request-completion` shortcut works even when prompt-pause completion is off,
+defaults to Shift-Tab (`BackTab` in configuration), and does not require
+semantic prompt markers.
 
 #### Semantic prompt markers
 
@@ -238,18 +243,19 @@ agent:
 
 String arguments are rendered as Minijinja templates. An `expr` entry must evaluate to an array of strings and can therefore emit zero, one, or multiple CLI arguments. Available values include `cwd`, `context_prompt`, `uses_mcp`, `uses_tool_cli`, `mcp_url`, `mcp_command`, `mcp_port`, and `tool_command`; the `json` and `toml` filters provide safe serialization for nested CLI configuration. The MCP bearer token is passed to the agent process in `TERMINAI_MCP_AUTH_TOKEN` rather than embedded in arguments.
 
-`auto-completer` is selected independently from `agent`. Its `args` support the
-same templates as agent arguments plus `prompt`:
+`auto-completion.agent` is selected independently from `agent`. Its `args`
+support the same templates as agent arguments plus `prompt`:
 
 ```yaml
 agent:
   preset: claude
-auto-completer:
-  preset: codex-fast
-auto-completers:
-  codex-fast:
-    extends: codex
-    extra-args: [--model, gpt-5-mini]
+auto-completion:
+  agent:
+    preset: codex-fast
+  agents:
+    codex-fast:
+      extends: codex
+      extra-args: [--model, gpt-5-mini]
 ```
 
 Bundled Codex, Claude, and OpenCode auto-completers provide their native
