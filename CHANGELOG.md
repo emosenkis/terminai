@@ -1,3 +1,15 @@
+## 0.1.26 - 2026-09-29
+
+- Show a cursor-cell spinner while requesting command completion and reliably
+  clear it on success, failure, cancellation, or stale results.
+- Log completion hotkeys, skipped requests, failures, and detailed rejection
+  reasons so unusable agent responses are diagnosable.
+- Improve tracked-input and terminal-snapshot completion prompts with one
+  mode-aware MiniJinja template and explicit append-only examples.
+- Consolidate command-completion settings under `auto-completion`, add separate
+  hotkey and prompt-pause toggles, and retain compatibility with legacy keys.
+- Make request, accept, dismiss, next, and previous completion keys configurable.
+
 ## 0.1.25 - 2026-09-28
 
 - Make manual command completion work without OSC prompt markers and replace
