@@ -1,0 +1,48 @@
+[
+  {
+    "name": "auto-partial-command",
+    "trigger": "prompt-pause",
+    "terminal": "$ git s",
+    "input": "git s",
+    "accepted-completions": ["git status", "git switch ", "git show", "git stash"]
+  },
+  {
+    "name": "auto-leading-whitespace",
+    "trigger": "prompt-pause",
+    "terminal": "$   git s",
+    "input": "  git s",
+    "accepted-completions": ["  git status", "  git switch ", "  git show", "  git stash"]
+  },
+  {
+    "name": "auto-word-boundary",
+    "trigger": "prompt-pause",
+    "terminal": "$ git ",
+    "input": "git ",
+    "accepted-completions": ["git status", "git diff", "git log", "git branch"]
+  },
+  {
+    "name": "auto-empty-contextual",
+    "trigger": "prompt-pause",
+    "terminal": "$ cargo test\nerror: test failed\n$ ",
+    "accepted-completions": ["cargo test"]
+  },
+  {
+    "name": "hotkey-partial-command",
+    "trigger": "hotkey",
+    "terminal": "$ git s",
+    "input": "git s",
+    "accepted-completions": ["git status", "git switch ", "git show", "git stash"]
+  },
+  {
+    "name": "hotkey-empty-contextual",
+    "trigger": "hotkey",
+    "terminal": "$ cargo test\nerror: test failed\n$ ",
+    "accepted-completions": ["cargo test"]
+  },
+  {
+    "name": "hotkey-empty-fresh-prompt",
+    "trigger": "hotkey",
+    "terminal": "$ ",
+    "accepted-completions": ["ls", "pwd"]
+  }
+]

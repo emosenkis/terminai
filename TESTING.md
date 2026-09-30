@@ -2,6 +2,20 @@
 
 This document describes Terminai's in-memory and real-terminal test infrastructure.
 
+## Completion prompt evaluation
+
+`config/completion-eval.json` contains the tracked-input and terminal-snapshot
+cases used to tune command completion, including prompt-pause and hotkey
+requests with no leading input. Evaluate the bundled prompt with the completion
+agent in your current Terminai configuration (three attempts per case by
+default) using:
+
+```sh
+cargo run -p termin --features completion-eval --bin eval-completions
+```
+
+Pass a different repeat count as the final argument for faster iteration.
+
 ## Terminal emulator snapshots
 
 `src/tests/terminal_snapshots/support.rs` runs one scripted scenario through

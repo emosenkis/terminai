@@ -31,6 +31,11 @@ name = "dump-config-schema"
 path = "bin/dump-config-schema.rs"
 required-features = ["schema"]
 
+[[bin]]
+name = "eval-completions"
+path = "bin/eval-completions.rs"
+required-features = ["completion-eval"]
+
 [[test]]
 name = "terminal_snapshots"
 path = "tests/terminal_snapshots.rs"
@@ -116,6 +121,7 @@ tempfile = "3.8"
 env_logger = "0.11"
 
 [features]
+completion-eval = []
 snapshot-tests = []
 ghostty-snapshot-tests = ["snapshot-tests", "dep:libghostty-vt"]
 schema = []
