@@ -518,6 +518,9 @@ pub struct AgentPresetConfig {
   /// lookup and `default.jinja` shadowing behavior as the agent setting.
   #[serde(default)]
   pub prompt_template: Option<String>,
+  /// MiniJinja template used for command-completion requests from this preset.
+  #[serde(default)]
+  pub completion_prompt_template: Option<String>,
   #[serde(default)]
   pub env: HashMap<String, String>,
   #[serde(default)]
@@ -541,6 +544,7 @@ impl Default for AgentPresetConfig {
       args: Vec::new(),
       extra_args: Vec::new(),
       prompt_template: None,
+      completion_prompt_template: None,
       env: HashMap::new(),
       uses_mcp: None,
       uses_tool_cli: None,
@@ -564,10 +568,6 @@ pub struct AutoCompletionConfig {
   /// Idle time before requesting a prompt-pause completion.
   #[serde(default = "default_auto_completion_delay_ms")]
   pub delay_ms: u64,
-  /// Inline MiniJinja template used to build completion-agent prompts. It can
-  /// reference `mode`, `terminal`, `input`, and `input_json`.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub prompt_template: Option<String>,
   /// CLI agent used for command completion.
   #[serde(default)]
   pub agent: AgentConfig,
@@ -585,9 +585,6 @@ struct AutoCompletionSettings {
   on_prompt_pause: bool,
   #[serde(default = "default_auto_completion_delay_ms")]
   delay_ms: u64,
-  #[serde(default)]
-  prompt_template: Option<String>,
-  #[serde(default)]
   agent: AgentConfig,
   #[serde(default)]
   agents: HashMap<String, AgentPresetConfig>,
@@ -614,7 +611,6 @@ impl<'de> Deserialize<'de> for AutoCompletionConfig {
         on_hotkey: settings.on_hotkey,
         on_prompt_pause: settings.on_prompt_pause,
         delay_ms: settings.delay_ms,
-        prompt_template: settings.prompt_template,
         agent: settings.agent,
         agents: settings.agents,
       },
@@ -628,7 +624,6 @@ impl Default for AutoCompletionConfig {
       on_hotkey: true,
       on_prompt_pause: false,
       delay_ms: default_auto_completion_delay_ms(),
-      prompt_template: None,
       agent: AgentConfig::default(),
       agents: HashMap::new(),
     }
@@ -735,10 +730,6 @@ impl TerminaiConfig {
     self
       .legacy_auto_completion_delay_ms
       .unwrap_or(self.auto_completion.delay_ms)
-  }
-
-  pub fn completion_prompt_template(&self) -> Option<&str> {
-    self.auto_completion.prompt_template.as_deref()
   }
 
   pub fn completion_agent(&self) -> &AgentConfig {
@@ -976,30 +967,18 @@ auto-completers:
   }
 
   #[test]
-  fn auto_completion_accepts_an_inline_prompt_template() {
-    let config: TerminaiConfig = serde_yaml::from_str(
-      r#"
-auto-completion:
-  prompt-template: "{{ terminal }}"
-"#,
-    )
-    .unwrap();
-
-    assert_eq!(config.completion_prompt_template(), Some("{{ terminal }}"));
-  }
-
-  #[test]
   fn ollama_fim_example_is_valid_configuration() {
     let config: TerminaiConfig =
       serde_yaml::from_str(include_str!("../terminai.ollama-fim.example.yaml"))
         .unwrap();
 
-    assert_eq!(config.completion_agent().command.as_deref(), Some("sh"));
     assert_eq!(
-      config.completion_prompt_template(),
-      Some(
-        "{% if mode == \"terminal-snapshot\" %}TERMINAI_SNAPSHOT:{% endif %}<|fim_prefix|>{{ terminal }}<|fim_suffix|><|fim_middle|>"
-      )
+      config.completion_agent().preset.as_deref(),
+      Some("local-qwen-fim")
+    );
+    assert_eq!(
+      config.completion_agents()["local-qwen-fim"].env["TERMINAI_OLLAMA_MODEL"],
+      "qwen2.5-coder:7b-base"
     );
   }
 

@@ -9,3 +9,52 @@ claude:
 opencode:
   command: opencode
   args: [run, "{{ prompt }}"]
+
+ollama-qwen-fim:
+  command: sh
+  uses-tool-cli: false
+  completion-prompt-template: builtin/completion-ollama-fim.jinja
+  env:
+    TERMINAI_OLLAMA_MODEL: qwen2.5-coder:7b-base
+    OLLAMA_HOST: http://127.0.0.1:11434
+  args:
+    - -c
+    - |
+      case "$1" in
+        TERMINAI_SNAPSHOT:*)
+          snapshot=1
+          prompt=${1#TERMINAI_SNAPSHOT:}
+          ;;
+        *)
+          snapshot=
+          prompt=$1
+          ;;
+      esac
+      response=$(
+        jq -cn --arg model "$TERMINAI_OLLAMA_MODEL" --arg prompt "$prompt" '{
+          model: $model,
+          prompt: $prompt,
+          raw: true,
+          stream: false,
+          keep_alive: "10m",
+          options: {
+            temperature: 0,
+            num_predict: 48,
+            stop: ["\n", "<|fim_pad|>", "<|endoftext|>"]
+          }
+        }' |
+          curl --fail --silent --show-error \
+            -H 'Content-Type: application/json' \
+            --data-binary @- \
+            "$OLLAMA_HOST/api/generate" |
+          jq -er '.response | select(type == "string" and length > 0)'
+      ) || exit
+      if [ -n "$snapshot" ]; then
+        case "$response" in
+          [[:alnum:]_./~]*) ;;
+          *) response=ls ;;
+        esac
+      fi
+      printf '%s\n' "$response"
+    - terminai-ollama-fim
+    - "{{ prompt }}"

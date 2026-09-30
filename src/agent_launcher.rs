@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context as AnyhowContext, Result, bail};
 use minijinja::{
   AutoEscape, Environment, Error as MinijinjaError,
-  ErrorKind as MinijinjaErrorKind, UndefinedBehavior,
+  ErrorKind as MinijinjaErrorKind, UndefinedBehavior, context,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,13 @@ use crate::terminai_config::{
 const DEFAULT_PROMPT_TEMPLATE: &str = "default.jinja";
 const BUILTIN_DEFAULT_PROMPT_TEMPLATE: &str = "builtin/default.jinja";
 const BUILTIN_DEFAULT_PROMPT: &str = include_str!("../config/default.jinja");
+const BUILTIN_COMPLETION_PROMPT_TEMPLATE: &str = "builtin/completion.jinja";
+const BUILTIN_COMPLETION_PROMPT: &str =
+  include_str!("../config/completion.jinja");
+const BUILTIN_OLLAMA_FIM_PROMPT_TEMPLATE: &str =
+  "builtin/completion-ollama-fim.jinja";
+const BUILTIN_OLLAMA_FIM_PROMPT: &str =
+  include_str!("../config/completion-ollama-fim.jinja");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLaunchPlan {
@@ -90,6 +97,19 @@ pub fn build_auto_completer_plan(
   build_resolved_launch_plan(resolved, context, prompt)
 }
 
+pub fn build_auto_completer_plan_for_request(
+  config: &AgentConfig,
+  user_presets: &HashMap<String, AgentPresetConfig>,
+  launch_context: &AgentLaunchContext,
+  terminal: &str,
+  input: Option<&str>,
+) -> Result<AgentLaunchPlan> {
+  let resolved = resolve_auto_completer_config(config, user_presets)?;
+  let prompt =
+    render_completion_prompt(&resolved, launch_context, terminal, input)?;
+  build_resolved_launch_plan(resolved, launch_context, &prompt)
+}
+
 fn build_resolved_launch_plan(
   resolved: ResolvedAgentConfig,
   context: &AgentLaunchContext,
@@ -149,6 +169,7 @@ struct ResolvedAgentConfig {
   uses_mcp: bool,
   uses_tool_cli: bool,
   prompt_template: String,
+  completion_prompt_template: String,
 }
 
 const BUILTIN_AGENT_PRESET_CONFIGS: &[(&str, &str)] = &[
@@ -283,6 +304,8 @@ fn resolve_config(
       uses_mcp: config.uses_mcp.unwrap_or(false),
       uses_tool_cli: config.uses_tool_cli.unwrap_or(true),
       prompt_template: DEFAULT_PROMPT_TEMPLATE.to_string(),
+      completion_prompt_template: BUILTIN_COMPLETION_PROMPT_TEMPLATE
+        .to_string(),
     }
   };
 
@@ -336,6 +359,8 @@ fn resolve_preset(
       uses_mcp: false,
       uses_tool_cli: true,
       prompt_template: DEFAULT_PROMPT_TEMPLATE.to_string(),
+      completion_prompt_template: BUILTIN_COMPLETION_PROMPT_TEMPLATE
+        .to_string(),
     }
   };
 
@@ -355,6 +380,9 @@ fn resolve_preset(
   }
   if let Some(prompt_template) = preset.prompt_template {
     resolved.prompt_template = prompt_template;
+  }
+  if let Some(template) = preset.completion_prompt_template {
+    resolved.completion_prompt_template = template;
   }
 
   if resolved.command.is_empty() {
@@ -418,6 +446,34 @@ fn render_context_prompt(
     .with_context(|| {
       format!("failed to render prompt template '{template_name}'")
     })
+}
+
+fn render_completion_prompt(
+  resolved: &ResolvedAgentConfig,
+  launch_context: &AgentLaunchContext,
+  terminal: &str,
+  input: Option<&str>,
+) -> Result<String> {
+  let environment =
+    launch_template_environment(launch_context.config_dir.clone());
+  let mode = if input.is_some() {
+    "tracked-input"
+  } else {
+    "terminal-snapshot"
+  };
+  let input = input.unwrap_or_default();
+  let input_json = serde_json::to_string(input)
+    .expect("serializing a string as JSON cannot fail");
+  environment
+    .get_template(&resolved.completion_prompt_template)
+    .with_context(|| {
+      format!(
+        "failed to load completion prompt template '{}'",
+        resolved.completion_prompt_template
+      )
+    })?
+    .render(context! { mode, terminal, input, input_json })
+    .context("failed to render command completion prompt template")
 }
 
 fn expand_args(
@@ -500,6 +556,12 @@ fn load_template(
 
   if name == BUILTIN_DEFAULT_PROMPT_TEMPLATE {
     return Ok(Some(BUILTIN_DEFAULT_PROMPT.to_string()));
+  }
+  if name == BUILTIN_COMPLETION_PROMPT_TEMPLATE {
+    return Ok(Some(BUILTIN_COMPLETION_PROMPT.to_string()));
+  }
+  if name == BUILTIN_OLLAMA_FIM_PROMPT_TEMPLATE {
+    return Ok(Some(BUILTIN_OLLAMA_FIM_PROMPT.to_string()));
   }
 
   if let Some(config_dir) = config_dir
@@ -660,6 +722,27 @@ codex-fast:
         "--model",
         "gpt-5-mini"
       ]
+    );
+  }
+
+  #[test]
+  fn ollama_fim_auto_completer_renders_its_bundled_prompt() {
+    let config: AgentConfig =
+      serde_yaml::from_str("preset: ollama-qwen-fim").unwrap();
+    let plan = build_auto_completer_plan_for_request(
+      &config,
+      &HashMap::new(),
+      &context(),
+      "$ git s",
+      Some("git s"),
+    )
+    .unwrap();
+
+    assert_eq!(plan.command, "sh");
+    assert!(plan.args[1].contains("TERMINAI_OLLAMA_MODEL"));
+    assert_eq!(
+      plan.args.last().unwrap(),
+      "<|fim_prefix|>$ git s<|fim_suffix|><|fim_middle|>"
     );
   }
 

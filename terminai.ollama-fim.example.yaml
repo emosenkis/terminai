@@ -7,51 +7,11 @@ auto-completion:
   on-hotkey: true
   on-prompt-pause: true
   delay-ms: 250
-  # Ollama receives the terminal snapshot as a raw Qwen FIM prompt. A newline
-  # is a generation stop, so the response can only complete the current line.
-  prompt-template: '{% if mode == "terminal-snapshot" %}TERMINAI_SNAPSHOT:{% endif %}<|fim_prefix|>{{ terminal }}<|fim_suffix|><|fim_middle|>'
   agent:
-    command: sh
-    args:
-      - -c
-      - |
-        case "$1" in
-          TERMINAI_SNAPSHOT:*)
-            snapshot=1
-            prompt=${1#TERMINAI_SNAPSHOT:}
-            ;;
-          *)
-            snapshot=
-            prompt=$1
-            ;;
-        esac
-        response=$(
-          jq -cn --arg prompt "$prompt" '{
-            model: "qwen2.5-coder:7b-base",
-            prompt: $prompt,
-            raw: true,
-            stream: false,
-            keep_alive: "10m",
-            options: {
-              temperature: 0,
-              num_predict: 48,
-              stop: ["\n", "<|fim_pad|>", "<|endoftext|>"]
-            }
-          }' |
-            curl --fail --silent --show-error \
-              -H 'Content-Type: application/json' \
-              --data-binary @- \
-              http://127.0.0.1:11434/api/generate |
-            jq -er '.response | select(type == "string" and length > 0)'
-        ) || exit
-        # With no tracked input, reject code-like noise and fall back to a safe
-        # inspection command. Tracked suffixes may legitimately start with '-'.
-        if [ -n "$snapshot" ]; then
-          case "$response" in
-            [[:alnum:]_./~]*) ;;
-            *) response=ls ;;
-          esac
-        fi
-        printf '%s\n' "$response"
-      - terminai-ollama-fim
-      - "{{ prompt }}"
+    preset: local-qwen-fim
+  agents:
+    local-qwen-fim:
+      extends: ollama-qwen-fim
+      env:
+        TERMINAI_OLLAMA_MODEL: qwen2.5-coder:7b-base
+        OLLAMA_HOST: http://127.0.0.1:11434

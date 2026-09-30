@@ -24,8 +24,6 @@ auto-completion:
   on-hotkey: true
   on-prompt-pause: false
   delay-ms: 750
-  # Optional inline MiniJinja with mode, terminal, input, and input_json.
-  # prompt-template: "{{ terminal }}"
   agent:
     preset: codex
   agents: {}

@@ -283,8 +283,10 @@ auto-completion:
       extra-args: [--model, gpt-5-mini]
 ```
 
-Bundled Codex, Claude, and OpenCode auto-completers provide their native
-non-interactive invocations. Custom entries use the same shape as
+Bundled Codex, Claude, OpenCode, and `ollama-qwen-fim` auto-completers provide
+their native non-interactive invocations. The Ollama preset uses its own
+checked-in raw FIM prompt and reads the model and endpoint from
+`TERMINAI_OLLAMA_MODEL` and `OLLAMA_HOST`. Custom entries use the same shape as
 `agent-presets`; define their command and include `{{ prompt }}` in `args`.
 
 ### Prompt customization

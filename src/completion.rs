@@ -32,37 +32,15 @@ pub fn semantic_prompt_marker(escape: &str) -> Option<SemanticPromptMarker> {
 }
 
 pub fn command_completion_prompt(terminal: &str, input: &str) -> String {
-  command_completion_prompt_from_template(None, terminal, Some(input))
-    .expect("bundled completion prompt template must render")
-}
-
-pub fn command_completion_suffix_prompt(terminal: &str) -> String {
-  command_completion_prompt_from_template(None, terminal, None)
-    .expect("bundled completion prompt template must render")
-}
-
-pub fn command_completion_prompt_from_template(
-  template: Option<&str>,
-  terminal: &str,
-  input: Option<&str>,
-) -> Result<String> {
-  let mode = if input.is_some() {
-    "tracked-input"
-  } else {
-    "terminal-snapshot"
-  };
-  let input = input.unwrap_or_default();
   let input_json = serde_json::to_string(input)
     .expect("serializing a string as JSON cannot fail");
   render_completion_prompt(
-    template.unwrap_or(COMPLETION_PROMPT),
-    context! {
-      mode,
-      terminal,
-      input,
-      input_json,
-    },
+    context! { mode => "tracked-input", terminal, input_json },
   )
+}
+
+pub fn command_completion_suffix_prompt(terminal: &str) -> String {
+  render_completion_prompt(context! { mode => "terminal-snapshot", terminal })
 }
 
 pub fn completion_with_prefix(input: &str, suggestion: &str) -> Option<String> {
@@ -73,15 +51,12 @@ pub fn completion_with_prefix(input: &str, suggestion: &str) -> Option<String> {
   (!suffix.is_empty()).then(|| format!("{input}{suffix}"))
 }
 
-fn render_completion_prompt(
-  template: &str,
-  context: minijinja::Value,
-) -> Result<String> {
+fn render_completion_prompt(context: minijinja::Value) -> String {
   let mut environment = Environment::new();
   environment.set_undefined_behavior(UndefinedBehavior::Strict);
   environment
-    .render_str(template, context)
-    .context("failed to render command completion prompt template")
+    .render_str(COMPLETION_PROMPT, context)
+    .expect("bundled completion prompt template must render")
 }
 
 pub async fn run_completion(plan: AgentLaunchPlan) -> Result<Vec<String>> {
@@ -201,17 +176,6 @@ mod tests {
     let prompt = command_completion_suffix_prompt("$ git");
     assert!(prompt.contains("<mode>terminal-snapshot</mode>"));
     assert!(prompt.contains("<good>[\"tatus\",\"witch \"]</good>"));
-  }
-
-  #[test]
-  fn custom_prompt_template_can_supply_raw_fim_input() {
-    let prompt = command_completion_prompt_from_template(
-      Some("{{ terminal }}<suffix>{{ input }}"),
-      "$ git s",
-      Some("git s"),
-    )
-    .unwrap();
-    assert_eq!(prompt, "$ git s<suffix>git s");
   }
 
   #[test]

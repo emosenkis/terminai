@@ -231,6 +231,14 @@
           ],
           "default": null
         },
+        "completion-prompt-template": {
+          "description": "MiniJinja template used for command-completion requests from this preset.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
         "env": {
           "type": "object",
           "additionalProperties": {
@@ -340,13 +348,6 @@
           "description": "Request a command completion after shell input has been idle.",
           "type": "boolean",
           "default": false
-        },
-        "prompt-template": {
-          "description": "Inline MiniJinja template used to build completion-agent prompts. It can reference `mode`, `terminal`, `input`, and `input_json`.",
-          "type": [
-            "string",
-            "null"
-          ]
         }
       },
       "additionalProperties": false

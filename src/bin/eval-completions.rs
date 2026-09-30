@@ -1,10 +1,9 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use termin::agent_launcher::{AgentLaunchContext, build_auto_completer_plan};
-use termin::completion::{
-  command_completion_prompt_from_template, completion_with_prefix,
-  run_completion,
+use termin::agent_launcher::{
+  AgentLaunchContext, build_auto_completer_plan_for_request,
 };
+use termin::completion::{completion_with_prefix, run_completion};
 use termin::terminai_config::TerminaiConfig;
 
 const CASES: &str = include_str!("../../config/completion-eval.json");
@@ -44,16 +43,12 @@ async fn main() -> Result<()> {
 
   for case in &cases {
     for attempt in 1..=repeats {
-      let prompt = command_completion_prompt_from_template(
-        config.completion_prompt_template(),
-        &case.terminal,
-        case.input.as_deref(),
-      )?;
-      let plan = build_auto_completer_plan(
+      let plan = build_auto_completer_plan_for_request(
         config.completion_agent(),
         config.completion_agents(),
         &context,
-        &prompt,
+        &case.terminal,
+        case.input.as_deref(),
       )?;
       let suggestions = run_completion(plan).await?;
       let completions: Vec<String> = suggestions

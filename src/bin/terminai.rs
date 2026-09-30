@@ -61,15 +61,14 @@ use rat_theme4::{create_salsa_theme, theme::SalsaTheme};
 // Import only what we need from the crate
 use termin::agent_launcher::{
   AgentLaunchContext, AgentLaunchPlan, available_agent_presets,
-  build_auto_completer_plan, build_launch_plan,
+  build_auto_completer_plan_for_request, build_launch_plan,
 };
 use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
 use termin::completion::{
-  SemanticPromptMarker, command_completion_prompt_from_template,
-  completion_with_prefix, current_completion, run_completion,
-  semantic_prompt_marker,
+  SemanticPromptMarker, completion_with_prefix, current_completion,
+  run_completion, semantic_prompt_marker,
 };
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
@@ -2210,8 +2209,6 @@ impl AppState {
     let tx = self.completion_tx.clone();
     let auto_completer = self.config.completion_agent().clone();
     let auto_completers = self.config.completion_agents().clone();
-    let completion_prompt_template =
-      self.config.completion_prompt_template().map(str::to_owned);
     let metadata = active_plan.metadata.clone();
     let cwd = self
       .shell_cwd
@@ -2233,12 +2230,6 @@ impl AppState {
           .filtered_terminal_text(120)
           .await
           .map_err(|err| format!("{err:?}"))?;
-        let prompt = command_completion_prompt_from_template(
-          completion_prompt_template.as_deref(),
-          &terminal,
-          tracked_input.then_some(input.as_str()),
-        )
-        .map_err(|err| err.to_string())?;
         let context = AgentLaunchContext::new(
           cwd,
           metadata.mcp_url,
@@ -2246,11 +2237,12 @@ impl AppState {
           metadata.terminai_binary_path,
           metadata.terminai_mcp_port,
         );
-        let mut plan = build_auto_completer_plan(
+        let mut plan = build_auto_completer_plan_for_request(
           &auto_completer,
           &auto_completers,
           &context,
-          &prompt,
+          &terminal,
+          tracked_input.then_some(input.as_str()),
         )
         .map_err(|err| err.to_string())?;
         normalize_agent_launch_plan_env(&mut plan);
