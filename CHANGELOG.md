@@ -1,3 +1,8 @@
+## 0.1.28 - 2026-09-30
+
+- Add a bundled raw Ollama qwen2.5-coder fill-in-middle completion preset with a minimal configurable example.
+- Check in a completion evaluation corpus covering automatic and hotkey triggers, empty prompts, partial input, and whitespace tolerance.
+
 ## 0.1.27 - 2026-09-30
 
 - Make tracked-input and terminal-snapshot completion reliably return append-only
