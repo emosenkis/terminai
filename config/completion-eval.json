@@ -18,13 +18,13 @@
     "trigger": "prompt-pause",
     "terminal": "$ git ",
     "input": "git ",
-    "accepted-completions": ["git status", "git diff", "git log", "git branch"]
+    "accepted-completions": ["git status", "git diff", "git log", "git branch", "git init"]
   },
   {
     "name": "auto-empty-contextual",
     "trigger": "prompt-pause",
     "terminal": "$ cargo test\nerror: test failed\n$ ",
-    "accepted-completions": ["cargo test"]
+    "accepted-completions": ["cargo test", "cargo test -- --nocapture"]
   },
   {
     "name": "hotkey-partial-command",
@@ -37,7 +37,7 @@
     "name": "hotkey-empty-contextual",
     "trigger": "hotkey",
     "terminal": "$ cargo test\nerror: test failed\n$ ",
-    "accepted-completions": ["cargo test"]
+    "accepted-completions": ["cargo test", "cargo test -- --nocapture"]
   },
   {
     "name": "hotkey-empty-fresh-prompt",

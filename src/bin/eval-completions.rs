@@ -2,8 +2,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use termin::agent_launcher::{AgentLaunchContext, build_auto_completer_plan};
 use termin::completion::{
-  command_completion_prompt, command_completion_suffix_prompt,
-  completion_with_prefix, run_completion,
+  command_completion_prompt_from_template, completion_with_prefix,
+  run_completion,
 };
 use termin::terminai_config::TerminaiConfig;
 
@@ -44,10 +44,11 @@ async fn main() -> Result<()> {
 
   for case in &cases {
     for attempt in 1..=repeats {
-      let prompt = match &case.input {
-        Some(input) => command_completion_prompt(&case.terminal, input),
-        None => command_completion_suffix_prompt(&case.terminal),
-      };
+      let prompt = command_completion_prompt_from_template(
+        config.completion_prompt_template(),
+        &case.terminal,
+        case.input.as_deref(),
+      )?;
       let plan = build_auto_completer_plan(
         config.completion_agent(),
         config.completion_agents(),

@@ -564,6 +564,10 @@ pub struct AutoCompletionConfig {
   /// Idle time before requesting a prompt-pause completion.
   #[serde(default = "default_auto_completion_delay_ms")]
   pub delay_ms: u64,
+  /// Inline MiniJinja template used to build completion-agent prompts. It can
+  /// reference `mode`, `terminal`, `input`, and `input_json`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub prompt_template: Option<String>,
   /// CLI agent used for command completion.
   #[serde(default)]
   pub agent: AgentConfig,
@@ -581,6 +585,8 @@ struct AutoCompletionSettings {
   on_prompt_pause: bool,
   #[serde(default = "default_auto_completion_delay_ms")]
   delay_ms: u64,
+  #[serde(default)]
+  prompt_template: Option<String>,
   #[serde(default)]
   agent: AgentConfig,
   #[serde(default)]
@@ -608,6 +614,7 @@ impl<'de> Deserialize<'de> for AutoCompletionConfig {
         on_hotkey: settings.on_hotkey,
         on_prompt_pause: settings.on_prompt_pause,
         delay_ms: settings.delay_ms,
+        prompt_template: settings.prompt_template,
         agent: settings.agent,
         agents: settings.agents,
       },
@@ -621,6 +628,7 @@ impl Default for AutoCompletionConfig {
       on_hotkey: true,
       on_prompt_pause: false,
       delay_ms: default_auto_completion_delay_ms(),
+      prompt_template: None,
       agent: AgentConfig::default(),
       agents: HashMap::new(),
     }
@@ -727,6 +735,10 @@ impl TerminaiConfig {
     self
       .legacy_auto_completion_delay_ms
       .unwrap_or(self.auto_completion.delay_ms)
+  }
+
+  pub fn completion_prompt_template(&self) -> Option<&str> {
+    self.auto_completion.prompt_template.as_deref()
   }
 
   pub fn completion_agent(&self) -> &AgentConfig {
@@ -961,6 +973,34 @@ auto-completers:
       Some("codex-fast")
     );
     assert!(config.completion_agents().contains_key("codex-fast"));
+  }
+
+  #[test]
+  fn auto_completion_accepts_an_inline_prompt_template() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      r#"
+auto-completion:
+  prompt-template: "{{ terminal }}"
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(config.completion_prompt_template(), Some("{{ terminal }}"));
+  }
+
+  #[test]
+  fn ollama_fim_example_is_valid_configuration() {
+    let config: TerminaiConfig =
+      serde_yaml::from_str(include_str!("../terminai.ollama-fim.example.yaml"))
+        .unwrap();
+
+    assert_eq!(config.completion_agent().command.as_deref(), Some("sh"));
+    assert_eq!(
+      config.completion_prompt_template(),
+      Some(
+        "{% if mode == \"terminal-snapshot\" %}TERMINAI_SNAPSHOT:{% endif %}<|fim_prefix|>{{ terminal }}<|fim_suffix|><|fim_middle|>"
+      )
+    );
   }
 
   #[test]

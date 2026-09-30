@@ -67,9 +67,9 @@ use termin::agent_terminal::AgentTerminal;
 use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
 use termin::completion::{
-  SemanticPromptMarker, command_completion_prompt,
-  command_completion_suffix_prompt, completion_with_prefix, current_completion,
-  run_completion, semantic_prompt_marker,
+  SemanticPromptMarker, command_completion_prompt_from_template,
+  completion_with_prefix, current_completion, run_completion,
+  semantic_prompt_marker,
 };
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
@@ -2210,6 +2210,8 @@ impl AppState {
     let tx = self.completion_tx.clone();
     let auto_completer = self.config.completion_agent().clone();
     let auto_completers = self.config.completion_agents().clone();
+    let completion_prompt_template =
+      self.config.completion_prompt_template().map(str::to_owned);
     let metadata = active_plan.metadata.clone();
     let cwd = self
       .shell_cwd
@@ -2231,11 +2233,12 @@ impl AppState {
           .filtered_terminal_text(120)
           .await
           .map_err(|err| format!("{err:?}"))?;
-        let prompt = if tracked_input {
-          command_completion_prompt(&terminal, &input)
-        } else {
-          command_completion_suffix_prompt(&terminal)
-        };
+        let prompt = command_completion_prompt_from_template(
+          completion_prompt_template.as_deref(),
+          &terminal,
+          tracked_input.then_some(input.as_str()),
+        )
+        .map_err(|err| err.to_string())?;
         let context = AgentLaunchContext::new(
           cwd,
           metadata.mcp_url,

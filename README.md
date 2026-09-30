@@ -172,6 +172,12 @@ accepts either one key string or a list:
 When suggestions are visible, `previous-completion` takes precedence over
 `request-completion`, so the shared default `BackTab` cycles backward.
 
+For fully local completion with Ollama and the non-instruction-tuned
+Qwen2.5-Coder Base model, see
+[`terminai.ollama-fim.example.yaml`](terminai.ollama-fim.example.yaml). It uses
+Ollama's raw generation API and Qwen's fill-in-middle tokens; `curl` and `jq`
+are required.
+
 #### Semantic prompt markers
 
 Automatic completion uses the standard OSC 133 or OSC 633 `A`/`B` markers to
