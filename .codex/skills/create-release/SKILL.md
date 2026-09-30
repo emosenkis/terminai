@@ -21,49 +21,39 @@ If the user did not specify major, minor, or patch, ask for that one missing det
 
 ## Workflow
 
-1. Confirm the working tree state with `git status --short`.
-2. Run the relevant checks before release metadata changes:
-   - Format-check the Terminai package with
-     `cargo fmt --manifest-path src/Cargo.toml -- --check`. Do not use
-     `cargo fmt --all`; vendored code under `vendor/` is outside our formatting
-     scope.
-   - For the full project tests, prefer `cargo test` from `src/`.
-3. Bump the version according to the specified release type:
-   - `src/Cargo.toml`
-   - `Cargo.lock`
-   - any other tracked references to the package version that are intentionally versioned
-   - Run `cargo run --manifest-path src/Cargo.toml --features schema --bin dump-config-schema`
-     and include both the new versioned schema and `docs/schema.json`.
-4. Add a `CHANGELOG.md` entry for the new version with the current date and the *user-visible* changes.
+1. For a patch release, run the checked-in release script with each user-visible
+   changelog bullet as a separate argument:
+   `scripts/release.sh patch "First change" "Second change"`.
+   The script checks the tree, formats and tests, bumps package metadata,
+   regenerates both schemas, updates the changelog, verifies again, commits,
+   pushes `main`, tags and pushes the release, waits for the GitHub workflow,
+   and verifies that release artifacts exist. Do not repeat those steps manually.
+2. For another release type, extend the script first rather than manually
+   duplicating its workflow.
+3. Keep changelog arguments focused on *user-visible* changes.
    - If changelog validation rejects new Markdown syntax, decide deliberately
      whether that formatting is valuable enough to become supported syntax.
      Remove incidental formatting; add parser, renderer, and test support when
      the syntax materially improves the changelog and is likely to be reused.
      Do not bypass or weaken the validation test.
-5. Re-run verification after the version and changelog updates.
-6. Commit the release changes on `main` with a clear release commit message.
-7. Push `main`.
-8. Create a GitHub release for the new tag/version.
-9. Wait for the GitHub release build workflow to complete successfully.
-10. Verify the release artifacts exist and are usable.
-11. Update the ignored `homebrew-tap/` checkout on a branch. Preserve the existing formula structure and update only the release-specific values.
-12. Open a tap PR for the formula update. Do not stop for human review.
-13. Wait for the tap `brew test-bot` workflow to complete.
+4. Update the ignored `homebrew-tap/` checkout on a branch. Preserve the existing formula structure and update only the release-specific values.
+5. Open a tap PR for the formula update. Do not stop for human review.
+6. Wait for the tap `brew test-bot` workflow to complete.
     - Confirm every supported architecture completed successfully and produced bottle artifacts, not only passing checks.
     - Download or inspect artifacts and verify they contain `*.bottle.*.tar.gz` and `*.bottle.json`.
-14. Publish bottles before merging the tap PR:
+7. Publish bottles before merging the tap PR:
     - Immediately before dispatch, resolve the exact full PR head SHA with
       `gh pr view "$PR_NUMBER" --repo emosenkis/homebrew-tap --json headRefOid --jq .headRefOid`.
     - Pass that value unchanged as the workflow's `head_sha` input. Never
       abbreviate, guess, or manually transcribe the SHA.
     - Run the tap's GitHub `brew pr-pull` workflow for the PR.
     - Wait for it to publish all supported bottles and push the bottle commit successfully.
-15. Merge the tap PR only after the bottle publish step has succeeded. If the publish step already merged or pushed the required commits, verify `main` includes them.
-16. Run `brew update`, then verify local install uses the bottle:
+8. Merge the tap PR only after the bottle publish step has succeeded. If the publish step already merged or pushed the required commits, verify `main` includes them.
+9. Run `brew update`, then verify local install uses the bottle:
     - `brew info emosenkis/tap/terminai` must show `(bottled)`.
     - `brew fetch --force --bottle-tag=x86_64_linux emosenkis/tap/terminai` must fetch a bottle.
     - `brew reinstall emosenkis/tap/terminai` must show `Pouring ...bottle...`, not `cargo install`.
-17. Report the released version, main release URL, tap PR, bottle workflow run, tap release URL, and final tap commit.
+10. Report the released version, main release URL, tap PR, bottle workflow run, tap release URL, and final tap commit.
 
 ## Guardrails
 
