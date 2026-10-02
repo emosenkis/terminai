@@ -983,6 +983,35 @@ auto-completers:
   }
 
   #[test]
+  fn llama_server_fim_example_is_valid_configuration() {
+    let config: TerminaiConfig = serde_yaml::from_str(include_str!(
+      "../terminai.llama-server-fim.example.yaml"
+    ))
+    .unwrap();
+    let context = crate::agent_launcher::AgentLaunchContext::new(
+      std::env::temp_dir(),
+      String::new(),
+      String::new(),
+      "terminai".into(),
+      String::new(),
+    );
+    let plan = crate::agent_launcher::build_auto_completer_plan_for_request(
+      config.completion_agent(),
+      config.completion_agents(),
+      &context,
+      "$ git s",
+      Some("git s"),
+    )
+    .unwrap();
+
+    assert!(config.completion_on_prompt_pause());
+    assert_eq!(config.completion_delay_ms(), 250);
+    assert_eq!(plan.env["LLAMA_SERVER_HOST"], "http://127.0.0.1:9931");
+    assert_eq!(plan.env["TERMINAI_LLAMA_MODEL"], "qwen2.5-coder:7b-base");
+    assert_eq!(plan.args.last().unwrap(), "$ git s");
+  }
+
+  #[test]
   fn obsolete_single_prompt_args_are_rejected() {
     assert!(
       serde_yaml::from_str::<TerminaiConfig>(

@@ -23,6 +23,10 @@ const BUILTIN_OLLAMA_FIM_PROMPT_TEMPLATE: &str =
   "builtin/completion-ollama-fim.jinja";
 const BUILTIN_OLLAMA_FIM_PROMPT: &str =
   include_str!("../config/completion-ollama-fim.jinja");
+const BUILTIN_LLAMA_SERVER_FIM_PROMPT_TEMPLATE: &str =
+  "builtin/completion-llama-server-fim.jinja";
+const BUILTIN_LLAMA_SERVER_FIM_PROMPT: &str =
+  include_str!("../config/completion-llama-server-fim.jinja");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentLaunchPlan {
@@ -563,6 +567,9 @@ fn load_template(
   if name == BUILTIN_OLLAMA_FIM_PROMPT_TEMPLATE {
     return Ok(Some(BUILTIN_OLLAMA_FIM_PROMPT.to_string()));
   }
+  if name == BUILTIN_LLAMA_SERVER_FIM_PROMPT_TEMPLATE {
+    return Ok(Some(BUILTIN_LLAMA_SERVER_FIM_PROMPT.to_string()));
+  }
 
   if let Some(config_dir) = config_dir
     && let Some(source) = load_user_template(config_dir, name)?
@@ -744,6 +751,28 @@ codex-fast:
       plan.args.last().unwrap(),
       "<|fim_prefix|>$ git s<|fim_suffix|><|fim_middle|>"
     );
+  }
+
+  #[test]
+  fn llama_server_fim_preserves_terminal_context_in_both_modes() {
+    let config: AgentConfig =
+      serde_yaml::from_str("preset: llama-server-fim").unwrap();
+    let terminal = "$ echo \"{{ literal }}\"\nλ $ git ";
+    for input in [Some("git "), None] {
+      let plan = build_auto_completer_plan_for_request(
+        &config,
+        &HashMap::new(),
+        &context(),
+        terminal,
+        input,
+      )
+      .unwrap();
+
+      assert_eq!(plan.command, "sh");
+      assert_eq!(plan.args.last().unwrap(), terminal);
+      assert_eq!(plan.env["LLAMA_SERVER_HOST"], "http://127.0.0.1:9931");
+      assert_eq!(plan.env["TERMINAI_LLAMA_MODEL"], "qwen2.5-coder:7b-base");
+    }
   }
 
   fn custom_agent_with_prompt(template: Option<&str>) -> AgentConfig {
