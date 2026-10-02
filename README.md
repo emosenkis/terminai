@@ -178,6 +178,25 @@ Qwen2.5-Coder Base model, see
 Ollama's raw generation API and Qwen's fill-in-middle tokens; `curl` and `jq`
 are required.
 
+For llama-server, start Qwen2.5-Coder 7B Base (downloads on first use):
+
+```sh
+llama-server --fim-qwen-7b-default --host 127.0.0.1 --port 9931 \
+  --alias qwen2.5-coder:7b-base
+```
+
+Once loaded, enable it in your Terminai config:
+
+```yaml
+auto-completion:
+  on-prompt-pause: true
+  agent:
+    preset: llama-server-fim
+```
+
+Requires `sh`, `curl`, and `jq`. For host and model overrides, see
+[`terminai.llama-server-fim.example.yaml`](terminai.llama-server-fim.example.yaml).
+
 #### Semantic prompt markers
 
 Automatic completion uses the standard OSC 133 or OSC 633 `A`/`B` markers to
@@ -283,11 +302,16 @@ auto-completion:
       extra-args: [--model, gpt-5-mini]
 ```
 
-Bundled Codex, Claude, OpenCode, and `ollama-qwen-fim` auto-completers provide
-their native non-interactive invocations. The Ollama preset uses its own
+Bundled Codex, Claude, OpenCode, `ollama-qwen-fim`, and `llama-server-fim`
+auto-completers provide their native non-interactive invocations. The Ollama preset uses its own
 checked-in raw FIM prompt and reads the model and endpoint from
-`TERMINAI_OLLAMA_MODEL` and `OLLAMA_HOST`. Custom entries use the same shape as
-`agent-presets`; define their command and include `{{ prompt }}` in `args`.
+`TERMINAI_OLLAMA_MODEL` and `OLLAMA_HOST`. The llama-server preset sends plain
+terminal context to `/infill`, reads the base URL from `LLAMA_SERVER_HOST`,
+and sets the request's model via `TERMINAI_LLAMA_MODEL` (default:
+`qwen2.5-coder:7b-base`). In router mode, use an exact model name or alias;
+standalone servers use the model loaded at startup.
+Custom entries use the same shape as `agent-presets`; define their command
+and include `{{ prompt }}` in `args`.
 
 ### Prompt customization
 

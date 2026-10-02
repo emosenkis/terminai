@@ -1,0 +1,23 @@
+# Local FIM completion using llama-server /infill API.
+# Prerequisites:
+#   A llama-server with a FIM-capable model listening on port 9931.
+#   sh, curl and jq
+auto-completion:
+  on-hotkey: true
+  on-prompt-pause: true
+  delay-ms: 250
+  agent:
+    preset: local-llama-fim
+  agents:
+    local-llama-fim:
+      extends: llama-server-fim
+      env:
+        LLAMA_SERVER_HOST: http://127.0.0.1:9931
+        # Model name/alias configured in llama-server's model router.
+        # Set to "" to use the model already loaded by a standalone server.
+        TERMINAI_LLAMA_MODEL: qwen2.5-coder:7b-base
+        # Generate alternatives for Tab/Down and Shift-Tab/Up to cycle through.
+        # Terminai displays up to three distinct, single-line candidates.
+        TERMINAI_LLAMA_CANDIDATES: "3"
+        # Nonzero temperature allows alternatives; 0 tends to repeat the same one.
+        TERMINAI_LLAMA_TEMPERATURE: "0.8"
