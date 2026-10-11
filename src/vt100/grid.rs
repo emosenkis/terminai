@@ -220,6 +220,9 @@ impl Grid {
   pub fn restore_cursor(&mut self) {
     self.pos = self.saved_pos;
     self.origin_mode = self.saved_origin_mode;
+    // The saved cursor may be outside the grid after a resize.
+    self.row_clamp();
+    self.col_clamp();
   }
 
   fn row0(&self) -> usize {

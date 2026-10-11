@@ -136,6 +136,24 @@ mod tests {
   }
 
   #[test]
+  fn restored_cursor_is_clamped_after_resize() {
+    for (save, restore) in [("\x1b7", "\x1b8"), ("\x1b[?1049h", "\x1b[?1049l")]
+    {
+      for (rows, cols) in [(3, 80), (24, 8), (3, 8)] {
+        let mut parser = Parser::new(24, 80, 0, TestReplySender);
+        parser.process(format!("\x1b[24;80H{save}").as_bytes());
+        parser.set_size(rows, cols);
+        parser.process(format!("{restore}X").as_bytes());
+
+        assert_eq!(
+          parser.screen().cell(rows - 1, cols - 1).unwrap().contents(),
+          "X"
+        );
+      }
+    }
+  }
+
+  #[test]
   fn zero_column_resize_does_not_leave_the_parser_unwritable() {
     let mut parser = Parser::new(24, 80, 0, TestReplySender);
 
