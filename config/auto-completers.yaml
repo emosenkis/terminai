@@ -10,6 +10,42 @@ opencode:
   command: opencode
   args: [run, "{{ prompt }}"]
 
+llama-server-fim:
+  command: sh
+  uses-tool-cli: false
+  completion-prompt-template: builtin/completion-llama-server-fim.jinja
+  env:
+    LLAMA_SERVER_HOST: http://127.0.0.1:9931
+    TERMINAI_LLAMA_MODEL: qwen2.5-coder:7b-base
+    TERMINAI_LLAMA_CANDIDATES: "3"
+    TERMINAI_LLAMA_TEMPERATURE: "0.8"
+  args:
+    - -c
+    - |
+      request=$(jq -cn --arg prefix "$1" --arg model "$TERMINAI_LLAMA_MODEL" \
+        --argjson candidates "$TERMINAI_LLAMA_CANDIDATES" \
+        --argjson temperature "$TERMINAI_LLAMA_TEMPERATURE" '{
+        input_prefix: $prefix,
+        input_suffix: "",
+        prompt: "",
+        stream: false,
+        cache_prompt: true,
+        temperature: $temperature,
+        n_cmpl: $candidates,
+        n_predict: 48,
+        stop: ["\n", "\r"]
+      } + if $model == "" then {} else {model: $model} end') || exit
+      response=$(printf '%s' "$request" |
+        curl --fail --silent --show-error --max-time 25 \
+          -H 'Content-Type: application/json' \
+          --data-binary @- \
+          "${LLAMA_SERVER_HOST%/}/infill") || exit
+      printf '%s' "$response" |
+        jq -ce '[(if type == "array" then .[] else . end) |
+          .content | select(type == "string" and length > 0)] | select(length > 0)'
+    - terminai-llama-server-fim
+    - "{{ prompt }}"
+
 ollama-qwen-fim:
   command: sh
   uses-tool-cli: false
