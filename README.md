@@ -289,6 +289,41 @@ checked-in raw FIM prompt and reads the model and endpoint from
 `TERMINAI_OLLAMA_MODEL` and `OLLAMA_HOST`. Custom entries use the same shape as
 `agent-presets`; define their command and include `{{ prompt }}` in `args`.
 
+For instruction-trained models, `auto-completion.llm` enables an in-process
+HTTP client independently of the interactive agent:
+
+```yaml
+auto-completion:
+  llm: {}
+```
+
+Set `TERMINAI_COMPLETION_URL` to the full chat-completions URL,
+`TERMINAI_COMPLETION_MODEL` to the model name, and
+`TERMINAI_COMPLETION_API_KEY` to its bearer token (optional for local servers).
+These can live in `terminai.env`. Config fields `llm.url`, `llm.model`, and
+`llm.api-key-env` override those defaults. Requests use privacy-filtered
+terminal context and ask for a JSON object with a `completions` array. Set
+`llm.structured-output: false` for models without strict JSON-schema support;
+the prompt still requests JSON. Extracted strings preserve leading spaces,
+reject control characters, remove duplicates, and are limited to three results.
+
+`llm.url`, each value in `llm.headers`, and `llm.request-template` support
+MiniJinja templates. Variables are `model`, `prompt`, `response_schema`, and
+`response_format` (null when strict output is disabled); `env('NAME')` reads a
+required environment variable. Encode JSON values with `|json`. Override
+`llm.response-pointer` (a JSON Pointer, default `/choices/0/message/content`)
+to select the provider's model output. That output can be JSON text or an
+object. Set `auto-completion.response-field` to extract a different object
+field; it accepts a string or array of strings. This field extraction also
+works for CLI output when configured, without changing the CLI's prompt.
+HTTP requests time out after 30 seconds and reject responses over 1 MiB.
+
+See [`terminai.llm.example.yaml`](terminai.llm.example.yaml) for the default
+configuration and a native Gemini request using an `x-goog-api-key` header.
+[Gemini API keys](https://ai.google.dev/api) work with header templates.
+OAuth token discovery and refresh require a credential manager or library;
+passing a current access token through `api-key-env` does not refresh it.
+
 ### Prompt customization
 
 The bundled prompt is [`config/default.jinja`](config/default.jinja). A `default.jinja` in the Terminai config directory shadows it. You can also set `agent.prompt-template` to another template in that directory.

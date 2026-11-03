@@ -553,6 +553,42 @@ impl Default for AgentPresetConfig {
   }
 }
 
+/// In-process JSON HTTP client for instruction-trained completion models.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CompletionLlmConfig {
+  /// Request URL as a MiniJinja template (model and env available), or
+  /// TERMINAI_COMPLETION_URL when omitted.
+  #[serde(default)]
+  pub url: Option<String>,
+  /// Model name, or TERMINAI_COMPLETION_MODEL when omitted.
+  #[serde(default)]
+  pub model: Option<String>,
+  /// Environment variable containing the bearer token. Defaults to
+  /// TERMINAI_COMPLETION_API_KEY; an unset default allows unauthenticated local APIs.
+  #[serde(default)]
+  pub api_key_env: Option<String>,
+  /// HTTP header value templates, e.g. x-goog-api-key: "{{ env('GEMINI_API_KEY') }}".
+  /// Templates support model and env(name); missing environment variables fail.
+  #[serde(default)]
+  pub headers: HashMap<String, String>,
+  /// Optional JSON request body as a MiniJinja template. Variables: prompt,
+  /// model, response_format, response_schema, env(name). Use the json filter
+  /// to encode values safely.
+  /// Defaults to an OpenAI-compatible, non-streaming chat completion request.
+  #[serde(default)]
+  pub request_template: Option<String>,
+  /// JSON Pointer to model output in the HTTP response. Defaults to
+  /// /choices/0/message/content. An empty pointer selects the entire response.
+  #[serde(default)]
+  pub response_pointer: Option<String>,
+  /// Request strict JSON schema output. Disable for models without schema support;
+  /// the prompt still requests JSON and the response is still validated.
+  #[serde(default = "default_true")]
+  pub structured_output: bool,
+}
+
 /// Command-completion behavior and agent configuration.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
@@ -574,6 +610,13 @@ pub struct AutoCompletionConfig {
   /// User-defined completion-agent presets.
   #[serde(default)]
   pub agents: HashMap<String, AgentPresetConfig>,
+  /// Use the in-process HTTP client instead of a CLI agent when set.
+  #[serde(default)]
+  pub llm: Option<CompletionLlmConfig>,
+  /// JSON object field containing a completion string or array of strings.
+  /// Required in CLI output when set; defaults to "completions" for the HTTP client.
+  #[serde(default)]
+  pub response_field: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -585,7 +628,12 @@ struct AutoCompletionSettings {
   on_prompt_pause: bool,
   #[serde(default = "default_auto_completion_delay_ms")]
   delay_ms: u64,
+  #[serde(default)]
   agent: AgentConfig,
+  #[serde(default)]
+  llm: Option<CompletionLlmConfig>,
+  #[serde(default)]
+  response_field: Option<String>,
   #[serde(default)]
   agents: HashMap<String, AgentPresetConfig>,
 }
@@ -613,6 +661,8 @@ impl<'de> Deserialize<'de> for AutoCompletionConfig {
         delay_ms: settings.delay_ms,
         agent: settings.agent,
         agents: settings.agents,
+        llm: settings.llm,
+        response_field: settings.response_field,
       },
     })
   }
@@ -626,6 +676,8 @@ impl Default for AutoCompletionConfig {
       delay_ms: default_auto_completion_delay_ms(),
       agent: AgentConfig::default(),
       agents: HashMap::new(),
+      llm: None,
+      response_field: None,
     }
   }
 }
@@ -779,6 +831,19 @@ impl TerminaiConfig {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn direct_completion_config_loads_without_cli_agent() {
+    let config: TerminaiConfig = serde_yaml::from_str(
+      "auto-completion:\n  llm: {}\n  response-field: answer\n",
+    )
+    .unwrap();
+    assert!(config.auto_completion.llm.unwrap().structured_output);
+    assert_eq!(
+      config.auto_completion.response_field.as_deref(),
+      Some("answer")
+    );
+  }
 
   #[test]
   fn test_terminai_config_yaml_deserialize() {

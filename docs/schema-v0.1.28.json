@@ -47,8 +47,10 @@
         },
         "agents": {},
         "delay-ms": 750,
+        "llm": null,
         "on-hotkey": true,
-        "on-prompt-pause": false
+        "on-prompt-pause": false,
+        "response-field": null
       }
     },
     "changelog": {
@@ -339,6 +341,18 @@
           "default": 750,
           "minimum": 0
         },
+        "llm": {
+          "description": "Use the in-process HTTP client instead of a CLI agent when set.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompletionLlmConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "on-hotkey": {
           "description": "Allow command completion requests from the configured hotkey.",
           "type": "boolean",
@@ -348,6 +362,14 @@
           "description": "Request a command completion after shell input has been idle.",
           "type": "boolean",
           "default": false
+        },
+        "response-field": {
+          "description": "JSON object field containing a completion string or array of strings.\nRequired in CLI output when set; defaults to \"completions\" for the HTTP client.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
         }
       },
       "additionalProperties": false
@@ -360,6 +382,66 @@
         "top",
         "fullscreen"
       ]
+    },
+    "CompletionLlmConfig": {
+      "description": "In-process JSON HTTP client for instruction-trained completion models.",
+      "type": "object",
+      "properties": {
+        "api-key-env": {
+          "description": "Environment variable containing the bearer token. Defaults to\nTERMINAI_COMPLETION_API_KEY; an unset default allows unauthenticated local APIs.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "headers": {
+          "description": "HTTP header value templates, e.g. x-goog-api-key: \"{{ env('GEMINI_API_KEY') }}\".\nTemplates support model and env(name); missing environment variables fail.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "model": {
+          "description": "Model name, or TERMINAI_COMPLETION_MODEL when omitted.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "request-template": {
+          "description": "Optional JSON request body as a MiniJinja template. Variables: prompt,\nmodel, response_format, response_schema, env(name). Use the json filter\nto encode values safely.\nDefaults to an OpenAI-compatible, non-streaming chat completion request.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "response-pointer": {
+          "description": "JSON Pointer to model output in the HTTP response. Defaults to\n/choices/0/message/content. An empty pointer selects the entire response.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "structured-output": {
+          "description": "Request strict JSON schema output. Disable for models without schema support;\nthe prompt still requests JSON and the response is still validated.",
+          "type": "boolean",
+          "default": true
+        },
+        "url": {
+          "description": "Request URL as a MiniJinja template (model and env available), or\nTERMINAI_COMPLETION_URL when omitted.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
     },
     "GuestDisplayMode": {
       "description": "How the guest terminal is displayed while the AI terminal is open.",

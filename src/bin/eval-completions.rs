@@ -3,7 +3,9 @@ use serde::Deserialize;
 use termin::agent_launcher::{
   AgentLaunchContext, build_auto_completer_plan_for_request,
 };
-use termin::completion::{completion_with_prefix, run_completion};
+use termin::completion::{
+  completion_with_prefix, run_completion_with_field, run_llm_completion,
+};
 use termin::terminai_config::TerminaiConfig;
 
 const CASES: &str = include_str!("../../config/completion-eval.json");
@@ -43,14 +45,28 @@ async fn main() -> Result<()> {
 
   for case in &cases {
     for attempt in 1..=repeats {
-      let plan = build_auto_completer_plan_for_request(
-        config.completion_agent(),
-        config.completion_agents(),
-        &context,
-        &case.terminal,
-        case.input.as_deref(),
-      )?;
-      let suggestions = run_completion(plan).await?;
+      let suggestions = if let Some(llm) = &config.auto_completion.llm {
+        run_llm_completion(
+          llm,
+          config.auto_completion.response_field.as_deref(),
+          &case.terminal,
+          case.input.as_deref(),
+        )
+        .await?
+      } else {
+        let plan = build_auto_completer_plan_for_request(
+          config.completion_agent(),
+          config.completion_agents(),
+          &context,
+          &case.terminal,
+          case.input.as_deref(),
+        )?;
+        run_completion_with_field(
+          plan,
+          config.auto_completion.response_field.as_deref(),
+        )
+        .await?
+      };
       let completions: Vec<String> = suggestions
         .iter()
         .filter_map(|suggestion| match &case.input {

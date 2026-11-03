@@ -46,4 +46,4 @@ Terminai embeds a real PTY-backed terminal that runs the user's configured CLI a
 
 ## Security Model
 
-Terminai does not own model credentials or provider routing. The configured CLI agent handles auth and model selection. Terminai only exposes terminal context and never sends suggested shell input to the wrapped shell without the user's approval.
+The interactive CLI agent handles its own auth and model selection. Command completion can also use the optional `auto-completion.llm` HTTP client with configurable URL, request and header templates, credentials from environment variables, and JSON-field extraction. This client receives the same privacy-filtered terminal context as CLI completion and never refreshes OAuth tokens. Terminai only exposes terminal context and never sends suggested shell input to the wrapped shell without the user's approval.

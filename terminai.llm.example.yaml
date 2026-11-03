@@ -1,0 +1,39 @@
+# Merge the desired auto-completion block into your terminai.yaml.
+# The interactive agent remains independently configurable.
+#
+# OpenAI-compatible API (including local servers): set these in your environment
+# or Terminai's owner-only terminai.env file:
+#   TERMINAI_COMPLETION_URL=https://your-provider.example/v1/chat/completions
+#   TERMINAI_COMPLETION_MODEL=your-instruction-model
+#   TERMINAI_COMPLETION_API_KEY=your-key
+# No API key is needed for an unauthenticated local server.
+auto-completion:
+  llm: {}
+  # llm.url and llm.model can override their environment variables.
+  # llm.api-key-env can name a provider's existing API-key variable.
+  # llm.structured-output: false disables the default response_format parameter.
+  # response-field: completions
+
+# Native Gemini API alternative (no provider-specific Rust code):
+# Set GEMINI_API_KEY and TERMINAI_COMPLETION_MODEL to your chosen Gemini model.
+# Replace the block above with:
+# auto-completion:
+#   llm:
+#     url: "https://generativelanguage.googleapis.com/v1beta/models/{{ model }}:generateContent"
+#     headers:
+#       x-goog-api-key: "{{ env('GEMINI_API_KEY') }}"
+#     request-template: |
+#       {
+#         "contents": [{"parts": [{"text": {{ prompt|json }}}]}],
+#         "generationConfig": {
+#           "responseFormat": {
+#             "text": {"mimeType": "APPLICATION_JSON", "schema": {{ response_schema|json }}}
+#           }
+#         }
+#       }
+#     response-pointer: /candidates/0/content/parts/0/text
+#
+# For Vertex AI OAuth, api-key-env can name an environment variable containing
+# a current access token. Tokens expire: this client does not discover ADC or
+# refresh OAuth tokens. Use an external credential manager or a CLI completion
+# agent if automatic credential discovery/refresh is required.

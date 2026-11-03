@@ -68,7 +68,7 @@ use termin::agent_tools::PendingCommand;
 use termin::changelog::version_is_newer;
 use termin::completion::{
   SemanticPromptMarker, completion_with_prefix, current_completion,
-  run_completion, semantic_prompt_marker,
+  run_completion_with_field, run_llm_completion, semantic_prompt_marker,
 };
 use termin::key::Key;
 use termin::mcp_host::tool_defs::{
@@ -2207,6 +2207,8 @@ impl AppState {
     };
     let generation = self.completion.generation;
     let tx = self.completion_tx.clone();
+    let llm = self.config.auto_completion.llm.clone();
+    let response_field = self.config.auto_completion.response_field.clone();
     let auto_completer = self.config.completion_agent().clone();
     let auto_completers = self.config.completion_agents().clone();
     let metadata = active_plan.metadata.clone();
@@ -2230,6 +2232,16 @@ impl AppState {
           .filtered_terminal_text(120)
           .await
           .map_err(|err| format!("{err:?}"))?;
+        if let Some(llm) = llm {
+          return run_llm_completion(
+            &llm,
+            response_field.as_deref(),
+            &terminal,
+            tracked_input.then_some(input.as_str()),
+          )
+          .await
+          .map_err(|err| err.to_string());
+        }
         let context = AgentLaunchContext::new(
           cwd,
           metadata.mcp_url,
@@ -2246,7 +2258,9 @@ impl AppState {
         )
         .map_err(|err| err.to_string())?;
         normalize_agent_launch_plan_env(&mut plan);
-        run_completion(plan).await.map_err(|err| err.to_string())
+        run_completion_with_field(plan, response_field.as_deref())
+          .await
+          .map_err(|err| err.to_string())
       }
       .await;
       if tx.send((generation, !tracked_input, result)).is_err() {

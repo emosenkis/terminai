@@ -24,6 +24,10 @@ auto-completion:
     preset: codex
   # Built-ins: codex, claude, and opencode. `args` supports {{ prompt }}.
   agents: {}
+  # To call an instruction-trained model directly instead of a CLI:
+  # llm: {}
+  # Set TERMINAI_COMPLETION_URL, TERMINAI_COMPLETION_MODEL, and optionally
+  # TERMINAI_COMPLETION_API_KEY in terminai.env. See terminai.llm.example.yaml.
 
 interface:
   terminal-sync: true
